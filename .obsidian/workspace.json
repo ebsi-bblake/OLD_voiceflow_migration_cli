@@ -1,0 +1,221 @@
+{
+  "main": {
+    "id": "49aa64f162c16ad0",
+    "type": "split",
+    "children": [
+      {
+        "id": "df9aa3e533355be1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "cb25d0745865ce55",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/refactor-plan/phase-2.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "phase-2"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "cc6acc205600810f",
+    "type": "split",
+    "children": [
+      {
+        "id": "32fb3b358c7c2174",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "74213f554ad41e3b",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "5f5cb958964b4b16",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "0c029ff59fed57c0",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "53069e1a62a23573",
+    "type": "split",
+    "children": [
+      {
+        "id": "83a824a47c67ad4c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "424372561e903434",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/refactor-plan/phase-2.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "2919a6611b799e3b",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/refactor-plan/phase-2.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "a51033302defd6a5",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "2f3266bb5e5a8963",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "bcb66d2df4db50a5",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/refactor-plan/phase-2.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "cb25d0745865ce55",
+  "lastOpenFiles": [
+    "tests/vf_string_url_validation.test.ts",
+    "windmill_agent_scripts/vf_urls.ts",
+    "windmill_agent_scripts/vf_validation.ts",
+    "xyops/voiceflow/vf_urls.ts",
+    "docs/refactor-plan/phase-1.md",
+    "docs/refactor-plan.md",
+    "tests/xyops_streaming.test.ts",
+    "xyops/cli/client/streaming.ts",
+    "docs/refactor-plan/phase-6.md",
+    "docs/refactor-plan/phase-5.md",
+    "docs/refactor-plan/phase-4.md",
+    "docs/refactor-plan/phase-3.md",
+    "docs/refactor-plan/phase-2.md",
+    "docs/refactor-plan/phase-0.md",
+    "docs/refactor-plan",
+    "docs/refactor-todo/phase-6.md",
+    "docs/refactor-todo/phase-5.md",
+    "docs/refactor-todo/phase-4.md",
+    "docs/refactor-todo/phase-3.md",
+    "docs/refactor-todo/phase-2.md",
+    "docs/refactor-todo/phase-1.md",
+    "docs/refactor-todo/phase-0.md",
+    "docs/refactor-todo",
+    "docs/refactor-todo.md",
+    "result-xyops-stream.json",
+    "xyops-stream-experiment.tmp.ts",
+    "docs/code-walkthrough.md"
+  ]
+}
