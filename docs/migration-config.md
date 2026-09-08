@@ -15,7 +15,7 @@ documents the supported snake_case fields:
 - `destination_workspace_id`
 - `destination_folder_id`
 - `target_schema_version`
-- `secrets`: a filesystem path to a JSON array of `{ "key": string, "value": string, "type": "projectId" | "secret" | "url" }` entries
+- `secrets`: a filesystem path to a JSON array of `{ "key": string, "value": string, "type": "projectId" | "" | "url" }` entries
 
 Configured values bypass their interactive prompts. Missing migration IDs remain interactive.
 When `target_schema_version` is omitted, the imported artifact's schema version is used.
@@ -23,7 +23,7 @@ When `target_schema_version` is omitted, the imported artifact's schema version 
 Configuration is validated before migration work begins. Unknown fields and blank values
 are rejected. The configured secrets file must be readable and contain a JSON array of
 unique entries with only `key`, `value`, and `type` fields. `type` must be either
-`projectId`, `secret`, or `url`. Secret values and file
+`projectId`, an empty string, or `url`. Secret values and file
 contents are not included in diagnostics.
 
 The former `--secrets=<path>` option is unsupported. Project secrets belong in the

@@ -12,8 +12,8 @@ const secretsPath = "/tmp/voiceflow-migration-secrets-test.json";
 describe("migration configuration contract", () => {
   test("maps snake_case inputs and preserves the configured secrets path", async () => {
     await Bun.write(secretsPath, JSON.stringify([
-      { key: "FIRST_SECRET", value: "FIRST_REDACTED", type: "secret" },
-      { key: "SECOND_SECRET", value: "SECOND_REDACTED", type: "secret" },
+      { key: "FIRST_SECRET", value: "FIRST_REDACTED", type: "" },
+      { key: "SECOND_SECRET", value: "SECOND_REDACTED", type: "" },
     ]));
     await Bun.write(configPath, JSON.stringify({
       source_workspace_id: "source-workspace",
@@ -130,7 +130,7 @@ describe("migration configuration contract", () => {
   });
 
   test("uses configured secrets without prompting for a path", async () => {
-    const secrets = [{ key: "TOKEN", value: "SECRET_VALUE", type: "secret" }];
+    const secrets = [{ key: "TOKEN", value: "SECRET_VALUE", type: "" }];
     await Bun.write(secretsPath, JSON.stringify(secrets));
     const reader = {
       ask: async () => { throw new Error("unexpected prompt"); },
@@ -149,8 +149,8 @@ describe("migration configuration contract", () => {
       targetSchemaVersion: "13.1",
     };
     const secrets = [
-      { key: "FIRST_SECRET", value: "FIRST_VALUE", type: "secret" },
-      { key: "SECOND_SECRET", value: "SECOND_VALUE", type: "secret" },
+      { key: "FIRST_SECRET", value: "FIRST_VALUE", type: "" },
+      { key: "SECOND_SECRET", value: "SECOND_VALUE", type: "" },
     ];
     const parameters = executeParameters(selection, "plan-id", secrets);
     expect(parameters.SECRET_FILE_CONTENTS).toBe(secrets);

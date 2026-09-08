@@ -29,7 +29,7 @@ const parseSecretEntryArray = (value: unknown): readonly ConfigSecret[] => {
 };
 
 const isSecretType = (value: unknown): value is ConfigSecret["type"] =>
-  value === "projectId" || value === "secret" || value === "url";
+  value === "projectId" || value === "" || value === "url";
 
 const parseSecretEntry = (value: unknown): ConfigSecret => {
   if (!isRecord(value) || Object.keys(value).length !== 3)
@@ -42,7 +42,7 @@ const parseSecretEntry = (value: unknown): ConfigSecret => {
     throw new Error("Secret entries must contain a string value.");
   if (!isSecretType(value.type))
     throw new Error(
-      "Secret entries must contain type projectId, secret, or url.",
+      "Secret entries must contain type projectId, empty string, or url.",
     );
   return { key: value.key, value: value.value, type: value.type };
 };

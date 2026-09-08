@@ -302,7 +302,7 @@ const isSecretEntries: IsSecretEntries = (value) => {
       Object.keys(entry).length !== 3 ||
       typeof entry.key !== "string" ||
       typeof entry.value !== "string" ||
-      !["projectId", "secret", "url"].includes(entry.type as string) ||
+      !["projectId", "", "url"].includes(entry.type as string) ||
       names.has(entry.key)
     )
       return false;

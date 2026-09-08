@@ -37,7 +37,7 @@ Feature: Generate migrated project API keys as project secrets
 
   @api-key
   Scenario: Do not fetch an API key when no projectId is configured
-    Given "secret.config.json" contains only entries of type "secret", "projectId", or "url"
+    Given "secret.config.json" contains only entries of type "", "projectId", or "url"
     When the migration imports the project
     Then the migrated project's API-key endpoint is not called
     And no API-key retrieval status is returned

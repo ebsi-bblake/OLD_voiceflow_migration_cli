@@ -23,11 +23,11 @@ function parseSecretEntryArray(value: unknown): ConfigSecret[] {
       throw new Error("Secret entries must contain a string value.");
     if (
       entryValue.type !== "projectId" &&
-      entryValue.type !== "secret" &&
+      entryValue.type !== "" &&
       entryValue.type !== "url"
     )
       throw new Error(
-        "Secret entries must contain type projectId, secret, or url.",
+        "Secret entries must contain type projectId, empty string, or url.",
       );
     if (names.has(entryValue.key))
       throw new Error(

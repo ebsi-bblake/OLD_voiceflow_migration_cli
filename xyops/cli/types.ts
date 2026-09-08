@@ -131,7 +131,7 @@ export type ExecuteResult = Readonly<{
 export type ConfigSecret = Readonly<{
   key: string;
   value: string;
-  type: "projectId" | "secret" | "url";
+  type: "projectId" | "" | "url";
 }>;
 export type SecretEntry = Readonly<{ name: string; value: string }>;
 export type SecretEntries = readonly ConfigSecret[];

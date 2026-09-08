@@ -69,7 +69,7 @@ export type MigrationPlan = {
   };
 };
 export type ConfigSecret = {
-  type: "projectId" | "secret" | "url";
+  type: "projectId" | "" | "url";
   key: string;
   value: string;
 };

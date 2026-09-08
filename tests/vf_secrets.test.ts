@@ -6,7 +6,7 @@ import {
 } from "../xyops/voiceflow/vf_secrets";
 import { parseSecretEntries as parseArchivedSecretEntries } from "../windmill_agent_scripts/vf_secrets";
 
-const secret = (key: string, value: string) => ({ key, value, type: "secret" as const });
+const secret = (key: string, value: string) => ({ key, value, type: "" as const });
 
 describe("secret file parsing", () => {
   test("accepts JSON secret entries", () => {
@@ -16,7 +16,7 @@ describe("secret file parsing", () => {
 
   test("accepts parsed JSON arrays", () => {
     expect(parseSecretEntries([secret("TEST_SECRET", "value")])).toEqual([secret("TEST_SECRET", "value")]);
-    expect(parseSecretEntriesJSON('[{"key":"TEST_SECRET","value":"value","type":"secret"}]')).toEqual([secret("TEST_SECRET", "value")]);
+    expect(parseSecretEntriesJSON('[{"key":"TEST_SECRET","value":"value","type":""}]')).toEqual([secret("TEST_SECRET", "value")]);
   });
 
   test("rejects the legacy object map format", () => {
@@ -25,10 +25,10 @@ describe("secret file parsing", () => {
 
   test("rejects malformed, unsupported, and duplicate entries", () => {
     const malformed = [
-      [{ key: "TEST_SECRET", type: "secret" }],
+      [{ key: "TEST_SECRET", type: "" }],
       [{ key: "TEST_SECRET", value: "value" }],
       [{ key: "TEST_SECRET", value: "value", type: "string" }],
-      [{ key: "TEST_SECRET", value: "value", type: "secret", extra: true }],
+      [{ key: "TEST_SECRET", value: "value", type: "", extra: true }],
     ];
     malformed.forEach((entries) => {
       expect(() => parseSecretEntries(entries)).toThrow();
