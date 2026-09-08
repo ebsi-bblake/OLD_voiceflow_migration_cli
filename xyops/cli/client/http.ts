@@ -15,23 +15,33 @@ export type Request = (
 ) => Promise<XYOpsResponse>;
 export type StreamResponseReader<T> = (response: Response) => Promise<T>;
 
-const isAbortError = (error: unknown): boolean =>
+type IsAbortError = (error: unknown) => boolean;
+const isAbortError: IsAbortError = (error) =>
   error instanceof DOMException && error.name === "AbortError";
 
-const toFetchError = (error: unknown, endpoint: string): CliError =>
+type ToFetchError = (error: unknown, endpoint: string) => CliError;
+const toFetchError: ToFetchError = (error, endpoint) =>
   fail(isAbortError(error) ? "timeout" : "network", {
     endpoint,
     retryable: true,
   });
 
-const fetchRequest = async (
+type FetchRequest = (
   fetcher: typeof fetch,
   url: string,
   apiKey: string,
   body: RequestBody,
   timeoutMs: number,
   endpoint: string,
-): Promise<Response> => {
+) => Promise<Response>;
+const fetchRequest: FetchRequest = async (
+  fetcher,
+  url,
+  apiKey,
+  body,
+  timeoutMs,
+  endpoint,
+) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   return fetcher(url, {
@@ -44,10 +54,8 @@ const fetchRequest = async (
     .finally(() => clearTimeout(timeout));
 };
 
-const requireHTTPResponse = (
-  response: Response,
-  endpoint: string,
-): Response => {
+type RequireHTTPResponse = (response: Response, endpoint: string) => Response;
+const requireHTTPResponse: RequireHTTPResponse = (response, endpoint) => {
   if (!response.ok)
     throw fail("http", {
       endpoint,
@@ -57,10 +65,11 @@ const requireHTTPResponse = (
   return response;
 };
 
-const parseJSONResponse = async (
+type ParseJSONResponse = (
   response: Response,
   endpoint: string,
-): Promise<unknown> =>
+) => Promise<unknown>;
+const parseJSONResponse: ParseJSONResponse = (response, endpoint) =>
   response.json().catch(() =>
     Promise.reject(
       fail("api", {
@@ -70,10 +79,8 @@ const parseJSONResponse = async (
     ),
   );
 
-const requireXYOpsResponse = (
-  value: unknown,
-  endpoint: string,
-): XYOpsResponse => {
+type RequireXYOpsResponse = (value: unknown, endpoint: string) => XYOpsResponse;
+const requireXYOpsResponse: RequireXYOpsResponse = (value, endpoint) => {
   if (!isXYOpsResponse(value))
     throw fail("api", {
       endpoint,
@@ -82,10 +89,14 @@ const requireXYOpsResponse = (
   return value;
 };
 
-const requireSuccessfulResponse = (
+type RequireSuccessfulResponse = (
   value: XYOpsResponse,
   endpoint: string,
-): XYOpsResponse => {
+) => XYOpsResponse;
+const requireSuccessfulResponse: RequireSuccessfulResponse = (
+  value,
+  endpoint,
+) => {
   if (!isSuccessfulCode(value.code))
     throw fail("api", {
       endpoint,
@@ -94,17 +105,26 @@ const requireSuccessfulResponse = (
   return value;
 };
 
-const validateAPIResponse = (value: unknown, endpoint: string): XYOpsResponse =>
+type ValidateAPIResponse = (value: unknown, endpoint: string) => XYOpsResponse;
+const validateAPIResponse: ValidateAPIResponse = (value, endpoint) =>
   requireSuccessfulResponse(requireXYOpsResponse(value, endpoint), endpoint);
 
-export const fetchJSON = async (
+type FetchJSON = (
   fetcher: typeof fetch,
   url: string,
   apiKey: string,
   body: RequestBody,
   timeoutMs: number,
   endpoint: string,
-): Promise<XYOpsResponse> => {
+) => Promise<XYOpsResponse>;
+export const fetchJSON: FetchJSON = async (
+  fetcher,
+  url,
+  apiKey,
+  body,
+  timeoutMs,
+  endpoint,
+) => {
   const response = requireHTTPResponse(
     await fetchRequest(fetcher, url, apiKey, body, timeoutMs, endpoint),
     endpoint,
@@ -115,14 +135,22 @@ export const fetchJSON = async (
   );
 };
 
-export const fetchSSE = <T>(
+type FetchSSE = <T>(
   fetcher: typeof fetch,
   url: string,
   apiKey: string,
   timeoutMs: number,
   endpoint: string,
   readResponse: StreamResponseReader<T>,
-): Promise<T> => {
+) => Promise<T>;
+export const fetchSSE: FetchSSE = async (
+  fetcher,
+  url,
+  apiKey,
+  timeoutMs,
+  endpoint,
+  readResponse,
+) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   return fetcher(url, {
