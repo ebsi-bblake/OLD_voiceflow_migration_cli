@@ -23,12 +23,9 @@ export const setStateValue: SetStateValue = (state, key, value) => ({
   [key]: value,
 });
 
-type RequireStateValue = (
-  state: MigrationState,
-  key: keyof MigrationState,
-) => string;
 const isPresentStateValue = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== "";
+
 const CONFIGURATION_NAMES: Readonly<Record<keyof MigrationState, string>> = {
   sourceWorkspaceID: "source_workspace_id",
   sourceProjectID: "source_project_id",
@@ -38,6 +35,11 @@ const CONFIGURATION_NAMES: Readonly<Record<keyof MigrationState, string>> = {
   targetSchemaVersion: "target_schema_version",
   planID: "plan_id",
 };
+
+type RequireStateValue = (
+  state: MigrationState,
+  key: keyof MigrationState,
+) => string;
 export const requireStateValue: RequireStateValue = (state, key) => {
   const value = state[key];
   if (!isPresentStateValue(value))

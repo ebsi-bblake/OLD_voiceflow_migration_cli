@@ -64,6 +64,7 @@ const performMigration: PerformMigration = async (context) => {
       isVoiceflowEnvelope(isCheckSessionResult),
     ),
   );
+
   requireActiveSession(
     requireEnvelopeResult(
       sessionResponse,
@@ -71,6 +72,7 @@ const performMigration: PerformMigration = async (context) => {
       isCheckSessionResult,
     ).active,
   );
+
   const state: MigrationState = {
     ...initialMigrationState(),
     ...(await progress.run("select_source", () =>
@@ -80,21 +82,27 @@ const performMigration: PerformMigration = async (context) => {
       selectDestinationSelection(context),
     )),
   };
+
   const selection = stateSelection(state);
+
   await progress.run("validate_selection", () =>
     validateConfiguredMigrationValues(context, selection),
   );
-  const secretFileContents = await progress.run(
-    "load_secrets",
-    () =>
-      readSecretsForMigration(context.reader, context.migrationConfig),
+
+  const secretFileContents = await progress.run("load_secrets", () =>
+    readSecretsForMigration(context.reader, context.migrationConfig),
   );
+
   const plan = await progress.run("plan_migration", () =>
     readMigrationPlan(context, selection),
   );
+
   displayPlan(plan);
+
   const confirmed = await requestMigrationConfirmation(context.reader);
+
   if (!confirmed) return;
+
   await progress.run("execute_migration", () =>
     executeConfirmedMigration(
       context,
@@ -119,8 +127,11 @@ export const run: Run = async () => {
   );
 
   const config = readXYOpsConfig();
+
   const migrationConfig = await readMigrationFileConfig();
+
   validateMigrationFileConfig(migrationConfig);
+
   const client = createXYOpsClient(config);
   const reader = CreatePromptReader();
   try {
