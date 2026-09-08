@@ -1,10 +1,10 @@
-import { resolveVoiceflowAuth } from "./vf_auth";
-import { failure, success, OperationFault } from "./vf_contracts";
-import { requestBytes } from "./vf_http";
+import { resolveVoiceflowAuth } from "./auth";
+import { failure, success, OperationFault } from "./contracts";
+import { requestBytes } from "./http";
 import { isRetryableHttpStatus } from "./guards";
 import type { Envelope, HttpBytes } from "./types";
-import { createUUID } from "./vf_uuid";
-import { VOICEFLOW_CREATOR_ORIGIN, VOICEFLOW_IDENTITY_ORIGIN } from "./vf_urls";
+import { createUUID } from "./uuid";
+import { VOICEFLOW_CREATOR_ORIGIN, VOICEFLOW_IDENTITY_ORIGIN } from "./urls";
 
 type CheckSessionResult = {
   active: boolean;

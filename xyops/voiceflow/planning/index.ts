@@ -10,9 +10,9 @@ import {
   type FolderRecord,
   type ProjectRecord,
   type WorkspaceRecord,
-} from "../vf_catalog";
-import type { AuthContext } from "../vf_auth";
-import { OperationFault } from "../vf_contracts";
+} from "../catalog";
+import type { AuthContext } from "../auth";
+import { OperationFault } from "../contracts";
 import type { MigrationPlan, MigrationSelection } from "../types";
 import {
   parseFolderID,
@@ -20,7 +20,7 @@ import {
   parseProjectID,
   parseVersionID,
   parseWorkspaceID,
-} from "../vf_validation";
+} from "../validation";
 
 type NormalizeMigrationSelection = (
   input: MigrationSelection,

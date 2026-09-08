@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { OperationFault, toOperationError } from "../xyops/voiceflow/vf_contracts";
+import { OperationFault, toOperationError } from "../xyops/voiceflow/contracts";
 import { ErrorCode, VoiceflowOperation, WarningCode } from "../xyops/voiceflow/types";
 import { isVoiceflowEnvelope } from "../xyops/cli/guards";
 

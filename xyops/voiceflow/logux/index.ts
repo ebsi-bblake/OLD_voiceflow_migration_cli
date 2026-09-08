@@ -1,11 +1,11 @@
 import type { AuthContext } from "../types";
-import { OperationFault } from "../vf_contracts";
-import { VoiceflowRegex } from "../vf_regex";
+import { OperationFault } from "../contracts";
+import { VoiceflowRegex } from "../regex";
 import { handleFrame, handleIncomingMessage } from "./frames";
 import { createSecret } from "./create-secret";
-import { createUUID } from "../vf_uuid";
+import { createUUID } from "../uuid";
 import type { SecretEntry } from "../types";
-import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../vf_urls";
+import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
 
 type Row = Readonly<Record<string, unknown>>;
 

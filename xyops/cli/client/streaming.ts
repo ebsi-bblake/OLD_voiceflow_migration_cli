@@ -1,5 +1,5 @@
 import { fail } from "../diagnostics";
-import { VoiceflowRegex } from "../../voiceflow/vf_regex";
+import { VoiceflowRegex } from "../../voiceflow/regex";
 import { isNonEmptyString, isXYOpsStreamEvent } from "../guards";
 import type {
   XYOpsStreamEvent,
@@ -39,7 +39,9 @@ const parseEventFrame = (
     const separator = line.indexOf(":");
     const field = separator < 0 ? line : line.slice(0, separator);
     const value =
-      separator < 0 ? "" : line.slice(separator + 1).replace(VoiceflowRegex.sseLeadingSpace, "");
+      separator < 0
+        ? ""
+        : line.slice(separator + 1).replace(VoiceflowRegex.sseLeadingSpace, "");
     if (field === "event") eventName = value;
     if (field === "data") dataLines.push(value);
   }
@@ -68,7 +70,9 @@ export const parseSSE: ParseSSE = (source, limits = {}) => {
   for (const frame of frames) {
     if (
       !frame.trim() ||
-      frame.split(VoiceflowRegex.sseLineBreak).every((line) => line.startsWith(":"))
+      frame
+        .split(VoiceflowRegex.sseLineBreak)
+        .every((line) => line.startsWith(":"))
     )
       continue;
     events.push(parseEventFrame(frame, maxFrameBytes));

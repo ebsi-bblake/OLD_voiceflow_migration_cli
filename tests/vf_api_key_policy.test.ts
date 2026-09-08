@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AuthContext } from "../xyops/voiceflow/vf_auth";
+import type { AuthContext } from "../xyops/voiceflow/auth";
 import {
   retrieveApiKeyStatus,
   type ApiKeyStatus,
-} from "../xyops/voiceflow/vf_api_key";
+} from "../xyops/voiceflow/api_key";
 
 const auth: AuthContext = {
   creatorID: "creator",

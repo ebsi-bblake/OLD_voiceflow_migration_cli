@@ -1,5 +1,5 @@
-import { OperationFault } from "./vf_contracts";
-import { VoiceflowRegex } from "./vf_regex";
+import { OperationFault } from "./contracts";
+import { VoiceflowRegex } from "./regex";
 
 export const VOICEFLOW_CREATOR_ORIGIN =
   "https://creator.empyrean.voiceflow.com";

@@ -1,5 +1,5 @@
-import { OperationFault } from "./vf_contracts";
-import { VoiceflowRegex } from "./vf_regex";
+import { OperationFault } from "./contracts";
+import { VoiceflowRegex } from "./regex";
 
 const MAX_ID_LENGTH = 128;
 const MAX_NAME_LENGTH = 256;
@@ -11,8 +11,10 @@ const hasControlCharacter = (value: string): boolean =>
     const code = character.charCodeAt(0);
     return code <= 31 || (code >= 127 && code <= 159);
   });
+
 const hasPathSeparator = (value: string): boolean =>
   VoiceflowRegex.pathSeparator.test(value);
+
 const rejectInvalidString = (value: unknown, maximum: number): string => {
   if (typeof value !== "string") throw new OperationFault("INVALID_ARGUMENT");
   const normalized = value.trim();
@@ -25,6 +27,7 @@ const rejectInvalidString = (value: unknown, maximum: number): string => {
   }
   return normalized;
 };
+
 const parsePathSafeString = (value: unknown, maximum: number): string => {
   const normalized = rejectInvalidString(value, maximum);
   if (hasPathSeparator(normalized))
@@ -35,12 +38,15 @@ const parsePathSafeString = (value: unknown, maximum: number): string => {
 type ParseWorkspaceID = (value: unknown) => string;
 export const parseWorkspaceID: ParseWorkspaceID = (value) =>
   parsePathSafeString(value, MAX_ID_LENGTH);
+
 type ParseProjectID = (value: unknown) => string;
 export const parseProjectID: ParseProjectID = (value) =>
   parsePathSafeString(value, MAX_ID_LENGTH);
+
 type ParseVersionID = (value: unknown) => string;
 export const parseVersionID: ParseVersionID = (value) =>
   parsePathSafeString(value, MAX_ID_LENGTH);
+
 type ParseFolderID = (value: unknown) => string;
 export const parseFolderID: ParseFolderID = (value) => {
   const normalized = parsePathSafeString(value, MAX_ID_LENGTH);
@@ -48,12 +54,15 @@ export const parseFolderID: ParseFolderID = (value) => {
     throw new OperationFault("INVALID_ARGUMENT");
   return normalized;
 };
+
 type ParseFolderName = (value: unknown) => string;
 export const parseFolderName: ParseFolderName = (value) =>
   parsePathSafeString(value, MAX_NAME_LENGTH);
+
 type ParseCreatorID = (value: unknown) => string;
 export const parseCreatorID: ParseCreatorID = (value) =>
   parsePathSafeString(value, MAX_ID_LENGTH);
+
 type ParseSchemaVersion = (value: unknown) => string;
 export const parseSchemaVersion: ParseSchemaVersion = (value) =>
   rejectInvalidString(value, MAX_SCHEMA_LENGTH);
@@ -67,6 +76,7 @@ const operations = new Set([
   "plan_migration",
   "execute_migration",
 ]);
+
 type ParseEventOperation = (value: unknown) => string;
 export const parseEventOperation: ParseEventOperation = (value) => {
   const normalized = rejectInvalidString(value, MAX_OPERATION_LENGTH);

@@ -1,7 +1,7 @@
 import type { AuthContext } from "../types";
-import { syncCatalog } from "../vf_logux";
-import { OperationFault } from "../vf_contracts";
-import { requireVoiceflowString } from "../vf_validation";
+import { syncCatalog } from "../logux";
+import { OperationFault } from "../contracts";
+import { requireVoiceflowString } from "../validation";
 import { isNumericFolderID } from "../guards";
 import type {
   EnvironmentRecord,

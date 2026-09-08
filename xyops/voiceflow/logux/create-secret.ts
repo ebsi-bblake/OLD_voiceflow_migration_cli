@@ -1,9 +1,8 @@
-/* oxlint-disable complexity, no-unused-expressions */
 import type { AuthContext, SecretEntry } from "../types";
-import { OperationFault } from "../vf_contracts";
-import { VoiceflowRegex } from "../vf_regex";
-import { createUUID } from "../vf_uuid";
-import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../vf_urls";
+import { OperationFault } from "../contracts";
+import { VoiceflowRegex } from "../regex";
+import { createUUID } from "../uuid";
+import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
 
 type CreateSecret = (
   auth: AuthContext,
@@ -13,7 +12,9 @@ type CreateSecret = (
 export const createSecret: CreateSecret = (auth, assistantID, secret) =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
-    const clientID = createUUID().replace(VoiceflowRegex.base64UrlDash, "").slice(0, 8);
+    const clientID = createUUID()
+      .replace(VoiceflowRegex.base64UrlDash, "")
+      .slice(0, 8);
     const origin = `${auth.creatorID}:${clientID}:${createUUID().replace(VoiceflowRegex.base64UrlDash, "").slice(0, 8)}`;
     const actionID = createUUID();
     const subscriptionID = Math.floor(Math.random() * 1_000_000_000) + 1;
@@ -29,17 +30,37 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       } catch {
         /* settlement must not be interrupted */
       }
+      /* oxlint-disable complexity, no-unused-expressions */
       error ? reject(error) : resolve();
     };
     const timer = setTimeout(
-      () => settle(new OperationFault("DEPENDENCY_TIMEOUT", true, `logux-${lifecycle}-timeout`)),
+      () =>
+        settle(
+          new OperationFault(
+            "DEPENDENCY_TIMEOUT",
+            true,
+            `logux-${lifecycle}-timeout`,
+          ),
+        ),
       15_000,
     );
     ws.onerror = () =>
-      settle(new OperationFault("DEPENDENCY_FAILURE", true, `logux-${lifecycle}-error`));
+      settle(
+        new OperationFault(
+          "DEPENDENCY_FAILURE",
+          true,
+          `logux-${lifecycle}-error`,
+        ),
+      );
     ws.onclose = () => {
       if (!settled)
-        settle(new OperationFault("DEPENDENCY_FAILURE", true, `logux-${lifecycle}-close`));
+        settle(
+          new OperationFault(
+            "DEPENDENCY_FAILURE",
+            true,
+            `logux-${lifecycle}-close`,
+          ),
+        );
     };
     ws.onopen = () => {
       lifecycle = "connected";
@@ -58,7 +79,13 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       const frame = parseFrame(event.data);
       if (!frame) return;
       if (frame[0] === "error")
-        return settle(new OperationFault("DEPENDENCY_FAILURE", true, `logux-${lifecycle}-error-frame`));
+        return settle(
+          new OperationFault(
+            "DEPENDENCY_FAILURE",
+            true,
+            `logux-${lifecycle}-error-frame`,
+          ),
+        );
       if (frame[0] === "connected") {
         lifecycle = "subscribing";
         return sendSubscription(ws, assistantID, subscriptionID, actionTime++);

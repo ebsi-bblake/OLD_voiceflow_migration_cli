@@ -1,4 +1,4 @@
-import { OperationFault } from "../vf_contracts";
+import { OperationFault } from "../contracts";
 import type { HttpBytes, RequestBytesInput } from "../types";
 export { isRetryableHttpStatus } from "../guards";
 export type { HttpBytes, RequestBytesInput } from "../types";

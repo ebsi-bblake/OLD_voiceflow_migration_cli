@@ -1,4 +1,4 @@
-import type { Envelope } from "../voiceflow/vf_contracts";
+import type { Envelope } from "../voiceflow/contracts";
 import type { supportedPluginOperations } from "./operations";
 
 export type PluginOperation = (typeof supportedPluginOperations)[number];
@@ -25,10 +25,7 @@ export type XYOpsPluginResponse = Readonly<{
 }>;
 
 export type PluginValidationCode =
-  | "INVALID_JSON"
-  | "INVALID_INPUT"
-  | "MISSING_SECRET"
-  | "UNKNOWN_OPERATION";
+  "INVALID_JSON" | "INVALID_INPUT" | "MISSING_SECRET" | "UNKNOWN_OPERATION";
 type PluginEnvelope = Envelope<unknown>;
 
 type CheckSessionHandler = (token: string) => Promise<PluginEnvelope>;

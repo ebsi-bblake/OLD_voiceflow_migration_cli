@@ -1,16 +1,12 @@
-import { main as checkSession } from "../voiceflow/vf_check_session";
-import { main as executeMigration } from "../voiceflow/vf_execute_migration";
-import { main as listFolders } from "../voiceflow/vf_list_folders";
-import { main as listProjects } from "../voiceflow/vf_list_projects";
-import { main as listVersions } from "../voiceflow/vf_list_versions";
-import { main as listWorkspaces } from "../voiceflow/vf_list_workspaces";
-import { main as planMigration } from "../voiceflow/vf_plan_migration";
-import {
-  failure,
-  OperationFault,
-  type Envelope,
-} from "../voiceflow/vf_contracts";
-import { createUUID } from "../voiceflow/vf_uuid";
+import { main as checkSession } from "../voiceflow/check_session";
+import { main as executeMigration } from "../voiceflow/execute_migration";
+import { main as listFolders } from "../voiceflow/list_folders";
+import { main as listProjects } from "../voiceflow/list_projects";
+import { main as listVersions } from "../voiceflow/list_versions";
+import { main as listWorkspaces } from "../voiceflow/list_workspaces";
+import { main as planMigration } from "../voiceflow/plan_migration";
+import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
+import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
 export type { OperationHandlers } from "./types";
 

@@ -1,4 +1,4 @@
-import { VoiceflowRegex } from "../voiceflow/vf_regex";
+import { VoiceflowRegex } from "../voiceflow/regex";
 import type { CliDiagnostic, CliDiagnosticCode } from "./types";
 export type { CliDiagnostic, CliDiagnosticCode } from "./types";
 

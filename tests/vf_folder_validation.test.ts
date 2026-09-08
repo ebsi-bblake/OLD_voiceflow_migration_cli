@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { folderOptions } from "../xyops/voiceflow/vf_catalog";
-import { importVersion } from "../xyops/voiceflow/vf_import";
-import { requireVoiceflowString } from "../xyops/voiceflow/vf_validation";
+import { folderOptions } from "../xyops/voiceflow/catalog";
+import { importVersion } from "../xyops/voiceflow/import";
+import { requireVoiceflowString } from "../xyops/voiceflow/validation";
 
 describe("Voiceflow destination-folder validation", () => {
   test("shares required-string trimming and rejection across Voiceflow boundaries", () => {

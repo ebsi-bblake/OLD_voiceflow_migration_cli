@@ -1,5 +1,5 @@
-import { OperationFault } from "./vf_contracts";
-import { VoiceflowRegex } from "./vf_regex";
+import { OperationFault } from "./contracts";
+import { VoiceflowRegex } from "./regex";
 import { isClaims, isValidCreatorID } from "./guards";
 import type { AuthContext } from "./types";
 
@@ -11,10 +11,7 @@ const isJWT = (token: string): boolean => token.split(".").length === 3;
 const normalizeVoiceflowToken: NormalizeVoiceflowToken = (input) => {
   if (typeof input !== "string")
     throw new OperationFault("AUTHENTICATION_FAILED");
-  const token = input
-    .trim()
-    .replace(VoiceflowRegex.bearerPrefix, "")
-    .trim();
+  const token = input.trim().replace(VoiceflowRegex.bearerPrefix, "").trim();
   validateTokenShape(token);
   return token;
 };
@@ -30,7 +27,9 @@ type DecodeClaims = (token: string) => Claims;
 const decodeClaims: DecodeClaims = (token) => {
   try {
     const part = token.split(".")[1];
-    const normalizedPart = part.replace(VoiceflowRegex.base64UrlDash, "+").replace(VoiceflowRegex.base64UrlUnderscore, "/");
+    const normalizedPart = part
+      .replace(VoiceflowRegex.base64UrlDash, "+")
+      .replace(VoiceflowRegex.base64UrlUnderscore, "/");
     const padded = normalizedPart.padEnd(
       Math.ceil(normalizedPart.length / 4) * 4,
       "=",

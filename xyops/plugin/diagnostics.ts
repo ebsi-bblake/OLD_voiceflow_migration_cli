@@ -1,5 +1,5 @@
 import { PLUGIN_VERSION } from "./version";
-import { VoiceflowRegex } from "../voiceflow/vf_regex";
+import { VoiceflowRegex } from "../voiceflow/regex";
 import { PluginStage } from "./types";
 export type { PluginStage } from "./types";
 

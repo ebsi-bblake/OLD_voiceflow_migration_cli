@@ -1,8 +1,8 @@
-import { resolveVoiceflowAuth } from "./vf_auth";
-import { listVersions } from "./vf_catalog";
-import { failure, success } from "./vf_contracts";
+import { resolveVoiceflowAuth } from "./auth";
+import { listVersions } from "./catalog";
+import { failure, success } from "./contracts";
 import type { Envelope } from "./types";
-import { createUUID } from "./vf_uuid";
+import { createUUID } from "./uuid";
 
 type ListVersionsResult = {
   options: Awaited<ReturnType<typeof listVersions>>;

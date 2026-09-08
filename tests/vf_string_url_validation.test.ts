@@ -6,8 +6,8 @@ import {
   parseProjectID,
   parseSchemaVersion,
   parseWorkspaceID,
-} from "../xyops/voiceflow/vf_validation";
-import { parseXYOpsURL } from "../xyops/voiceflow/vf_urls";
+} from "../xyops/voiceflow/validation";
+import { parseXYOpsURL } from "../xyops/voiceflow/urls";
 
 describe("Voiceflow string and URL boundaries", () => {
   test("trims Unicode values while rejecting path separators and non-strings", () => {

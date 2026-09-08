@@ -1,4 +1,4 @@
-import { OperationFault } from "../vf_contracts";
+import { OperationFault } from "../contracts";
 
 type ReadResponseBody = (
   body: ReadableStream<Uint8Array>,

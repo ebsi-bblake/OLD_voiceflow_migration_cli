@@ -4,8 +4,8 @@ import {
   readExportedSchemaVersion,
   resolveTargetSchemaVersion,
   type ExportArtifact,
-} from "../xyops/voiceflow/vf_export";
-import { toOperationError } from "../xyops/voiceflow/vf_contracts";
+} from "../xyops/voiceflow/export";
+import { toOperationError } from "../xyops/voiceflow/contracts";
 
 const artifactFor = (value: unknown): ExportArtifact => ({
   status: 200,

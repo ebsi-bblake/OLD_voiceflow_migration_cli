@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { requestBytes } from "../xyops/voiceflow/vf_http";
+import { requestBytes } from "../xyops/voiceflow/http";
 
 const request = {
   url: "https://example.test/session",

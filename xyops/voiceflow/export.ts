@@ -1,10 +1,10 @@
 import type { AuthContext } from "./types";
 import { isRetryableHttpStatus } from "./guards";
-import { requestBytes } from "./vf_http";
-import { OperationFault } from "./vf_contracts";
-import { parseSchemaVersion, parseVersionID } from "./vf_validation";
-import { VoiceflowRegex } from "./vf_regex";
-import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./vf_urls";
+import { requestBytes } from "./http";
+import { OperationFault } from "./contracts";
+import { parseSchemaVersion, parseVersionID } from "./validation";
+import { VoiceflowRegex } from "./regex";
+import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
 import type { ExportArtifact } from "./types";
 export type { ExportArtifact } from "./types";
 const EXPORT_URL = `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/export-json`;
@@ -23,7 +23,9 @@ const exportedSchemaMetadata = (value: RecordValue): unknown => {
 
 type ReadExportedSchemaVersion = (artifact: ExportArtifact) => string;
 /** Reads only version metadata; export content is never included in diagnostics. */
-export const readExportedSchemaVersion: ReadExportedSchemaVersion = (artifact) => {
+export const readExportedSchemaVersion: ReadExportedSchemaVersion = (
+  artifact,
+) => {
   let payload: unknown;
   try {
     payload = JSON.parse(new TextDecoder().decode(artifact.bytes));
@@ -34,8 +36,13 @@ export const readExportedSchemaVersion: ReadExportedSchemaVersion = (artifact) =
       "exported artifact must contain JSON version metadata with _version in the form major.minor",
     );
   }
-  const rawVersion = isRecord(payload) ? exportedSchemaMetadata(payload) : undefined;
-  if (typeof rawVersion !== "string" || !VoiceflowRegex.schemaVersion.test(rawVersion.trim()))
+  const rawVersion = isRecord(payload)
+    ? exportedSchemaMetadata(payload)
+    : undefined;
+  if (
+    typeof rawVersion !== "string" ||
+    !VoiceflowRegex.schemaVersion.test(rawVersion.trim())
+  )
     throw new OperationFault(
       "CONFIGURATION",
       false,

@@ -1,21 +1,21 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
-import { resolveVoiceflowAuth as importedResolveVoiceflowAuth } from "../xyops/voiceflow/vf_auth";
+import { resolveVoiceflowAuth as importedResolveVoiceflowAuth } from "../xyops/voiceflow/auth";
 
 const originalResolveVoiceflowAuth = importedResolveVoiceflowAuth;
 
 let authenticationCalls = 0;
 
-mock.module("../xyops/voiceflow/vf_auth", () => ({
+mock.module("../xyops/voiceflow/auth", () => ({
   resolveVoiceflowAuth: async () => {
     authenticationCalls += 1;
     throw new Error("controlled downstream boundary");
   },
 }));
 
-const { main } = await import("../xyops/voiceflow/vf_execute_migration");
+const { main } = await import("../xyops/voiceflow/execute_migration");
 
 afterAll(() => {
-  mock.module("../xyops/voiceflow/vf_auth", () => ({
+  mock.module("../xyops/voiceflow/auth", () => ({
     resolveVoiceflowAuth: originalResolveVoiceflowAuth,
   }));
 });

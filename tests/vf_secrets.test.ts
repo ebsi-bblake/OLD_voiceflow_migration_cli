@@ -3,7 +3,7 @@ import {
   parseSecretEntries,
   parseSecretEntriesJSON,
   parseSecretsFile,
-} from "../xyops/voiceflow/vf_secrets";
+} from "../xyops/voiceflow/secrets";
 import { parseSecretEntries as parseArchivedSecretEntries } from "../windmill_agent_scripts/vf_secrets";
 
 const secret = (key: string, value: string) => ({ key, value, type: "" as const });

@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failure, OperationFault, success, type Envelope } from "../xyops/voiceflow/vf_contracts";
+import { failure, OperationFault, success, type Envelope } from "../xyops/voiceflow/contracts";
 import type { NativePluginJob, OperationHandlers } from "../xyops/plugin/types";
 import { validatePluginJob, parsePluginJob, readVoiceflowJWT } from "../xyops/plugin/job_validation";
 import { dispatchOperation } from "../xyops/plugin/operation_dispatch";
 import { formatPluginDiagnostic } from "../xyops/plugin/diagnostics";
 import { runNativePlugin } from "../xyops/plugin/process_entrypoint";
 import { mapVoiceflowEnvelope } from "../xyops/plugin/wire_protocol";
-import { resolveVoiceflowAuth } from "../xyops/voiceflow/vf_auth";
-import { createUUID } from "../xyops/voiceflow/vf_uuid";
+import { resolveVoiceflowAuth } from "../xyops/voiceflow/auth";
+import { createUUID } from "../xyops/voiceflow/uuid";
 import { PLUGIN_VERSION } from "../xyops/plugin/version";
 
 type Output = { write: (value: string) => void };

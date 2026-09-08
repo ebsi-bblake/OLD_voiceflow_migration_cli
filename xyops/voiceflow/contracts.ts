@@ -10,7 +10,7 @@ export type {
   Warning,
   WarningCode,
 } from "./types";
-import { VoiceflowRegex } from "./vf_regex";
+import { VoiceflowRegex } from "./regex";
 import type {
   ErrorCode,
   Failure,

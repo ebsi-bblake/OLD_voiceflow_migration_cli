@@ -1,5 +1,5 @@
 import type { AuthContext, ConfigSecret, SecretEntry } from "./types";
-import { retrieveProjectApiKey } from "./vf_api_key";
+import { retrieveProjectApiKey } from "./api_key";
 
 export type { ConfigSecret, SecretEntry } from "./types";
 
@@ -60,41 +60,50 @@ type MapConfigSecretsToSecretEntries = (
   entries: readonly ConfigSecret[],
   resolvedValues: readonly string[],
 ) => readonly SecretEntry[];
-export const mapConfigSecretsToSecretEntries: MapConfigSecretsToSecretEntries = (
-  entries,
-  resolvedValues,
-) => entries.map((entry, index) => ({
-  name: entry.key,
-  value: resolvedValues[index] ?? entry.value,
-}));
+export const mapConfigSecretsToSecretEntries: MapConfigSecretsToSecretEntries =
+  (entries, resolvedValues) =>
+    entries.map((entry, index) => ({
+      name: entry.key,
+      value: resolvedValues[index] ?? entry.value,
+    }));
 
 type ResolveConfiguredSecretValues = (
   auth: AuthContext,
   entries: readonly ConfigSecret[],
 ) => Promise<readonly SecretEntry[]>;
-export const resolveConfiguredSecretValues: ResolveConfiguredSecretValues = async (
-  auth,
-  entries,
-) => {
-  const configuredTypes = collectConfiguredSecretTypes(entries);
-  if (!configuredTypes.has("projectId"))
-    return Promise.resolve(mapConfigSecretsToSecretEntries(entries, entries.map((entry) => entry.value)));
-  const projectIDs = [...new Set(
-    entries.filter((entry) => entry.type === "projectId").map((entry) => entry.value),
-  )];
-  return Promise.all(projectIDs.map((projectID) => retrieveProjectApiKey(auth, projectID)))
-    .then((apiKeys) => {
-      const apiKeysByProjectID = new Map(projectIDs.map((id, index) => [id, apiKeys[index]]));
+export const resolveConfiguredSecretValues: ResolveConfiguredSecretValues =
+  async (auth, entries) => {
+    const configuredTypes = collectConfiguredSecretTypes(entries);
+    if (!configuredTypes.has("projectId"))
+      return Promise.resolve(
+        mapConfigSecretsToSecretEntries(
+          entries,
+          entries.map((entry) => entry.value),
+        ),
+      );
+    const projectIDs = [
+      ...new Set(
+        entries
+          .filter((entry) => entry.type === "projectId")
+          .map((entry) => entry.value),
+      ),
+    ];
+    return Promise.all(
+      projectIDs.map((projectID) => retrieveProjectApiKey(auth, projectID)),
+    ).then((apiKeys) => {
+      const apiKeysByProjectID = new Map(
+        projectIDs.map((id, index) => [id, apiKeys[index]]),
+      );
       return mapConfigSecretsToSecretEntries(
         entries,
         entries.map((entry) =>
           entry.type === "projectId"
-            ? apiKeysByProjectID.get(entry.value) ?? entry.value
+            ? (apiKeysByProjectID.get(entry.value) ?? entry.value)
             : entry.value,
         ),
       );
     });
-};
+  };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   [value !== null, typeof value === "object", !Array.isArray(value)].every(

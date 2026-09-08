@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { AuthContext } from "../xyops/voiceflow/vf_auth";
-import { syncCatalog as importedSyncCatalog } from "../xyops/voiceflow/vf_logux";
+import type { AuthContext } from "../xyops/voiceflow/auth";
+import { syncCatalog as importedSyncCatalog } from "../xyops/voiceflow/logux";
 
 const originalSyncCatalog = importedSyncCatalog;
 
@@ -42,7 +42,7 @@ const syncCatalog = mock(
 
 // mock.restore() does not undo mock.module(). Preserve and reinstall the real
 // export so older Bun runners cannot leak this file's transport double.
-mock.module("../xyops/voiceflow/vf_logux", () => ({ syncCatalog }));
+mock.module("../xyops/voiceflow/logux", () => ({ syncCatalog }));
 
 const {
   folderOptions,
@@ -52,7 +52,7 @@ const {
   projectOptions,
   versionOptions,
   workspaceOptions,
-} = await import("../xyops/voiceflow/vf_catalog");
+} = await import("../xyops/voiceflow/catalog");
 
 const auth: AuthContext = { creatorID: "creator-1", token: "token" };
 
@@ -63,7 +63,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  mock.module("../xyops/voiceflow/vf_logux", () => ({
+  mock.module("../xyops/voiceflow/logux", () => ({
     syncCatalog: originalSyncCatalog,
   }));
 });

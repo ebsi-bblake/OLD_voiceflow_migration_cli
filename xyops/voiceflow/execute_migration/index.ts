@@ -1,16 +1,13 @@
-import { resolveVoiceflowAuth } from "../vf_auth";
-import { exportVersion, resolveTargetSchemaVersion } from "../vf_export";
-import { importVersion } from "../vf_import";
-import { buildMigrationPlan } from "../vf_planning";
-import { failure, OperationFault, success } from "../vf_contracts";
+import { resolveVoiceflowAuth } from "../auth";
+import { exportVersion, resolveTargetSchemaVersion } from "../export";
+import { importVersion } from "../import";
+import { buildMigrationPlan } from "../planning";
+import { failure, OperationFault, success } from "../contracts";
 import { isConfirmationGranted } from "../guards";
 import type { Envelope, ExecuteResult } from "../types";
-import { createUUID } from "../vf_uuid";
-import { createProjectSecrets } from "../vf_logux";
-import {
-  parseSecretEntries,
-  resolveConfiguredSecretValues,
-} from "../vf_secrets";
+import { createUUID } from "../uuid";
+import { createProjectSecrets } from "../logux";
+import { parseSecretEntries, resolveConfiguredSecretValues } from "../secrets";
 
 export type { ExecuteResult } from "../types";
 
@@ -62,8 +59,9 @@ export const main: Main = async (
 };
 const normalizeConfirmation = (confirmed: boolean | undefined): boolean =>
   confirmed ?? false;
-const normalizeSchemaVersion = (version: string | undefined): string | undefined =>
-  version;
+const normalizeSchemaVersion = (
+  version: string | undefined,
+): string | undefined => version;
 
 const executeConfirmedMigration = async (
   token: string,
@@ -123,7 +121,11 @@ const executeConfirmedMigration = async (
     };
     return success("execute_migration", operationID, result);
   } catch (error) {
-    return failure("execute_migration", operationID, addFailureStage(error, stage));
+    return failure(
+      "execute_migration",
+      operationID,
+      addFailureStage(error, stage),
+    );
   }
 };
 const addFailureStage = (error: unknown, stage: string): unknown =>
@@ -131,9 +133,13 @@ const addFailureStage = (error: unknown, stage: string): unknown =>
     ? new OperationFault(
         error.code,
         error.retryable,
-        [stage, error.diagnostic].filter((value): value is string => value !== undefined).join(" "),
+        [stage, error.diagnostic]
+          .filter((value): value is string => value !== undefined)
+          .join(" "),
       )
-    : new Error(`stage=${stage} error=${error instanceof Error ? error.message : String(error)}`);
+    : new Error(
+        `stage=${stage} error=${error instanceof Error ? error.message : String(error)}`,
+      );
 const secretInputKind = (contents: unknown): string => {
   if (contents === undefined) return "missing";
   if (contents === null) return "null";

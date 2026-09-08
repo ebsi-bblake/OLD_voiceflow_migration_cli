@@ -1,6 +1,6 @@
-import { OperationFault } from "../vf_contracts";
-import { VoiceflowRegex } from "../vf_regex";
-import { parseFolderID } from "../vf_validation";
+import { OperationFault } from "../contracts";
+import { VoiceflowRegex } from "../regex";
+import { parseFolderID } from "../validation";
 import { isRecord } from "../guards";
 import type { ImportedReceipt } from "../types";
 

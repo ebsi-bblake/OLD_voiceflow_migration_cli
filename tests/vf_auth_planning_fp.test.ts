@@ -3,11 +3,11 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   resolveVoiceflowAuth,
   type AuthContext,
-} from "../xyops/voiceflow/vf_auth";
+} from "../xyops/voiceflow/auth";
 import type {
   MigrationPlan,
   MigrationSelection,
-} from "../xyops/voiceflow/vf_contracts";
+} from "../xyops/voiceflow/contracts";
 
 const planningScenarioEnvironmentVariable =
   "VF_AUTH_PLANNING_FP_CATALOG_SCENARIO";
@@ -109,12 +109,12 @@ function installIsolatedCatalogMock(): void {
     wanted: string[],
   ): Promise<readonly unknown[]> => catalogRows(wanted[0]);
 
-  mock.module("../xyops/voiceflow/vf_logux", () => ({ syncCatalog }));
+  mock.module("../xyops/voiceflow/logux", () => ({ syncCatalog }));
 }
 
 async function runIsolatedPlanningScenario(): Promise<PlanningScenarioResult> {
   installIsolatedCatalogMock();
-  const { buildMigrationPlan } = await import("../xyops/voiceflow/vf_planning");
+  const { buildMigrationPlan } = await import("../xyops/voiceflow/planning");
   const auth: AuthContext = { token: "token", creatorID: "creator" };
   const changedSelection = {
     ...paddedSelection,

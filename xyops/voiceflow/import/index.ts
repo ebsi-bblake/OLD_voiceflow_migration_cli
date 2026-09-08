@@ -1,10 +1,10 @@
 import type { AuthContext } from "../types";
 import type { ExportArtifact, HttpBytes, ImportedReceipt } from "../types";
-import { resolveTargetSchemaVersion } from "../vf_export";
-import { OperationFault } from "../vf_contracts";
-import { requestBytes } from "../vf_http";
-import { parseSchemaVersion, parseWorkspaceID } from "../vf_validation";
-import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "../vf_urls";
+import { resolveTargetSchemaVersion } from "../export";
+import { OperationFault } from "../contracts";
+import { requestBytes } from "../http";
+import { parseSchemaVersion, parseWorkspaceID } from "../validation";
+import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "../urls";
 import { isImportOutcomeUnknownStatus } from "../guards";
 export { isImportOutcomeUnknownStatus } from "../guards";
 

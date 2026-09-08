@@ -1,5 +1,5 @@
 import { fail } from "../diagnostics";
-import { VoiceflowRegex } from "../../voiceflow/vf_regex";
+import { VoiceflowRegex } from "../../voiceflow/regex";
 import {
   isJobLaunch,
   isRecord,

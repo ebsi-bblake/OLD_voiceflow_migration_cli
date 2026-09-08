@@ -1,10 +1,10 @@
 import type { AuthContext } from "./types";
-import { requestBytes } from "./vf_http";
-import { VoiceflowRegex } from "./vf_regex";
+import { requestBytes } from "./http";
+import { VoiceflowRegex } from "./regex";
 import { isRecord } from "./guards";
 import type { ApiKeyDiagnostic, ApiKeyStatus } from "./types";
-import { VOICEFLOW_IDENTITY_ORIGIN, encodePathSegment } from "./vf_urls";
-import { OperationFault } from "./vf_contracts";
+import { VOICEFLOW_IDENTITY_ORIGIN, encodePathSegment } from "./urls";
+import { OperationFault } from "./contracts";
 
 export type { ApiKeyDiagnostic, ApiKeyStatus } from "./types";
 

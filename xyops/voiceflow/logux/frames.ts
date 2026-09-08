@@ -1,4 +1,4 @@
-import { OperationFault } from "../vf_contracts";
+import { OperationFault } from "../contracts";
 import { isObject, isRowArray } from "../guards";
 
 type Row = Readonly<Record<string, unknown>>;

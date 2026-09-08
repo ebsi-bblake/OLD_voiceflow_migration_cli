@@ -2,14 +2,14 @@ import { readFile } from "node:fs/promises";
 import { resolveConfiguredFilePath } from "./file-path";
 import { fail } from "./diagnostics";
 import { isInvalidDuration } from "./guards";
-import { parseXYOpsURL } from "../voiceflow/vf_urls";
+import { parseXYOpsURL } from "../voiceflow/urls";
 import {
   parseFolderID,
   parseProjectID,
   parseSchemaVersion,
   parseVersionID,
   parseWorkspaceID,
-} from "../voiceflow/vf_validation";
+} from "../voiceflow/validation";
 import type {
   XYOpsConfig,
   XYOpsEventConfig,
@@ -99,7 +99,8 @@ const findEventReferencePrefix: FindEventReferencePrefix = (value) =>
   EVENT_REFERENCE_PREFIXES.find((prefix) => value.startsWith(prefix)) ?? "";
 
 const hasUnsupportedEventReferencePrefix = (value: string): boolean =>
-  value.includes(":") && !EVENT_REFERENCE_PREFIXES.some((prefix) => value.startsWith(prefix));
+  value.includes(":") &&
+  !EVENT_REFERENCE_PREFIXES.some((prefix) => value.startsWith(prefix));
 
 type ReadEventReference = (
   environment: Environment,
@@ -159,7 +160,8 @@ const normalizeBaseURL: NormalizeBaseURL = (value) => {
     return parseXYOpsURL(value);
   } catch {
     throw fail("configuration", {
-      nextAction: "XYOPS_BASE_URL must be a valid HTTP URL without credentials or fragments.",
+      nextAction:
+        "XYOPS_BASE_URL must be a valid HTTP URL without credentials or fragments.",
     });
   }
 };
@@ -283,9 +285,7 @@ const validateConfigArguments: ValidateConfigArguments = () => {
 
 type ReadConfigArgument = () => string | undefined;
 const readConfigArgument: ReadConfigArgument = () =>
-  process.argv
-    .find((argument) => argument.startsWith("--config="))
-    ?.slice(9);
+  process.argv.find((argument) => argument.startsWith("--config="))?.slice(9);
 
 type ParseConfigString = (value: unknown, key: string) => string;
 const parseConfigString: ParseConfigString = (value, key) => {
@@ -299,7 +299,8 @@ const parseConfigString: ParseConfigString = (value, key) => {
 type ConfigFieldParser = (value: unknown) => string;
 
 type ReadSecretPath = (value: unknown) => string;
-const readSecretPath: ReadSecretPath = (value) => parseConfigString(value, "secrets");
+const readSecretPath: ReadSecretPath = (value) =>
+  parseConfigString(value, "secrets");
 
 type MigrationStringField = readonly [
   input: string,
@@ -339,14 +340,24 @@ const parseMigrationFileConfig: ParseMigrationFileConfig = (value) => {
     });
   return {
     ...parseConfiguredStrings(value),
-    ...(value.secrets === undefined ? {} : { secrets: readSecretPath(value.secrets) }),
+    ...(value.secrets === undefined
+      ? {}
+      : { secrets: readSecretPath(value.secrets) }),
   };
 };
 
-type ValidateMigrationFileConfig = (config: MigrationFileConfig | undefined) => void;
-export const validateMigrationFileConfig: ValidateMigrationFileConfig = (config) => {
+type ValidateMigrationFileConfig = (
+  config: MigrationFileConfig | undefined,
+) => void;
+export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
+  config,
+) => {
   if (config === undefined) return;
-  const fields: readonly (readonly [keyof MigrationFileConfig, string, ConfigFieldParser])[] = [
+  const fields: readonly (readonly [
+    keyof MigrationFileConfig,
+    string,
+    ConfigFieldParser,
+  ])[] = [
     ["sourceWorkspaceID", "source_workspace_id", parseWorkspaceID],
     ["sourceProjectID", "source_project_id", parseProjectID],
     ["sourceVersionID", "source_version_id", parseVersionID],
@@ -367,8 +378,12 @@ export const validateMigrationFileConfig: ValidateMigrationFileConfig = (config)
   });
 };
 
-type ReadMigrationFileConfig = (path?: string) => Promise<MigrationFileConfig | undefined>;
-export const readMigrationFileConfig: ReadMigrationFileConfig = async (path) => {
+type ReadMigrationFileConfig = (
+  path?: string,
+) => Promise<MigrationFileConfig | undefined>;
+export const readMigrationFileConfig: ReadMigrationFileConfig = async (
+  path,
+) => {
   validateConfigArguments();
   const configPath = path ?? readConfigArgument();
   if (configPath === undefined || configPath.trim() === "") return undefined;
