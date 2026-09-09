@@ -121,6 +121,32 @@ export const validateConfiguredMigrationValues: ValidateConfiguredMigrationValue
       validateConfiguredDestinationValues(context, selection),
     );
 
+type ResolveConfiguredOption = (
+  configuredValue: string,
+  options: readonly { value: string; label: string }[],
+  field: string,
+) => string;
+const resolveConfiguredOption: ResolveConfiguredOption = (
+  configuredValue,
+  options,
+  field,
+) => {
+  const idMatch = options.find((option) => option.value === configuredValue);
+  if (idMatch !== undefined) return idMatch.value;
+
+  const nameMatches = options.filter(
+    (option) => option.label === configuredValue,
+  );
+  if (nameMatches.length === 1) return nameMatches[0].value;
+  if (nameMatches.length > 1)
+    throw fail("configuration", {
+      nextAction: `${field} is ambiguous because its name matches multiple catalog items.`,
+    });
+  throw fail("configuration", {
+    nextAction: `${field} does not identify a value available in the Voiceflow catalog.`,
+  });
+};
+
 type SelectConfiguredOrCatalog = (
   configuredValue: string | undefined,
   reader: PromptReader,
@@ -128,18 +154,30 @@ type SelectConfiguredOrCatalog = (
   eventReference: XYOpsEventReference,
   parameters: EventParameters,
   title: string,
+  field: string,
 ) => Promise<string>;
-const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = (
+const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = async (
   configuredValue,
   reader,
   client,
   eventReference,
   parameters,
   title,
-) =>
-  configuredValue === undefined
-    ? selectCatalog(reader, client, eventReference, parameters, title)
-    : Promise.resolve(configuredValue);
+  field,
+) => {
+  if (configuredValue === undefined)
+    return selectCatalog(reader, client, eventReference, parameters, title);
+  const response = await client.readEvent(
+    eventReference,
+    parameters,
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  return resolveConfiguredOption(
+    configuredValue,
+    readOptions(response, field),
+    field,
+  );
+};
 
 type SelectCatalog = (
   reader: PromptReader,
@@ -192,6 +230,7 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     config.events.listWorkspaces,
     listWorkspacesParameters(),
     "source_workspace_id (Source workspace)",
+    "source_workspace_id",
   );
   const sourceProjectID = await selectConfiguredOrCatalog(
     context.migrationConfig?.sourceProjectID,
@@ -200,6 +239,7 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     config.events.listProjects,
     listProjectsParameters(sourceWorkspaceID),
     "source_project_id (Source project)",
+    "source_project_id",
   );
   const sourceVersionID = await selectConfiguredOrCatalog(
     context.migrationConfig?.sourceVersionID,
@@ -208,6 +248,7 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     config.events.listVersions,
     listVersionsParameters(sourceWorkspaceID, sourceProjectID),
     "source_version_id (Source draft/published version)",
+    "source_version_id",
   );
   return { sourceWorkspaceID, sourceProjectID, sourceVersionID };
 };
@@ -230,6 +271,7 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     config.events.listWorkspaces,
     listWorkspacesParameters(),
     "destination_workspace_id (Destination workspace)",
+    "destination_workspace_id",
   );
   const destinationFolderID = await selectConfiguredOrCatalog(
     context.migrationConfig?.destinationFolderID,
@@ -238,6 +280,7 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     config.events.listFolders,
     listFoldersParameters(destinationWorkspaceID),
     "destination_folder_id (Destination folder)",
+    "destination_folder_id",
   );
   return {
     destinationWorkspaceID,

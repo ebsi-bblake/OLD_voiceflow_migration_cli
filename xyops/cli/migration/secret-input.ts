@@ -7,10 +7,10 @@ import { resolveConfiguredFilePath } from "../file-path";
 
 export const resolveSecretsPath = resolveConfiguredFilePath;
 
-type ReadSecretFileContents = (path: string) => Promise<SecretEntries | undefined>;
+type ReadSecretFileContents = (path: string) => Promise<SecretEntries>;
 const readSecretFileContents: ReadSecretFileContents = (path) =>
   path === ""
-    ? Promise.resolve(undefined)
+    ? Promise.resolve([])
     : readSecretFile(resolveConfiguredFilePath(path, process.platform)).catch(() => {
         throw fail("configuration", {
           nextAction: "The configured secrets file is invalid or unreadable.",
@@ -20,15 +20,19 @@ const readSecretFileContents: ReadSecretFileContents = (path) =>
 type ReadSecretsForMigration = (
   reader: PromptReader,
   migrationConfig?: MigrationFileConfig,
-) => Promise<SecretEntries | undefined>;
+) => Promise<SecretEntries>;
 export const readSecretsForMigration: ReadSecretsForMigration = async (
   reader,
   migrationConfig,
 ) => {
-  if (migrationConfig !== undefined)
-    return migrationConfig.secrets === undefined
-      ? undefined
-      : readSecretFileContents(migrationConfig.secrets);
-  const path = (await reader.ask("Secrets file path (leave blank to skip): ")).trim();
+  if (migrationConfig?.secrets !== undefined)
+    return typeof migrationConfig.secrets === "string"
+      ? readSecretFileContents(migrationConfig.secrets)
+      : migrationConfig.secrets;
+  const path = (
+    await reader.ask(
+      "Path to secrets file (local or network; press Enter for no secrets): ",
+    )
+  ).trim();
   return readSecretFileContents(path);
 };

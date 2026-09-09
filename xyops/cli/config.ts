@@ -3,14 +3,13 @@ import { resolveConfiguredFilePath } from "./file-path";
 import { fail } from "./diagnostics";
 import { isInvalidDuration } from "./guards";
 import { parseXYOpsURL } from "../voiceflow/urls";
+import { parseSecretEntries } from "../voiceflow/secrets";
 import {
-  parseFolderID,
-  parseProjectID,
+  parseResourceSelection,
   parseSchemaVersion,
-  parseVersionID,
-  parseWorkspaceID,
 } from "../voiceflow/validation";
 import type {
+  SecretEntries,
   XYOpsConfig,
   XYOpsEventConfig,
   XYOpsEventReference,
@@ -29,8 +28,8 @@ export type MigrationFileConfig = Readonly<{
   destinationWorkspaceID?: string;
   destinationFolderID?: string;
   targetSchemaVersion?: string;
-  /** Filesystem path to a JSON array of project secrets. */
-  secrets?: string;
+  /** Local/network path to a JSON secret array, or an inline secret array. */
+  secrets?: string | SecretEntries;
 }>;
 
 export const DEFAULT_HTTP_TIMEOUT_MS = 15_000;
@@ -298,9 +297,22 @@ const parseConfigString: ParseConfigString = (value, key) => {
 
 type ConfigFieldParser = (value: unknown) => string;
 
-type ReadSecretPath = (value: unknown) => string;
-const readSecretPath: ReadSecretPath = (value) =>
-  parseConfigString(value, "secrets");
+type ReadConfiguredSecrets = (value: unknown) => string | SecretEntries;
+const readConfiguredSecrets: ReadConfiguredSecrets = (value) => {
+  if (typeof value === "string") return parseConfigString(value, "secrets");
+  if (Array.isArray(value)) {
+    try {
+      return parseSecretEntries(value);
+    } catch {
+      throw fail("configuration", {
+        nextAction: "The inline secrets must be a valid secret entry array.",
+      });
+    }
+  }
+  throw fail("configuration", {
+    nextAction: "secrets must be a file path or a secret entry array.",
+  });
+};
 
 type MigrationStringField = readonly [
   input: string,
@@ -342,7 +354,7 @@ const parseMigrationFileConfig: ParseMigrationFileConfig = (value) => {
     ...parseConfiguredStrings(value),
     ...(value.secrets === undefined
       ? {}
-      : { secrets: readSecretPath(value.secrets) }),
+      : { secrets: readConfiguredSecrets(value.secrets) }),
   };
 };
 
@@ -358,11 +370,11 @@ export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
     string,
     ConfigFieldParser,
   ])[] = [
-    ["sourceWorkspaceID", "source_workspace_id", parseWorkspaceID],
-    ["sourceProjectID", "source_project_id", parseProjectID],
-    ["sourceVersionID", "source_version_id", parseVersionID],
-    ["destinationWorkspaceID", "destination_workspace_id", parseWorkspaceID],
-    ["destinationFolderID", "destination_folder_id", parseFolderID],
+    ["sourceWorkspaceID", "source_workspace_id", parseResourceSelection],
+    ["sourceProjectID", "source_project_id", parseResourceSelection],
+    ["sourceVersionID", "source_version_id", parseResourceSelection],
+    ["destinationWorkspaceID", "destination_workspace_id", parseResourceSelection],
+    ["destinationFolderID", "destination_folder_id", parseResourceSelection],
     ["targetSchemaVersion", "target_schema_version", parseSchemaVersion],
   ];
   fields.forEach(([property, name, parser]) => {

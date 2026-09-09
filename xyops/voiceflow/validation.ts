@@ -59,6 +59,10 @@ type ParseFolderName = (value: unknown) => string;
 export const parseFolderName: ParseFolderName = (value) =>
   parsePathSafeString(value, MAX_NAME_LENGTH);
 
+type ParseResourceSelection = (value: unknown) => string;
+export const parseResourceSelection: ParseResourceSelection = (value) =>
+  parsePathSafeString(value, MAX_NAME_LENGTH);
+
 type ParseCreatorID = (value: unknown) => string;
 export const parseCreatorID: ParseCreatorID = (value) =>
   parsePathSafeString(value, MAX_ID_LENGTH);

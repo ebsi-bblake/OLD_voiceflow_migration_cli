@@ -19,7 +19,6 @@ import { CreatePromptReader } from "../prompt";
 import {
   selectSourceSelection,
   selectDestinationSelection,
-  validateConfiguredMigrationValues,
   type MigrationContext,
 } from "./selection";
 import { readMigrationPlan } from "./planning";
@@ -39,7 +38,7 @@ const printHelp: PrintHelp = () => {
     `Local configuration: XYOPS_API_KEY=<key> (required), XYOPS_BASE_URL=<url> (default: ${DEFAULT_XYOPS_BASE_URL}).`,
     "Optional --config=<JSON-file> supplies migration IDs, schema version, and project secrets.",
     'Config format: { "source_workspace_id": "...", "target_schema_version": "13.1", "secrets": "./secrets.json" }.',
-    "Configured values bypass their prompts; missing values are selected interactively.",
+    "Configured IDs or exact catalog names are resolved before planning; missing values are selected interactively.",
     "Optional XYOPS_EVENT_* overrides accept title:<event-title> or id:<event-id>.",
     "Default event titles must match the configured XYOps Event titles.",
   ].forEach((msg) => console.log(msg));
@@ -84,10 +83,6 @@ const performMigration: PerformMigration = async (context) => {
   };
 
   const selection = stateSelection(state);
-
-  await progress.run("validate_selection", () =>
-    validateConfiguredMigrationValues(context, selection),
-  );
 
   const secretFileContents = await progress.run("load_secrets", () =>
     readSecretsForMigration(context.reader, context.migrationConfig),
