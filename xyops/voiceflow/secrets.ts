@@ -1,5 +1,12 @@
-import type { AuthContext, ConfigSecret, SecretEntry } from "./types";
+import type {
+  AuthContext,
+  ConfigSecret,
+  FolderRecord,
+  ProjectRecord,
+  SecretEntry,
+} from "./types";
 import { retrieveProjectApiKey } from "./api_key";
+import { loadFolders, loadProjects, loadWorkspaces } from "./catalog";
 
 export type { ConfigSecret, SecretEntry } from "./types";
 
@@ -67,42 +74,97 @@ export const mapConfigSecretsToSecretEntries: MapConfigSecretsToSecretEntries =
       value: resolvedValues[index] ?? entry.value,
     }));
 
+type ResolveProjectPath = (
+  workspaceRows: readonly { id: string; label: string }[],
+  folderRows: readonly FolderRecord[],
+  projectRows: readonly ProjectRecord[],
+  path: string,
+) => string;
+export const resolveProjectPath: ResolveProjectPath = (
+  workspaceRows,
+  folderRows,
+  projectRows,
+  path,
+) => {
+  const segments = path.split("/").map((segment) => segment.trim());
+  if (segments.some((segment) => segment === "") || segments.length < 2)
+    throw new Error("Configured project path could not be resolved.");
+  const workspace = workspaceRows.find((row) => matchesName(row, segments[0]));
+  if (workspace === undefined)
+    throw new Error("Configured project path could not be resolved.");
+  const folders = segments.slice(1, -1).reduce<FolderRecord[]>(
+    (resolved, label) => {
+      const parentID = resolved.at(-1)?.id;
+      const folder = folderRows.find(
+        (row) =>
+          row.workspaceID === workspace.id &&
+          matchesName(row, label) &&
+          row.parentID === parentID,
+      );
+      if (folder === undefined)
+        throw new Error("Configured project path could not be resolved.");
+      return [...resolved, folder];
+    },
+    [],
+  );
+  const project = projectRows.find(
+    (row) =>
+      row.workspaceID === workspace.id &&
+      matchesName(row, segments.at(-1) ?? "") &&
+      (folders.length === 0 ||
+        projectFolderID(row) === undefined ||
+        projectFolderID(row) === folders.at(-1)?.id),
+  );
+  if (project === undefined)
+    throw new Error("Configured project path could not be resolved.");
+  return project.id;
+};
+
+const matchesName = (row: { id: string; label: string }, value: string): boolean =>
+  row.id === value || row.label === value;
+const projectFolderID = (project: ProjectRecord): string | undefined =>
+  project.folderID;
+
+const resolveProjectID = (auth: AuthContext, value: string): Promise<string> =>
+  value.includes("/")
+    ? loadWorkspaces(auth).then((workspaces) => {
+        const workspace = workspaces.find((row) => matchesName(row, value.split("/")[0]?.trim() ?? ""));
+        if (workspace === undefined)
+          throw new Error("Configured project path could not be resolved.");
+        const catalogProjects = loadProjects(auth, workspace.id);
+        const catalogFolders = value.split("/").length > 2
+          ? loadFolders(auth, workspace.id)
+          : Promise.resolve([] as readonly FolderRecord[]);
+        return Promise.all([catalogFolders, catalogProjects])
+          .then(([folders, projects]) => resolveProjectPath(workspaces, folders, projects, value));
+      })
+    : Promise.resolve(value);
+
 type ResolveConfiguredSecretValues = (
   auth: AuthContext,
   entries: readonly ConfigSecret[],
 ) => Promise<readonly SecretEntry[]>;
 export const resolveConfiguredSecretValues: ResolveConfiguredSecretValues =
-  async (auth, entries) => {
+  (auth, entries) => {
     const configuredTypes = collectConfiguredSecretTypes(entries);
     if (!configuredTypes.has("projectId"))
       return Promise.resolve(
-        mapConfigSecretsToSecretEntries(
+        mapConfigSecretsToSecretEntries(entries, entries.map((entry) => entry.value)),
+      );
+    const projectValues = entries
+      .filter((entry) => entry.type === "projectId")
+      .map((entry) => entry.value);
+    return Promise.all(projectValues.map((value) => resolveProjectID(auth, value)))
+      .then((projectIDs) => Promise.all(projectIDs.map((id) => retrieveProjectApiKey(auth, id))))
+      .then((apiKeys) => {
+        let keyIndex = 0;
+        return mapConfigSecretsToSecretEntries(
           entries,
-          entries.map((entry) => entry.value),
-        ),
-      );
-    const projectIDs = [
-      ...new Set(
-        entries
-          .filter((entry) => entry.type === "projectId")
-          .map((entry) => entry.value),
-      ),
-    ];
-    return Promise.all(
-      projectIDs.map((projectID) => retrieveProjectApiKey(auth, projectID)),
-    ).then((apiKeys) => {
-      const apiKeysByProjectID = new Map(
-        projectIDs.map((id, index) => [id, apiKeys[index]]),
-      );
-      return mapConfigSecretsToSecretEntries(
-        entries,
-        entries.map((entry) =>
-          entry.type === "projectId"
-            ? (apiKeysByProjectID.get(entry.value) ?? entry.value)
-            : entry.value,
-        ),
-      );
-    });
+          entries.map((entry) =>
+            entry.type === "projectId" ? apiKeys[keyIndex++] ?? entry.value : entry.value,
+          ),
+        );
+      });
   };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

@@ -245,6 +245,73 @@ describe("migration configuration contract", () => {
     expect(calls).toEqual([]);
   });
 
+  test("selects draft development by default without prompting", async () => {
+    const calls: string[] = [];
+    const context = {
+      reader: { ask: async () => { calls.push("prompt"); return ""; }, close: () => undefined },
+      client: { readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+        ok: true, operation: parameters.operation, operationID: "test", warnings: [],
+        result: { options: parameters.operation === "list_workspaces"
+          ? [{ value: "workspace-id", label: "Workspace" }]
+          : parameters.operation === "list_projects"
+            ? [{ value: "project-id", label: "Project" }]
+            : [
+                { value: "published-id", label: "[Published] Project — Development" },
+                { value: "draft-id", label: "[Draft] Project — Development" },
+              ] },
+      }) },
+      config: { events: { listWorkspaces: "workspaces", listProjects: "projects", listVersions: "versions" } },
+      migrationConfig: { sourceWorkspaceID: "workspace-id", sourceProjectID: "project-id" },
+    } as never;
+    await expect(selectSourceSelection(context)).resolves.toEqual({
+      sourceWorkspaceID: "workspace-id",
+      sourceProjectID: "project-id",
+      sourceVersionID: "draft-id",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("falls back to interactive version selection when draft development is unavailable", async () => {
+    const calls: string[] = [];
+    const context = {
+      reader: { ask: async (question: string) => { calls.push(question); return ["1", "1", "2"][calls.length - 1]; }, close: () => undefined },
+      client: { readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+        ok: true, operation: parameters.operation, operationID: "test", warnings: [],
+        result: { options: parameters.operation === "list_workspaces"
+          ? [{ value: "workspace-id", label: "Workspace" }]
+          : parameters.operation === "list_projects"
+            ? [{ value: "project-id", label: "Project" }]
+            : [{ value: "published-id", label: "[Published] Project — Development" }, { value: "draft-id", label: "[Draft] Project — Staging" }] },
+      }) },
+      config: { events: { listWorkspaces: "workspaces", listProjects: "projects", listVersions: "versions" } },
+    } as never;
+    await expect(selectSourceSelection(context)).resolves.toMatchObject({ sourceVersionID: "draft-id" });
+    expect(calls).toEqual(["Select number: ", "Select number: ", "Select number: "]);
+  });
+
+  test("uses an explicitly configured source version instead of the default", async () => {
+    const calls: string[] = [];
+    const context = {
+      reader: { ask: async () => { calls.push("prompt"); return ""; }, close: () => undefined },
+      client: { readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+        ok: true, operation: parameters.operation, operationID: "test", warnings: [],
+        result: { options: parameters.operation === "list_workspaces"
+          ? [{ value: "workspace-id", label: "Workspace" }]
+          : parameters.operation === "list_projects"
+            ? [{ value: "project-id", label: "Project" }]
+            : [{ value: "configured-id", label: "Configured" }, { value: "draft-id", label: "[Draft] Project — Development" }] },
+      }) },
+      config: { events: { listWorkspaces: "workspaces", listProjects: "projects", listVersions: "versions" } },
+      migrationConfig: {
+        sourceWorkspaceID: "workspace-id",
+        sourceProjectID: "project-id",
+        sourceVersionID: "configured-id",
+      },
+    } as never;
+    await expect(selectSourceSelection(context)).resolves.toMatchObject({ sourceVersionID: "configured-id" });
+    expect(calls).toEqual([]);
+  });
+
   test("resolves configured migration values without prompting", async () => {
     const calls: string[] = [];
     const context = {

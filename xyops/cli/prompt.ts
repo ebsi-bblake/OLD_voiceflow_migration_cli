@@ -190,6 +190,12 @@ const readOption: ReadOption = (reader, options) =>
     return readOption(reader, options);
   });
 
+type FormatOptionForPrompt = (option: Option) => string;
+const formatOptionForPrompt: FormatOptionForPrompt = (option) =>
+  option.label.endsWith(` (${option.value})`)
+    ? bounded(option.label)
+    : `${bounded(option.label)} (${bounded(option.value, 100)})`;
+
 type ChooseOption = (
   reader: PromptReader,
   title: string,
@@ -201,9 +207,7 @@ export const chooseOption: ChooseOption = async (reader, title, options) => {
   console.log(`\n${title}:`);
 
   validOptions.forEach((option, index) =>
-    console.log(
-      `${index + 1}. ${bounded(option.label)} (${bounded(option.value, 100)})`,
-    ),
+    console.log(`${index + 1}. ${formatOptionForPrompt(option)}`),
   );
 
   return readOption(reader, validOptions);

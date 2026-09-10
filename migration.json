@@ -1,8 +1,7 @@
 {
-  "source_workspace_id": "NaR6Nz6jLK",
-  "source_project_id": "6a98609d0daffbbf8d5d765a",
-  "source_version_id": "6a98609d0daffbbf8d5d765c",
-  "destination_workspace_id": "24W6RebVXA",
-  "destination_folder_id": "43",
-  "secrets": "./secrets.config.json"
+  "source_workspace": "NaR6Nz6jLK",
+  "source_project": "6a98609d0daffbbf8d5d765a",
+  "destination_workspace": "24W6RebVXA",
+  "destination_folder": "43",
+  "secrets": "//df2v-fs-01.ebsi.corp/shared/Test/secrets-ci.config.json"
 }

@@ -84,10 +84,14 @@ const parseProject: (value: unknown) => CatalogParseResult<ProjectRecord> = (
 const parseProjectRow = (value: RawCatalogRow): CatalogParseResult<ProjectRecord> => {
   const identity = projectIdentity(readID(value), normalizeOptionalID(value.workspaceID));
   if (identity === undefined) return invalidRow;
+  const folderID = normalizeOptionalID(
+    value.folderID ?? value.folderId ?? value.parentFolderID,
+  );
   return validRow({
     id: identity.id,
     label: readLabel(value, identity.id),
     workspaceID: identity.workspaceID,
+    ...(folderID === undefined ? {} : { folderID }),
     environments: readEnvironments(value.environments),
   });
 };
@@ -113,10 +117,14 @@ const parseFolderRow = (value: RawCatalogRow): CatalogParseResult<FolderRecord> 
   const workspaceID = normalizeOptionalID(value.workspaceID);
   const identity = folderIdentity(id, workspaceID);
   if (identity === undefined) return invalidRow;
+  const parentID = normalizeOptionalID(
+    value.parentID ?? value.parentId ?? value.parentFolderID,
+  );
   return validRow({
     id: identity.id,
     label: readLabel(value, identity.id),
     workspaceID: identity.workspaceID,
+    ...(parentID === undefined ? {} : { parentID }),
   });
 };
 type FolderIdentity = Readonly<{ id: string; workspaceID: string }>;

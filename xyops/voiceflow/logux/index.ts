@@ -12,6 +12,7 @@ type Row = Readonly<Record<string, unknown>>;
 const SUPPORTED_WANTED_TYPES: ReadonlySet<string> = new Set([
   "workspace.CRUD:REPLACE",
   "project.CRUD:REPLACE",
+  "assistant.REPLACE",
   "workspace-folder.REPLACE",
 ]);
 const MAX_INCOMING_FRAME_BYTES = 1_048_576;

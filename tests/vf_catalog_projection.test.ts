@@ -7,6 +7,7 @@ const originalSyncCatalog = importedSyncCatalog;
 const catalogTypes = [
   "workspace.CRUD:REPLACE",
   "project.CRUD:REPLACE",
+  "assistant.REPLACE",
   "workspace-folder.REPLACE",
 ] as const;
 
@@ -19,6 +20,7 @@ type CatalogRequest = Readonly<{
 const catalogRows: Record<CatalogType, unknown[]> = {
   "workspace.CRUD:REPLACE": [],
   "project.CRUD:REPLACE": [],
+  "assistant.REPLACE": [],
   "workspace-folder.REPLACE": [],
 };
 const catalogRequests: CatalogRequest[] = [];
@@ -204,13 +206,68 @@ describe("catalog raw-boundary projection", () => {
       },
     ]);
     expect(projectOptions("42")(projects)).toEqual([
-      { value: "project-map", label: "Alpha Project" },
-      { value: "project-label", label: "Beta Project" },
-      { value: "Delta", label: "Delta" },
-      { value: "200", label: "Zulu Project" },
+      { value: "project-map", label: "Alpha Project (project-map)" },
+      { value: "project-label", label: "Beta Project (project-label)" },
+      { value: "Delta", label: "Delta (Delta)" },
+      { value: "200", label: "Zulu Project (200)" },
     ]);
     expect(catalogRequests).toEqual([
       { channel: "workspace/42", wanted: ["project.CRUD:REPLACE"] },
+      { channel: "workspace/42", wanted: ["assistant.REPLACE"] },
+    ]);
+  });
+
+  test("assistant catalog reconciles folder IDs onto project catalog rows", async () => {
+    setCatalogRows("project.CRUD:REPLACE", [
+      {
+        id: "project-a",
+        workspaceID: "42",
+        name: "Customer Assistant",
+        environments: [],
+      },
+      {
+        id: "project-b",
+        workspaceID: "42",
+        name: "Unassigned Assistant",
+        environments: [],
+      },
+    ]);
+    setCatalogRows("assistant.REPLACE", [
+      { id: "project-a", workspaceID: "42", name: "Customer Assistant", folderID: 84 },
+    ]);
+
+    expect(await loadProjects(auth, "42")).toEqual([
+      {
+        id: "project-a",
+        label: "Customer Assistant",
+        workspaceID: "42",
+        folderID: "84",
+        environments: [],
+      },
+      {
+        id: "project-b",
+        label: "Unassigned Assistant",
+        workspaceID: "42",
+        environments: [],
+      },
+    ]);
+  });
+
+  test("project options include folder context while preserving canonical IDs", () => {
+    const projects = [
+      { id: "project-a", label: "Customer Assistant", workspaceID: "42", folderID: "folder-a", environments: [] },
+      { id: "project-b", label: "Customer Assistant", workspaceID: "42", folderID: "folder-b", environments: [] },
+      { id: "project-c", label: "Benefits Assistant", workspaceID: "42", environments: [] },
+    ];
+    const folders = [
+      { id: "folder-a", label: "Participant Assistants", workspaceID: "42", parentID: undefined },
+      { id: "folder-b", label: "Benefits", workspaceID: "42", parentID: undefined },
+    ];
+
+    expect(projectOptions("42", folders)(projects)).toEqual([
+      { value: "project-c", label: "Benefits Assistant (project-c)" },
+      { value: "project-b", label: "Benefits/Customer Assistant (project-b)" },
+      { value: "project-a", label: "Participant Assistants/Customer Assistant (project-a)" },
     ]);
   });
 

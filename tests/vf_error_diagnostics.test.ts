@@ -7,7 +7,7 @@ describe("Voiceflow unexpected error diagnostics", () => {
   test("preserves every finite wire value during JSON serialization", () => {
     expect(Object.values(VoiceflowOperation)).toEqual([
       "check_session", "list_workspaces", "list_projects", "list_versions",
-      "list_folders", "plan_migration", "execute_migration",
+      "list_folders", "create_folder", "plan_migration", "execute_migration",
     ]);
     expect(Object.values(ErrorCode)).toContain("INTERNAL_ERROR");
     expect(Object.values(WarningCode)).toEqual(["NOT_IDEMPOTENT", "API_KEY_RETRIEVAL_FAILED"]);

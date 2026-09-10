@@ -67,10 +67,12 @@ const importInput: ImportInputFactory = (
     schema: parseSchemaVersion(resolveTargetSchemaVersion(artifact, schema)),
   };
 };
+
 const validateArtifactSize = (artifact: ExportArtifact): void => {
   if (artifact.bytes.byteLength > 50_000_000)
     throw new OperationFault("INVALID_ARGUMENT");
 };
+
 type RequestImportResponse = (
   auth: AuthContext,
   workspace: string,
@@ -96,6 +98,7 @@ const requestImportResponse: RequestImportResponse = async (
     throw importRequestFault(error);
   }
 };
+
 type ImportRequestFault = (error: unknown) => OperationFault | unknown;
 const importRequestFault: ImportRequestFault = (error) =>
   isUnknownImportDependency(error)
@@ -114,15 +117,18 @@ const parseImportResponse: ParseImportResponse = (response, bytes) => {
   validateImportStatus(response.status);
   return receipt(parseImportBody(response.bytes), response.status, bytes);
 };
+
 const validateImportStatus = (status: number): void => {
   if (isImportOutcomeUnknownStatus(status))
     throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
   ensureSuccessfulStatus(status);
 };
+
 const ensureSuccessfulStatus = (status: number): void => {
   if (!isSuccessfulStatus(status))
     throw new OperationFault("DEPENDENCY_FAILURE");
 };
+
 const isSuccessfulStatus = (status: number): boolean =>
   status >= 200 && status < 300;
 const parseImportBody = (bytes: ArrayBuffer): unknown => {

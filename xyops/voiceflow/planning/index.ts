@@ -69,18 +69,16 @@ type CreatePlanFromCatalog = (
   catalog: CatalogSnapshot,
 ) => (planID: string) => MigrationPlan;
 const createPlanFromCatalog: CreatePlanFromCatalog =
-  (selection, [workspaces, projects, folders]) =>
+  (selection, [workspaces, projects, destinationFolders]) =>
   (planID) => {
     const workspaceChoices = workspaceOptions(workspaces);
-    const projectChoices = projectOptions(selection.sourceWorkspaceID)(
-      projects,
-    );
+    const projectChoices = projectOptions(selection.sourceWorkspaceID)(projects);
     const versionChoices = versionOptions(
       selection.sourceWorkspaceID,
       selection.sourceProjectID,
     )(projects);
     const folderChoices = folderOptions(selection.destinationWorkspaceID)(
-      folders,
+      destinationFolders,
     );
     return {
       planID,

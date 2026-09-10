@@ -226,6 +226,55 @@ type SourceSelection = Pick<
 export type SelectSourceSelection = (
   context: MigrationContext,
 ) => Promise<SourceSelection>;
+
+type SelectDefaultSourceVersion = (
+  context: MigrationContext,
+  workspaceID: string,
+  projectID: string,
+) => Promise<string>;
+const selectDefaultSourceVersion: SelectDefaultSourceVersion = async ({
+  reader,
+  client,
+  config,
+}, workspaceID, projectID) => {
+  const response = await client.readEvent(
+    config.events.listVersions,
+    listVersionsParameters(workspaceID, projectID),
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  const options = readOptions(response, "source_version");
+  const draftDevelopment = options.find(
+    (option) =>
+      option.label.startsWith("[Draft] ") &&
+      option.label.endsWith(" — Development"),
+  );
+  return draftDevelopment === undefined
+    ? chooseOption(reader, "Source draft/published version", options)
+    : draftDevelopment.value;
+};
+
+type SelectSourceVersion = (
+  context: MigrationContext,
+  workspaceID: string,
+  projectID: string,
+) => Promise<string>;
+const selectSourceVersion: SelectSourceVersion = (
+  context,
+  workspaceID,
+  projectID,
+) =>
+  context.migrationConfig?.sourceVersionID === undefined
+    ? selectDefaultSourceVersion(context, workspaceID, projectID)
+    : selectConfiguredOrCatalog(
+        context.migrationConfig.sourceVersionID,
+        context.reader,
+        context.client,
+        context.config.events.listVersions,
+        listVersionsParameters(workspaceID, projectID),
+        "Source draft/published version",
+        "source_version",
+      );
+
 export const selectSourceSelection: SelectSourceSelection = async (context) => {
   const { reader, client, config } = context;
   const sourceWorkspaceID = await selectConfiguredOrCatalog(
@@ -234,7 +283,7 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     client,
     config.events.listWorkspaces,
     listWorkspacesParameters(),
-    "source_workspace (Source workspace)",
+    "Source workspace",
     "source_workspace",
   );
   const sourceProjectID = await selectConfiguredOrCatalog(
@@ -243,17 +292,13 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     client,
     config.events.listProjects,
     listProjectsParameters(sourceWorkspaceID),
-    "source_project (Source project)",
+    "Source project",
     "source_project",
   );
-  const sourceVersionID = await selectConfiguredOrCatalog(
-    context.migrationConfig?.sourceVersionID,
-    reader,
-    client,
-    config.events.listVersions,
-    listVersionsParameters(sourceWorkspaceID, sourceProjectID),
-    "source_version (Source draft/published version)",
-    "source_version",
+  const sourceVersionID = await selectSourceVersion(
+    context,
+    sourceWorkspaceID,
+    sourceProjectID,
   );
   return { sourceWorkspaceID, sourceProjectID, sourceVersionID };
 };
@@ -314,7 +359,7 @@ const selectInteractiveDestinationFolder = async (
     "destination_folder",
     isOptionResult,
   ).options;
-  console.log("\ndestination_folder (Destination folder):");
+  console.log("\nDestination folder:");
   options.forEach((option, index) =>
     console.log(
       `${index + 1}. ${bounded(option.label)} (${bounded(option.value, 100)})`,
@@ -359,7 +404,7 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     client,
     config.events.listWorkspaces,
     listWorkspacesParameters(),
-    "destination_workspace (Destination workspace)",
+    "Destination workspace",
     "destination_workspace",
   );
   const configuredFolder = context.migrationConfig?.destinationFolderID;

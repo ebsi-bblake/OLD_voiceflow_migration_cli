@@ -30,9 +30,28 @@ const normalizeIDAsync: NormalizeIDAsync = (value) =>
   Promise.resolve().then(() => requireVoiceflowString(value));
 
 type ProjectOptionValues = (
+  rows: readonly ProjectRecord[],
+  folders: readonly FolderRecord[],
+) => Option[];
+const projectOptionValues: ProjectOptionValues = (rows, folders) =>
+  rows.map((row) => {
+    const folder = folders.find((candidate) => candidate.id === row.folderID);
+    const path = folder === undefined ? row.label : `${folderPath(folder, folders)}/${row.label}`;
+    return { value: row.id, label: `${path} (${row.id})` };
+  });
+
+const folderPath = (
+  folder: FolderRecord,
+  folders: readonly FolderRecord[],
+): string => {
+  const parent = folders.find((candidate) => candidate.id === folder.parentID);
+  return parent === undefined ? folder.label : `${folderPath(parent, folders)}/${folder.label}`;
+};
+
+type OptionValues = (
   rows: readonly Readonly<{ id: string; label: string }>[],
 ) => Option[];
-const projectOptionValues: ProjectOptionValues = (rows) =>
+const optionValues: OptionValues = (rows) =>
   rows.map((row) => ({ value: row.id, label: row.label }));
 
 type SortOptionsByLabel = (options: readonly Option[]) => Option[];
@@ -42,8 +61,7 @@ const sortOptionsByLabel: SortOptionsByLabel = (options) =>
 type BuildOptions = (
   rows: readonly Readonly<{ id: string; label: string }>[],
 ) => Option[];
-const buildOptions: BuildOptions = (rows) =>
-  sortOptionsByLabel(projectOptionValues(rows));
+const buildOptions: BuildOptions = (rows) => sortOptionsByLabel(optionValues(rows));
 
 type SelectProjectsInWorkspace = (
   rows: readonly ProjectRecord[],
@@ -102,10 +120,34 @@ type LoadProjects = (
   auth: AuthContext,
   workspaceID: string,
 ) => Promise<readonly ProjectRecord[]>;
+type ReconcileProjectFolders = (
+  projects: readonly ProjectRecord[],
+  assistants: readonly ProjectRecord[],
+) => readonly ProjectRecord[];
+const reconcileProjectFolders: ReconcileProjectFolders = (projects, assistants) => {
+  const folderIDs = new Map(
+    assistants
+      .filter((assistant) => assistant.folderID !== undefined)
+      .map((assistant) => [assistant.id, assistant.folderID]),
+  );
+  return projects.map((project) => {
+    const folderID = folderIDs.get(project.id);
+    return folderID === undefined ? project : { ...project, folderID };
+  });
+};
 export const loadProjects: LoadProjects = (auth, workspaceID) =>
-  normalizeIDAsync(workspaceID)
-    .then(loadCatalogRows(auth, ["project.CRUD:REPLACE"]))
-    .then(projectRows(parseProject));
+  normalizeIDAsync(workspaceID).then((id) =>
+    Promise.all([
+      loadCatalogRows(auth, ["project.CRUD:REPLACE"])(id).then(
+        projectRows(parseProject),
+      ),
+      loadCatalogRows(auth, ["assistant.REPLACE"])(id).then(
+        projectRows(parseProject),
+      ),
+    ]).then(([projects, assistants]) =>
+      reconcileProjectFolders(projects, assistants),
+    ),
+  );
 
 type LoadFolders = (
   auth: AuthContext,
@@ -121,10 +163,12 @@ export const workspaceOptions: WorkspaceOptions = buildOptions;
 
 type ProjectOptions = (
   workspaceID: string,
+  folders?: readonly FolderRecord[],
 ) => (rows: readonly ProjectRecord[]) => Option[];
-export const projectOptions: ProjectOptions = (workspaceID) => (rows) => {
+export const projectOptions: ProjectOptions = (workspaceID, folders = []) => (rows) => {
   const id = requireVoiceflowString(workspaceID);
-  return buildOptions(selectProjectsInWorkspace(rows, id));
+  const projects = selectProjectsInWorkspace(rows, id);
+  return sortOptionsByLabel(projectOptionValues(projects, folders));
 };
 
 type FolderOptions = (
@@ -162,7 +206,8 @@ type ListProjects = (
   workspaceID: string,
 ) => Promise<Option[]>;
 export const listProjects: ListProjects = (auth, workspaceID) =>
-  loadProjects(auth, workspaceID).then(projectOptions(workspaceID));
+  Promise.all([loadProjects(auth, workspaceID), loadFolders(auth, workspaceID)])
+    .then(([projects, folders]) => projectOptions(workspaceID, folders)(projects));
 
 type ListFolders = (
   auth: AuthContext,

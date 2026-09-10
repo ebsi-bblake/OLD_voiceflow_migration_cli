@@ -33,7 +33,7 @@ const paddedSelection: MigrationSelection = {
 
 const expectedLabels = {
   sourceWorkspace: "Source Workspace",
-  sourceProject: "Source Project",
+  sourceProject: "Source Project (source-project)",
   sourceVersion: "[Draft] Source Project — Development",
   destinationWorkspace: "Destination Workspace",
   destinationFolder: "Destination Folder",
@@ -83,6 +83,7 @@ const catalogRowsByType: Readonly<Record<string, readonly unknown[]>> = {
         ],
       },
   ],
+  "assistant.REPLACE": [],
   "workspace-folder.REPLACE": [
       {
         id: 42,

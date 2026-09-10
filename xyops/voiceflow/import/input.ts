@@ -51,6 +51,7 @@ export const receipt: Receipt = (value, status, bytes) => {
   if (!isRecord(value)) throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
   return receiptFromRecord(value, status, bytes);
 };
+
 const receiptFromRecord = (
   value: RecordValue,
   status: number,
@@ -68,8 +69,10 @@ const receiptFromRecord = (
     folderID: primitiveID(value.folderID),
   };
 };
+
 const projectIDFromRecord = (value: RecordValue): string | undefined =>
   firstProjectID(value) ?? nestedProjectID(value);
+
 export const firstProjectID = (value: RecordValue): string | undefined =>
   [value.projectID, value.projectId, value.id]
     .map(primitiveID)

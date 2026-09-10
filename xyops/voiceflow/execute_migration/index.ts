@@ -13,50 +13,6 @@ export type { ExecuteResult } from "../types";
 
 import { migrationSelection } from "./arguments";
 
-type Main = (
-  token: string,
-  planID: string,
-  sourceWorkspaceID: string,
-  sourceProjectID: string,
-  sourceVersionID: string,
-  destinationWorkspaceID: string,
-  destinationFolderID: string,
-  targetSchemaVersion?: string,
-  confirmed?: boolean,
-  secretFileContents?: unknown,
-) => Promise<Envelope<ExecuteResult>>;
-export const main: Main = async (
-  token,
-  planID,
-  sourceWorkspaceID,
-  sourceProjectID,
-  sourceVersionID,
-  destinationWorkspaceID,
-  destinationFolderID,
-  targetSchemaVersion,
-  confirmed,
-  secretFileContents,
-) => {
-  const operationID = createUUID();
-  return isConfirmationGranted(normalizeConfirmation(confirmed))
-    ? executeConfirmedMigration(
-        token,
-        planID,
-        sourceWorkspaceID,
-        sourceProjectID,
-        sourceVersionID,
-        destinationWorkspaceID,
-        destinationFolderID,
-        normalizeSchemaVersion(targetSchemaVersion),
-        operationID,
-        secretFileContents,
-      )
-    : failure(
-        "execute_migration",
-        operationID,
-        new OperationFault("CONFIRMATION_REQUIRED"),
-      );
-};
 const normalizeConfirmation = (confirmed: boolean | undefined): boolean =>
   confirmed ?? false;
 const normalizeSchemaVersion = (
@@ -128,6 +84,7 @@ const executeConfirmedMigration = async (
     );
   }
 };
+
 const addFailureStage = (error: unknown, stage: string): unknown =>
   error instanceof OperationFault
     ? new OperationFault(
@@ -140,12 +97,14 @@ const addFailureStage = (error: unknown, stage: string): unknown =>
     : new Error(
         `stage=${stage} error=${error instanceof Error ? error.message : String(error)}`,
       );
+
 const secretInputKind = (contents: unknown): string => {
   if (contents === undefined) return "missing";
   if (contents === null) return "null";
   if (Array.isArray(contents)) return "array";
   return typeof contents;
 };
+
 const parseSecretFileContents = (contents: unknown) =>
   contents === undefined ? [] : parseSecretEntries(contents);
 const ensureMatchingPlan = (
@@ -154,4 +113,49 @@ const ensureMatchingPlan = (
 ): void => {
   if (actualPlanID !== expectedPlanID)
     throw new OperationFault("PLAN_MISMATCH");
+};
+
+type Main = (
+  token: string,
+  planID: string,
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+  sourceVersionID: string,
+  destinationWorkspaceID: string,
+  destinationFolderID: string,
+  targetSchemaVersion?: string,
+  confirmed?: boolean,
+  secretFileContents?: unknown,
+) => Promise<Envelope<ExecuteResult>>;
+export const main: Main = async (
+  token,
+  planID,
+  sourceWorkspaceID,
+  sourceProjectID,
+  sourceVersionID,
+  destinationWorkspaceID,
+  destinationFolderID,
+  targetSchemaVersion,
+  confirmed,
+  secretFileContents,
+) => {
+  const operationID = createUUID();
+  return isConfirmationGranted(normalizeConfirmation(confirmed))
+    ? executeConfirmedMigration(
+        token,
+        planID,
+        sourceWorkspaceID,
+        sourceProjectID,
+        sourceVersionID,
+        destinationWorkspaceID,
+        destinationFolderID,
+        normalizeSchemaVersion(targetSchemaVersion),
+        operationID,
+        secretFileContents,
+      )
+    : failure(
+        "execute_migration",
+        operationID,
+        new OperationFault("CONFIRMATION_REQUIRED"),
+      );
 };

@@ -137,8 +137,8 @@ const parseActionFrame = (
   const action = readFrameAction(frame);
   const payload = readActionPayload(action);
   const type = readWantedActionType(action, wantedSet);
-  const values = readActionValues(payload);
   if (!type) return undefined;
+  const values = readActionValues(payload);
   return parsedAction(type, values);
 };
 const readFrameAction = (

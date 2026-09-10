@@ -46,6 +46,7 @@ const failedApiKeyRetrievalOutcome: FailedApiKeyRetrievalOutcome = () => {
 type KeyCandidates = (value: unknown) => string[];
 const keyCandidates: KeyCandidates = (value) => {
   if (typeof value === "string") return [value.trim()];
+  if (Array.isArray(value)) return value.flatMap((entry) => keyCandidates(entry));
   return recordKeyCandidates(value);
 };
 const recordKeyCandidates = (value: unknown): string[] => {
@@ -116,7 +117,7 @@ const retrieveValidatedApiKey = async (
   const response = await requestBytes({
     url: `${VOICEFLOW_IDENTITY_ORIGIN}/v1alpha1/api-key/legacy/project/${encodePathSegment(id)}`,
     init: {
-      method: "POST",
+      method: "GET",
       headers: {
         Accept: "*/*",
         Authorization: `Bearer ${auth.token}`,
@@ -135,7 +136,7 @@ const retrieveValidatedApiKey = async (
       true,
       `api-key-http-${response.status}`,
     );
-  if (!hasSingleKey(keys))
+  if (!hasApiKey(keys))
     throw new OperationFault("DEPENDENCY_FAILURE", true, "api-key-response");
   return keys[0];
 };
@@ -143,6 +144,7 @@ const normalizeProjectID = (
   projectID: string | undefined,
 ): string | undefined =>
   projectID === undefined ? undefined : projectID.trim();
+
 const isSuccessfulStatus = (status: number): boolean =>
   status >= 200 && status < 300;
-const hasSingleKey = (keys: readonly string[]): boolean => keys.length === 1;
+const hasApiKey = (keys: readonly string[]): boolean => keys.length > 0;

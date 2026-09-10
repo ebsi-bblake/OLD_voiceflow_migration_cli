@@ -1,29 +1,5 @@
 import { OperationFault } from "../contracts";
 
-type ReadResponseBody = (
-  body: ReadableStream<Uint8Array>,
-  maxBytes: number,
-) => Promise<ArrayBuffer>;
-
-type ReadChunks = (
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  maxBytes: number,
-) => Promise<readonly Uint8Array[]>;
-const readChunks: ReadChunks = (reader, maxBytes) =>
-  collectChunks(reader, maxBytes, [], 0);
-type CollectChunks = (
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  maxBytes: number,
-  chunks: readonly Uint8Array[],
-  size: number,
-) => Promise<readonly Uint8Array[]>;
-const collectChunks: CollectChunks = async (reader, maxBytes, chunks, size) => {
-  const part = await reader.read();
-  if (part.done) return chunks;
-  const nextSize = size + part.value.byteLength;
-  await rejectOversizedChunk(reader, nextSize, maxBytes);
-  return collectChunks(reader, maxBytes, [...chunks, part.value], nextSize);
-};
 const rejectOversizedChunk = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
   size: number,
@@ -48,6 +24,32 @@ const assembleChunks: AssembleChunks = (chunks, size) => {
   }
   return bytes.buffer;
 };
+
+type CollectChunks = (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  maxBytes: number,
+  chunks: readonly Uint8Array[],
+  size: number,
+) => Promise<readonly Uint8Array[]>;
+const collectChunks: CollectChunks = async (reader, maxBytes, chunks, size) => {
+  const part = await reader.read();
+  if (part.done) return chunks;
+  const nextSize = size + part.value.byteLength;
+  await rejectOversizedChunk(reader, nextSize, maxBytes);
+  return collectChunks(reader, maxBytes, [...chunks, part.value], nextSize);
+};
+
+type ReadChunks = (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  maxBytes: number,
+) => Promise<readonly Uint8Array[]>;
+const readChunks: ReadChunks = (reader, maxBytes) =>
+  collectChunks(reader, maxBytes, [], 0);
+
+type ReadResponseBody = (
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+) => Promise<ArrayBuffer>;
 export const readResponseBody: ReadResponseBody = async (body, maxBytes) => {
   const reader = body.getReader();
   try {
