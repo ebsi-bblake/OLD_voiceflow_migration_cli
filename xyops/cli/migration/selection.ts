@@ -1,5 +1,9 @@
 import { createXYOpsClient } from "../client";
-import { isOptionResult, isVoiceflowEnvelope } from "../guards";
+import {
+  isCreatedFolderResult,
+  isOptionResult,
+  isVoiceflowEnvelope,
+} from "../guards";
 import { requireEnvelopeResult } from "../validation";
 import { fail } from "../diagnostics";
 import type {
@@ -7,8 +11,9 @@ import type {
   MigrationSelection,
   XYOpsEventReference,
 } from "../types";
-import { chooseOption, PromptReader } from "../prompt";
+import { bounded, chooseOption, PromptReader } from "../prompt";
 import {
+  createFolderParameters,
   listFoldersParameters,
   listProjectsParameters,
   listVersionsParameters,
@@ -260,6 +265,90 @@ type DestinationSelection = Pick<
 export type SelectDestinationSelection = (
   context: MigrationContext,
 ) => Promise<DestinationSelection>;
+type ConfirmFolderCreation = (
+  reader: PromptReader,
+  name: string,
+) => Promise<boolean>;
+const confirmFolderCreation: ConfirmFolderCreation = (reader, name) =>
+  reader
+    .ask(`Create destination folder '${name}'? (yes/no): `)
+    .then((answer) => ["y", "yes"].includes(answer.trim().toLowerCase()));
+
+type CreateDestinationFolder = (
+  context: MigrationContext,
+  workspaceID: string,
+  name: string,
+) => Promise<string>;
+const createDestinationFolder: CreateDestinationFolder = async (
+  { reader, client, config },
+  workspaceID,
+  name,
+) => {
+  console.log(`\nThe destination folder '${name}' does not exist.`);
+  console.log(" ~ Declining creation fails the migration and exits. ~");
+  if (!(await confirmFolderCreation(reader, name)))
+    throw fail("configuration", {
+      nextAction: "Destination folder creation was declined.",
+    });
+  const response = await client.executeEvent(
+    config.events.createFolder,
+    createFolderParameters(workspaceID, name),
+    isVoiceflowEnvelope(isCreatedFolderResult),
+  );
+  return requireEnvelopeResult(response, "create_folder", isCreatedFolderResult)
+    .folder.value;
+};
+
+const selectInteractiveDestinationFolder = async (
+  context: MigrationContext,
+  workspaceID: string,
+): Promise<string> => {
+  const { reader, client, config } = context;
+  const response = await client.readEvent(
+    config.events.listFolders,
+    listFoldersParameters(workspaceID),
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  const options = requireEnvelopeResult(
+    response,
+    "destination_folder",
+    isOptionResult,
+  ).options;
+  console.log("\ndestination_folder (Destination folder):");
+  options.forEach((option, index) =>
+    console.log(
+      `${index + 1}. ${bounded(option.label)} (${bounded(option.value, 100)})`,
+    ),
+  );
+  const answer = (
+    await reader.ask("Select number or enter a new folder name: ")
+  ).trim();
+  if (answer === "")
+    throw fail("invalid-input", {
+      nextAction: "A destination folder name is required.",
+    });
+  const number = Number.parseInt(answer, 10);
+  if (Number.isInteger(number) && number >= 1 && number <= options.length)
+    return options[number - 1].value;
+  const exact = resolveFolderInput(answer, options);
+  return exact ?? createDestinationFolder(context, workspaceID, answer);
+};
+
+const resolveFolderInput = (
+  value: string,
+  options: readonly { value: string; label: string }[],
+): string | undefined => {
+  const idMatch = options.find((option) => option.value === value);
+  if (idMatch) return idMatch.value;
+  const matches = options.filter((option) => option.label === value);
+  if (matches.length > 1)
+    throw fail("configuration", {
+      nextAction:
+        "The folder name is ambiguous; provide a canonical folder ID.",
+    });
+  return matches[0]?.value;
+};
+
 export const selectDestinationSelection: SelectDestinationSelection = async (
   context,
 ) => {
@@ -273,15 +362,30 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     "destination_workspace (Destination workspace)",
     "destination_workspace",
   );
-  const destinationFolderID = await selectConfiguredOrCatalog(
-    context.migrationConfig?.destinationFolderID,
-    reader,
-    client,
-    config.events.listFolders,
-    listFoldersParameters(destinationWorkspaceID),
-    "destination_folder (Destination folder)",
-    "destination_folder",
-  );
+  const configuredFolder = context.migrationConfig?.destinationFolderID;
+  const destinationFolderID =
+    configuredFolder === undefined
+      ? await selectInteractiveDestinationFolder(
+          context,
+          destinationWorkspaceID,
+        )
+      : await (async () => {
+          const response = await client.readEvent(
+            config.events.listFolders,
+            listFoldersParameters(destinationWorkspaceID),
+            isVoiceflowEnvelope(isOptionResult),
+          );
+          const options = readOptions(response, "destination_folder");
+          const resolved = resolveFolderInput(configuredFolder, options);
+          return (
+            resolved ??
+            createDestinationFolder(
+              context,
+              destinationWorkspaceID,
+              configuredFolder,
+            )
+          );
+        })();
   return {
     destinationWorkspaceID,
     destinationFolderID,

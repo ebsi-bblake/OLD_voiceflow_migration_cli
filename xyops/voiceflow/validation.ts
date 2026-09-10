@@ -77,6 +77,7 @@ const operations = new Set([
   "list_projects",
   "list_versions",
   "list_folders",
+  "create_folder",
   "plan_migration",
   "execute_migration",
 ]);

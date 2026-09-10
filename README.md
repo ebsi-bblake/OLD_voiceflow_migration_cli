@@ -29,13 +29,14 @@ list_workspaces
 list_projects
 list_versions
 list_folders
+create_folder
 plan_migration
 execute_migration
 ```
 
-## One plugin, seven XYOps Events
+## One plugin, eight XYOps Events
 
-All seven Events point to the same registered native plugin. Each Event supplies
+All eight Events point to the same registered native plugin. Each Event supplies
 its operation through the `operation` parameter and retains the following title
 mapping:
 
@@ -46,6 +47,7 @@ mapping:
 | `voiceflow_list_projects` | `list_projects` |
 | `voiceflow_list_versions` | `list_versions` |
 | `voiceflow_list_folders` | `list_folders` |
+| `voiceflow_create_folder` | `create_folder` |
 | `voiceflow_plan_migration` | `plan_migration` |
 | `voiceflow_execute_migration` | `execute_migration` |
 

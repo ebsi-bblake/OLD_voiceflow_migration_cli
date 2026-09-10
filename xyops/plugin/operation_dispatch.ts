@@ -1,6 +1,7 @@
 import { main as checkSession } from "../voiceflow/check_session";
 import { main as executeMigration } from "../voiceflow/execute_migration";
 import { main as listFolders } from "../voiceflow/list_folders";
+import { main as createFolder } from "../voiceflow/create_folder";
 import { main as listProjects } from "../voiceflow/list_projects";
 import { main as listVersions } from "../voiceflow/list_versions";
 import { main as listWorkspaces } from "../voiceflow/list_workspaces";
@@ -8,6 +9,7 @@ import { main as planMigration } from "../voiceflow/plan_migration";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
 import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
+import type { VoiceflowOperation } from "../voiceflow/types";
 export type { OperationHandlers } from "./types";
 
 type PluginEnvelope = Envelope<unknown>;
@@ -18,6 +20,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   list_projects: listProjects,
   list_versions: listVersions,
   list_folders: listFolders,
+  create_folder: createFolder,
   plan_migration: planMigration,
   execute_migration: executeMigration,
 };
@@ -88,6 +91,12 @@ const operationInvocations: OperationInvocations = {
       token,
       requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
     ),
+  create_folder: (job, token, handlers) =>
+    handlers["create_folder"](
+      token,
+      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
+      requiredParameter(job, "DESTINATION_FOLDER_ID"),
+    ),
   plan_migration: (job, token, handlers) =>
     handlers["plan_migration"](
       token,
@@ -114,7 +123,7 @@ const operationInvocations: OperationInvocations = {
 };
 
 type InvokeOperation = (
-  operation: NativePluginJob["operation"],
+  operation: VoiceflowOperation,
   invoke: () => Promise<PluginEnvelope>,
 ) => Promise<PluginEnvelope>;
 const invokeOperation: InvokeOperation = (operation, invoke) =>
@@ -132,6 +141,7 @@ export const dispatchOperation: DispatchOperation = (
   token,
   handlers = defaultOperationHandlers,
 ) =>
-  invokeOperation(job.operation, () =>
-    operationInvocations[job.operation](job, token, handlers),
+  invokeOperation(
+    job.operation,
+    () => operationInvocations[job.operation](job, token, handlers),
   );

@@ -1,5 +1,10 @@
 import type { Option } from "./types";
 
+export type PromptLifecycle = Readonly<{
+  beforeAsk: () => void;
+  afterAsk: () => void;
+}>;
+
 export type PromptReader = Readonly<{
   ask: (question: string) => Promise<string>;
   close: () => void;
@@ -51,8 +56,8 @@ const findNewline: FindNewline = (buffer) => {
   };
 };
 
-type CreatePromptReader = () => PromptReader;
-export const CreatePromptReader: CreatePromptReader = () => {
+type CreatePromptReader = (lifecycle?: PromptLifecycle) => PromptReader;
+export const CreatePromptReader: CreatePromptReader = (lifecycle) => {
   const input = process.stdin;
   const decoder = new TextDecoder();
 
@@ -71,6 +76,7 @@ export const CreatePromptReader: CreatePromptReader = () => {
     buffer = buffer.slice(newline.end);
     waiting = undefined;
 
+    lifecycle?.afterAsk();
     resolve(line);
   };
 
@@ -95,6 +101,7 @@ export const CreatePromptReader: CreatePromptReader = () => {
       return Promise.reject(new Error("A prompt is already waiting for input"));
     }
 
+    lifecycle?.beforeAsk();
     process.stdout.write(question);
 
     return new Promise((resolve) => {

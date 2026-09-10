@@ -182,6 +182,7 @@ describe("XYOps CLI adapter", () => {
       listProjects: { title: "voiceflow_list_projects" },
       listVersions: { title: "voiceflow_list_versions" },
       listFolders: { title: "voiceflow_list_folders" },
+      createFolder: { title: "voiceflow_create_folder" },
       planMigration: { title: "voiceflow_plan_migration" },
       executeMigration: { title: "voiceflow_execute_migration" },
     });

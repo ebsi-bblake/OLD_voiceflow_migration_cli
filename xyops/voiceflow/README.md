@@ -28,6 +28,7 @@ list_workspaces
 list_projects
 list_versions
 list_folders
+create_folder
 plan_migration
 execute_migration
 ```
@@ -88,7 +89,7 @@ Use the XYOps Secret Vault for `VOICEFLOW_JWT`. Bind that secret to each Event
 execution under the `VOICEFLOW_JWT` name; never put it in the bundle, build
 arguments, committed files, or ordinary `params`.
 
-Point each of the seven Events at this one plugin registration:
+Point each of the eight Events at this one plugin registration:
 
 | Event title | `params.operation` |
 | --- | --- |
@@ -97,6 +98,7 @@ Point each of the seven Events at this one plugin registration:
 | `voiceflow_list_projects` | `list_projects` |
 | `voiceflow_list_versions` | `list_versions` |
 | `voiceflow_list_folders` | `list_folders` |
+| `voiceflow_create_folder` | `create_folder` |
 | `voiceflow_plan_migration` | `plan_migration` |
 | `voiceflow_execute_migration` | `execute_migration` |
 

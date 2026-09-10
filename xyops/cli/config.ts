@@ -45,6 +45,7 @@ const DEFAULT_EVENT_TITLES = {
   listProjects: "voiceflow_list_projects",
   listVersions: "voiceflow_list_versions",
   listFolders: "voiceflow_list_folders",
+  createFolder: "voiceflow_create_folder",
   planMigration: "voiceflow_plan_migration",
   executeMigration: "voiceflow_execute_migration",
 } as const;
@@ -198,6 +199,11 @@ const readEventConfig: ReadEventConfig = (environment) => ({
     environment,
     "XYOPS_EVENT_LIST_FOLDERS",
     DEFAULT_EVENT_TITLES.listFolders,
+  ),
+  createFolder: readEventReference(
+    environment,
+    "XYOPS_EVENT_CREATE_FOLDER",
+    DEFAULT_EVENT_TITLES.createFolder,
   ),
   planMigration: readEventReference(
     environment,

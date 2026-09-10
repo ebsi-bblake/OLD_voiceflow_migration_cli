@@ -128,7 +128,10 @@ export const run: Run = async () => {
   validateMigrationFileConfig(migrationConfig);
 
   const client = createXYOpsClient(config);
-  const reader = CreatePromptReader();
+  const reader = CreatePromptReader({
+    beforeAsk: progress.pause,
+    afterAsk: progress.resume,
+  });
   try {
     await performMigration({ reader, client, config, migrationConfig });
   } finally {

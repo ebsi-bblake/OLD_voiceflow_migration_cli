@@ -4,6 +4,7 @@ export const PluginOperation = {
   ListProjects: "list_projects",
   ListVersions: "list_versions",
   ListFolders: "list_folders",
+  CreateFolder: "create_folder",
   PlanMigration: "plan_migration",
   ExecuteMigration: "execute_migration",
 } as const;

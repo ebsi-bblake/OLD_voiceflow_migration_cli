@@ -4,6 +4,7 @@ export const VoiceflowOperation = {
   ListProjects: "list_projects",
   ListVersions: "list_versions",
   ListFolders: "list_folders",
+  CreateFolder: "create_folder",
   PlanMigration: "plan_migration",
   ExecuteMigration: "execute_migration",
 } as const;
@@ -123,12 +124,14 @@ export type ProjectRecord = Readonly<{
   id: string;
   label: string;
   workspaceID: string;
+  folderID?: string;
   environments: readonly EnvironmentRecord[];
 }>;
 export type FolderRecord = Readonly<{
   id: string;
   label: string;
   workspaceID: string;
+  parentID?: string;
 }>;
 export type ExecuteResult = Readonly<{
   planID: string;

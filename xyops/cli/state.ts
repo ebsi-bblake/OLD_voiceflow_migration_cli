@@ -108,6 +108,19 @@ export const listVersionsParameters: ListVersionsParameters = (
     SOURCE_PROJECT_ID: sourceProjectID,
   });
 
+type CreateFolderParameters = (
+  destinationWorkspaceID: string,
+  folderName: string,
+) => EventParameters;
+export const createFolderParameters: CreateFolderParameters = (
+  destinationWorkspaceID,
+  folderName,
+) =>
+  eventParametersFor("create_folder", {
+    DESTINATION_WORKSPACE_ID: destinationWorkspaceID,
+    DESTINATION_FOLDER_ID: folderName,
+  });
+
 type ListFoldersParameters = (
   destinationWorkspaceID: string,
 ) => EventParameters;

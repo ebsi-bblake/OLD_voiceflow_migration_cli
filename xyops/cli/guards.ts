@@ -48,6 +48,14 @@ export const isOption: IsOption = (value) =>
     all([isNonEmptyString(record.value), isNonEmptyString(record.label)]),
   );
 
+type IsCreatedFolderResult = (
+  value: unknown,
+) => value is Readonly<{ folder: Option }>;
+export const isCreatedFolderResult: IsCreatedFolderResult = (value) =>
+  satisfiesRecord<Readonly<{ folder: Option }>>(value, (record) =>
+    isOption(record.folder),
+  );
+
 type IsOptionResult = (
   value: unknown,
 ) => value is Readonly<{ options: readonly Option[] }>;

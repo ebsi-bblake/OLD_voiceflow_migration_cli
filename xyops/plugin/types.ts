@@ -48,6 +48,12 @@ type ListFoldersHandler = (
   destinationWorkspaceID: string,
 ) => Promise<PluginEnvelope>;
 
+type CreateFolderHandler = (
+  token: string,
+  destinationWorkspaceID: string,
+  folderName: string,
+) => Promise<PluginEnvelope>;
+
 type PlanMigrationHandler = (
   token: string,
   sourceWorkspaceID: string,
@@ -77,6 +83,7 @@ export type OperationHandlers = Readonly<{
   readonly list_projects: ListProjectsHandler;
   readonly list_versions: ListVersionsHandler;
   readonly list_folders: ListFoldersHandler;
+  readonly create_folder: CreateFolderHandler;
   readonly plan_migration: PlanMigrationHandler;
   readonly execute_migration: ExecuteMigrationHandler;
 }>;

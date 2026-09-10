@@ -2,9 +2,16 @@ type ProgressTask<T> = () => Promise<T>;
 
 type ProgressReporter = {
   readonly run: <T>(label: string, task: ProgressTask<T>) => Promise<T>;
+  readonly pause: () => void;
+  readonly resume: () => void;
 };
 
-const BAR_WIDTH = 20;
+type ProgressLifecycle = Readonly<{
+  pause: () => void;
+  resume: () => void;
+}>;
+
+const BAR_WIDTH = 10;
 const TICK_MS = 200;
 
 const progressLine = (label: string, tick: number): string => {
@@ -13,21 +20,64 @@ const progressLine = (label: string, tick: number): string => {
   return `${label} [${bar}]`;
 };
 
-const createProgressReporter = (): ProgressReporter => ({
-  run: <T>(label: string, task: ProgressTask<T>): Promise<T> => {
+const createProgressReporter = (): ProgressReporter => {
+  let lifecycle: ProgressLifecycle | undefined;
+
+  const pause = (): void => lifecycle?.pause();
+  const resume = (): void => lifecycle?.resume();
+
+  const run = <T>(label: string, task: ProgressTask<T>): Promise<T> => {
     if (!process.stderr.isTTY) return task();
 
     let tick = 0;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let finished = false;
+    let paused = false;
     const render = (): void => {
       process.stderr.write(`\r${progressLine(label, tick++)}`);
     };
-    render();
-    const timer = setInterval(render, TICK_MS);
-    const finish = (status: "done" | "failed"): void => {
-      clearInterval(timer);
-      process.stderr.write(`\r${label} [${"#".repeat(BAR_WIDTH)}] ${status}\n`);
+    const startTimer = (): void => {
+      if (!paused && !finished && timer === undefined) {
+        timer = setInterval(render, TICK_MS);
+      }
     };
-    return task().then(
+    const stopTimer = (): void => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const currentLifecycle: ProgressLifecycle = {
+      pause: () => {
+        paused = true;
+        stopTimer();
+      },
+      resume: () => {
+        paused = false;
+        if (!finished) {
+          render();
+          startTimer();
+        }
+      },
+    };
+    lifecycle = currentLifecycle;
+    render();
+    startTimer();
+    const finish = (status: "done" | "failed"): void => {
+      if (finished) return;
+      finished = true;
+      stopTimer();
+      process.stderr.write(`\r${label} [${"#".repeat(BAR_WIDTH)}] ${status}\n`);
+      if (lifecycle === currentLifecycle) lifecycle = undefined;
+    };
+    let taskResult: Promise<T>;
+    try {
+      taskResult = task();
+    } catch (error: unknown) {
+      finish("failed");
+      return Promise.reject(error);
+    }
+    return taskResult.then(
       (result) => {
         finish("done");
         return result;
@@ -37,7 +87,9 @@ const createProgressReporter = (): ProgressReporter => ({
         return Promise.reject(error);
       },
     );
-  },
-});
+  };
+
+  return { run, pause, resume };
+};
 
 export const progress = createProgressReporter();

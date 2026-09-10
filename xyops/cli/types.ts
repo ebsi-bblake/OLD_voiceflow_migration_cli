@@ -143,6 +143,7 @@ export type XYOpsEventConfig = Readonly<{
   listProjects: XYOpsEventReference;
   listVersions: XYOpsEventReference;
   listFolders: XYOpsEventReference;
+  createFolder: XYOpsEventReference;
   planMigration: XYOpsEventReference;
   executeMigration: XYOpsEventReference;
 }>;
