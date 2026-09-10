@@ -258,11 +258,11 @@ export const readXYOpsConfig: ReadXYOpsConfig = (
 
 type ConfigFileRecord = Record<string, unknown>;
 const CONFIG_KEYS = new Set([
-  "source_workspace_id",
-  "source_project_id",
-  "source_version_id",
-  "destination_workspace_id",
-  "destination_folder_id",
+  "source_workspace",
+  "source_project",
+  "source_version",
+  "destination_workspace",
+  "destination_folder",
   "target_schema_version",
   "secrets",
 ]);
@@ -278,7 +278,8 @@ const validateConfigArguments: ValidateConfigArguments = () => {
   );
   if (legacyArgument)
     throw fail("configuration", {
-      nextAction: "--secrets is unsupported; provide secrets in --config=<path>.",
+      nextAction:
+        "--secrets is unsupported; provide secrets in --config=<path>.",
     });
 };
 
@@ -319,11 +320,11 @@ type MigrationStringField = readonly [
   output: keyof Omit<MigrationFileConfig, "secrets">,
 ];
 const MIGRATION_STRING_FIELDS: readonly MigrationStringField[] = [
-  ["source_workspace_id", "sourceWorkspaceID"],
-  ["source_project_id", "sourceProjectID"],
-  ["source_version_id", "sourceVersionID"],
-  ["destination_workspace_id", "destinationWorkspaceID"],
-  ["destination_folder_id", "destinationFolderID"],
+  ["source_workspace", "sourceWorkspaceID"],
+  ["source_project", "sourceProjectID"],
+  ["source_version", "sourceVersionID"],
+  ["destination_workspace", "destinationWorkspaceID"],
+  ["destination_folder", "destinationFolderID"],
   ["target_schema_version", "targetSchemaVersion"],
 ];
 
@@ -370,11 +371,11 @@ export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
     string,
     ConfigFieldParser,
   ])[] = [
-    ["sourceWorkspaceID", "source_workspace_id", parseResourceSelection],
-    ["sourceProjectID", "source_project_id", parseResourceSelection],
-    ["sourceVersionID", "source_version_id", parseResourceSelection],
-    ["destinationWorkspaceID", "destination_workspace_id", parseResourceSelection],
-    ["destinationFolderID", "destination_folder_id", parseResourceSelection],
+    ["sourceWorkspaceID", "source_workspace", parseResourceSelection],
+    ["sourceProjectID", "source_project", parseResourceSelection],
+    ["sourceVersionID", "source_version", parseResourceSelection],
+    ["destinationWorkspaceID", "destination_workspace", parseResourceSelection],
+    ["destinationFolderID", "destination_folder", parseResourceSelection],
     ["targetSchemaVersion", "target_schema_version", parseSchemaVersion],
   ];
   fields.forEach(([property, name, parser]) => {
@@ -384,7 +385,7 @@ export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
       parser(value);
     } catch {
       throw fail("configuration", {
-        nextAction: `${name} must be a non-empty path-safe string${name === "destination_folder_id" ? " containing only digits" : ""}, with no control characters or excessive length.`,
+        nextAction: `${name} must be a non-empty path-safe string, with no control characters or excessive length.`,
       });
     }
   });

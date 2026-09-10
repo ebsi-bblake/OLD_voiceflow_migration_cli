@@ -129,11 +129,14 @@ voiceflow-cli
 ```
 
 For non-interactive migration inputs, pass `--config=<path>` using the checked-in
-shape in `xyops/cli/migration.example.json`. See [`docs/migration-config.md`](docs/migration-config.md)
-for the operator walkthrough and secret-file rollout policy. The file uses snake_case keys that
-map explicitly to `MigrationSelection` fields and may contain a `secrets` array
-of `{ "name": string, "value": string }` entries. Unknown top-level fields, blank configured values, blank or duplicate secret names, and extra secret entry fields are rejected; secrets are never included in diagnostics.
-Configured values bypass their prompts, so passing a complete config automates
+shape in `migration.json`. See [`docs/migration-config.md`](docs/migration-config.md)
+for the operator walkthrough and secret-file rollout policy. The file uses snake_case resource keys
+(`source_workspace`, `source_project`, `source_version`, `destination_workspace`, and
+`destination_folder`) that accept exact catalog names or canonical IDs. It may contain a
+`secrets` path or inline `SecretConfig[]`; an empty array means no secrets. Unknown top-level
+fields, blank configured values, blank or duplicate secret names, and extra secret entry fields
+are rejected; secrets are never included in diagnostics. Configured values bypass their prompts,
+so passing a complete config automates
 the migration-selection steps. An omitted `target_schema_version` uses the
 interactive default `13.1`. The former `--secrets` option is rejected.
 `XYOPS_EVENT_*` variables accept `title:<event-title>` or `id:<event-id>`.

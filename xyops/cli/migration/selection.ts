@@ -68,7 +68,7 @@ const validateConfiguredSourceDetails: ValidateConfiguredMigrationValues =
         migrationConfig.sourceProjectID,
         config.events.listProjects,
         listProjectsParameters(sourceWorkspaceID),
-        "source_project_id",
+        "source_project",
       );
     if (sourceWorkspaceID !== undefined && sourceProjectID !== undefined)
       await validateConfiguredOption(
@@ -76,7 +76,7 @@ const validateConfiguredSourceDetails: ValidateConfiguredMigrationValues =
         migrationConfig.sourceVersionID,
         config.events.listVersions,
         listVersionsParameters(sourceWorkspaceID, sourceProjectID),
-        "source_version_id",
+        "source_version",
       );
   };
 const validateConfiguredSourceValues: ValidateConfiguredMigrationValues =
@@ -89,7 +89,7 @@ const validateConfiguredSourceValues: ValidateConfiguredMigrationValues =
       migrationConfig.sourceWorkspaceID,
       config.events.listWorkspaces,
       listWorkspacesParameters(),
-      "source_workspace_id",
+      "source_workspace",
     );
     await validateConfiguredSourceDetails(context, selection);
   };
@@ -104,7 +104,7 @@ const validateConfiguredDestinationValues: ValidateConfiguredMigrationValues =
       migrationConfig.destinationWorkspaceID,
       config.events.listWorkspaces,
       listWorkspacesParameters(),
-      "destination_workspace_id",
+      "destination_workspace",
     );
     if (destinationWorkspaceID !== undefined)
       await validateConfiguredOption(
@@ -112,7 +112,7 @@ const validateConfiguredDestinationValues: ValidateConfiguredMigrationValues =
         migrationConfig.destinationFolderID,
         config.events.listFolders,
         listFoldersParameters(destinationWorkspaceID),
-        "destination_folder_id",
+        "destination_folder",
       );
   };
 export const validateConfiguredMigrationValues: ValidateConfiguredMigrationValues =
@@ -229,8 +229,8 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     client,
     config.events.listWorkspaces,
     listWorkspacesParameters(),
-    "source_workspace_id (Source workspace)",
-    "source_workspace_id",
+    "source_workspace (Source workspace)",
+    "source_workspace",
   );
   const sourceProjectID = await selectConfiguredOrCatalog(
     context.migrationConfig?.sourceProjectID,
@@ -238,8 +238,8 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     client,
     config.events.listProjects,
     listProjectsParameters(sourceWorkspaceID),
-    "source_project_id (Source project)",
-    "source_project_id",
+    "source_project (Source project)",
+    "source_project",
   );
   const sourceVersionID = await selectConfiguredOrCatalog(
     context.migrationConfig?.sourceVersionID,
@@ -247,8 +247,8 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     client,
     config.events.listVersions,
     listVersionsParameters(sourceWorkspaceID, sourceProjectID),
-    "source_version_id (Source draft/published version)",
-    "source_version_id",
+    "source_version (Source draft/published version)",
+    "source_version",
   );
   return { sourceWorkspaceID, sourceProjectID, sourceVersionID };
 };
@@ -270,8 +270,8 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     client,
     config.events.listWorkspaces,
     listWorkspacesParameters(),
-    "destination_workspace_id (Destination workspace)",
-    "destination_workspace_id",
+    "destination_workspace (Destination workspace)",
+    "destination_workspace",
   );
   const destinationFolderID = await selectConfiguredOrCatalog(
     context.migrationConfig?.destinationFolderID,
@@ -279,8 +279,8 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     client,
     config.events.listFolders,
     listFoldersParameters(destinationWorkspaceID),
-    "destination_folder_id (Destination folder)",
-    "destination_folder_id",
+    "destination_folder (Destination folder)",
+    "destination_folder",
   );
   return {
     destinationWorkspaceID,

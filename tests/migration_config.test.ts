@@ -10,17 +10,43 @@ const configPath = "/tmp/voiceflow-migration-config-test.json";
 const secretsPath = "/tmp/voiceflow-migration-secrets-test.json";
 
 describe("migration configuration contract", () => {
+  test("accepts resource names or IDs with the new field names", async () => {
+    await Bun.write(configPath, JSON.stringify({
+      source_workspace: "Support Workspace",
+      source_project: "Customer Assistant",
+      source_version: "Production",
+      destination_workspace: "Production Workspace",
+      destination_folder: "Customer Imports",
+    }));
+    await expect(readMigrationFileConfig(configPath)).resolves.toEqual({
+      sourceWorkspaceID: "Support Workspace",
+      sourceProjectID: "Customer Assistant",
+      sourceVersionID: "Production",
+      destinationWorkspaceID: "Production Workspace",
+      destinationFolderID: "Customer Imports",
+    });
+  });
+
+  test("rejects the removed ID-suffixed configuration fields", async () => {
+    await Bun.write(configPath, JSON.stringify({
+      source_workspace_id: "workspace",
+    }));
+    await expect(readMigrationFileConfig(configPath)).rejects.toMatchObject({
+      diagnostic: { code: "configuration" },
+    });
+  });
+
   test("maps snake_case inputs and preserves the configured secrets path", async () => {
     await Bun.write(secretsPath, JSON.stringify([
       { key: "FIRST_SECRET", value: "FIRST_REDACTED", type: "" },
       { key: "SECOND_SECRET", value: "SECOND_REDACTED", type: "" },
     ]));
     await Bun.write(configPath, JSON.stringify({
-      source_workspace_id: "source-workspace",
-      source_project_id: "source-project",
-      source_version_id: "source-version",
-      destination_workspace_id: "destination-workspace",
-      destination_folder_id: "destination-folder",
+      source_workspace: "source-workspace",
+      source_project: "source-project",
+      source_version: "source-version",
+      destination_workspace: "destination-workspace",
+      destination_folder: "destination-folder",
       target_schema_version: "13.1",
       secrets: secretsPath,
     }));
@@ -36,9 +62,16 @@ describe("migration configuration contract", () => {
   });
 
   test("preserves an omitted secrets property as absent", async () => {
-    await Bun.write(configPath, JSON.stringify({ source_workspace_id: "workspace" }));
+    await Bun.write(configPath, JSON.stringify({ source_workspace: "workspace" }));
     await expect(readMigrationFileConfig(configPath)).resolves.toEqual({
       sourceWorkspaceID: "workspace",
+    });
+  });
+
+  test("accepts a config containing only an empty inline secrets array", async () => {
+    await Bun.write(configPath, JSON.stringify({ secrets: [] }));
+    await expect(readMigrationFileConfig(configPath)).resolves.toEqual({
+      secrets: [],
     });
   });
 
@@ -60,7 +93,7 @@ describe("migration configuration contract", () => {
 
   test("rejects blank configured migration identifiers before prompting", async () => {
     await Bun.write(configPath, JSON.stringify({
-      source_workspace_id: "  ",
+      source_workspace: "  ",
     }));
     await expect(readMigrationFileConfig(configPath)).rejects.toMatchObject({
       diagnostic: { code: "configuration" },
@@ -109,9 +142,9 @@ describe("migration configuration contract", () => {
     }
   });
 
-  test("uses the config path from --config without prompting for secrets", async () => {
+  test("prompts for omitted secrets and treats blank input as no secrets", async () => {
     await Bun.write(configPath, JSON.stringify({
-      source_workspace_id: "workspace",
+      source_workspace: "workspace",
     }));
     const originalArguments = process.argv;
     process.argv = [...originalArguments, `--config=${configPath}`];
@@ -119,11 +152,15 @@ describe("migration configuration contract", () => {
       await expect(readMigrationFileConfig()).resolves.toEqual({
         sourceWorkspaceID: "workspace",
       });
+      const calls: string[] = [];
       const reader = {
-        ask: async () => { throw new Error("unexpected prompt"); },
+        ask: async (question: string) => { calls.push(question); return ""; },
         close: () => undefined,
       };
-      await expect(readSecretsForMigration(reader, {})).resolves.toBeUndefined();
+      await expect(readSecretsForMigration(reader, {})).resolves.toEqual([]);
+      expect(calls).toEqual([
+        "Path to secrets file (local or network; press Enter for no secrets): ",
+      ]);
     } finally {
       process.argv = originalArguments;
     }
@@ -168,11 +205,11 @@ describe("migration configuration contract", () => {
       targetSchemaVersion: "13.1",
     };
     const requiredFields = [
-      ["sourceWorkspaceID", "source_workspace_id"],
-      ["sourceProjectID", "source_project_id"],
-      ["sourceVersionID", "source_version_id"],
-      ["destinationWorkspaceID", "destination_workspace_id"],
-      ["destinationFolderID", "destination_folder_id"],
+      ["sourceWorkspaceID", "source_workspace"],
+      ["sourceProjectID", "source_project"],
+      ["sourceVersionID", "source_version"],
+      ["destinationWorkspaceID", "destination_workspace"],
+      ["destinationFolderID", "destination_folder"],
     ] as const;
     requiredFields.forEach(([field, configurationName]) => {
       expect(() => stateSelection({ ...completeState, [field]: undefined })).toThrow();
@@ -187,11 +224,13 @@ describe("migration configuration contract", () => {
   test("preserves an omitted schema version for artifact discovery", async () => {
     const calls: string[] = [];
     const context = {
-      reader: {
-        ask: async (question: string) => { calls.push(question); return ""; },
-        close: () => undefined,
-      },
-      client: { readEvent: async () => { throw new Error("unexpected event"); } },
+      reader: { ask: async () => { calls.push("prompt"); return ""; }, close: () => undefined },
+      client: { readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+        ok: true, operation: "list_workspaces", operationID: "test", warnings: [],
+        result: { options: parameters.operation === "list_workspaces"
+          ? [{ value: "destination-workspace", label: "Destination Workspace" }]
+          : [{ value: "destination-folder", label: "Destination Folder" }] },
+      }) },
       config: { events: { listWorkspaces: "workspaces", listFolders: "folders" } },
       migrationConfig: {
         destinationWorkspaceID: "destination-workspace",
@@ -199,24 +238,35 @@ describe("migration configuration contract", () => {
       },
     } as never;
     await expect(selectDestinationSelection(context)).resolves.toMatchObject({
+      destinationWorkspaceID: "destination-workspace",
+      destinationFolderID: "destination-folder",
       targetSchemaVersion: undefined,
     });
     expect(calls).toEqual([]);
   });
 
-  test("does not prompt when all migration values are configured", async () => {
+  test("resolves configured migration values without prompting", async () => {
     const calls: string[] = [];
     const context = {
       reader: { ask: async () => { calls.push("prompt"); return ""; }, close: () => undefined },
-      client: { readEvent: async () => { calls.push("event"); throw new Error("unexpected event"); }, executeEvent: async () => { throw new Error("unexpected event"); } },
+      client: { readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+        ok: true, operation: "list_workspaces", operationID: "test", warnings: [],
+        result: { options: parameters.operation === "list_workspaces"
+          ? [{ value: "workspace-id", label: "Workspace" }, { value: "destination-workspace", label: "Destination Workspace" }]
+          : parameters.operation === "list_projects"
+            ? [{ value: "project-id", label: "Project" }]
+            : parameters.operation === "list_versions"
+              ? [{ value: "version-id", label: "Version" }]
+              : [{ value: "42", label: "Destination Folder" }] },
+      }) },
       config: { events: { listWorkspaces: "workspaces", listProjects: "projects", listVersions: "versions", listFolders: "folders" } },
       migrationConfig: {
-        sourceWorkspaceID: "source-workspace", sourceProjectID: "source-project", sourceVersionID: "source-version",
-        destinationWorkspaceID: "destination-workspace", destinationFolderID: "destination-folder", targetSchemaVersion: "13.1",
+        sourceWorkspaceID: "Workspace", sourceProjectID: "Project", sourceVersionID: "Version",
+        destinationWorkspaceID: "Destination Workspace", destinationFolderID: "Destination Folder", targetSchemaVersion: "13.1",
       },
     } as never;
-    await expect(selectSourceSelection(context)).resolves.toEqual({ sourceWorkspaceID: "source-workspace", sourceProjectID: "source-project", sourceVersionID: "source-version" });
-    await expect(selectDestinationSelection(context)).resolves.toEqual({ destinationWorkspaceID: "destination-workspace", destinationFolderID: "destination-folder", targetSchemaVersion: "13.1" });
+    await expect(selectSourceSelection(context)).resolves.toEqual({ sourceWorkspaceID: "workspace-id", sourceProjectID: "project-id", sourceVersionID: "version-id" });
+    await expect(selectDestinationSelection(context)).resolves.toEqual({ destinationWorkspaceID: "destination-workspace", destinationFolderID: "42", targetSchemaVersion: "13.1" });
     expect(calls).toEqual([]);
   });
 });

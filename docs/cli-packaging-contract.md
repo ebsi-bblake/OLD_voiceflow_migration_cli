@@ -15,7 +15,7 @@ The executable must not contain API keys, JWTs, migration data, or any other
 credentials. Configuration is supplied at runtime:
 
 - `--config=<path>` supplies non-interactive migration IDs, schema version, and
-  project secrets using the schema in `xyops/cli/migration.example.json`.
+  project secrets using the schema in `migration.json`.
 - Environment variables supply XYOps connection configuration, including the
   required `XYOPS_API_KEY`; `XYOPS_BASE_URL` and `XYOPS_EVENT_*` are optional.
 - Missing migration selections remain interactive.
