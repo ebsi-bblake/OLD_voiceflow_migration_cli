@@ -23,10 +23,13 @@ export type {
 /** The file contract deliberately uses snake_case to match the CLI config file. */
 export type MigrationFileConfig = Readonly<{
   sourceWorkspaceID?: string;
+  sourceFolderID?: string;
   sourceProjectID?: string;
-  sourceVersionID?: string;
+  sourcePath?: string;
   destinationWorkspaceID?: string;
   destinationFolderID?: string;
+  destinationPath?: string;
+  sourceVersionID?: string;
   targetSchemaVersion?: string;
   /** Local/network path to a JSON secret array, or an inline secret array. */
   secrets?: string | SecretEntries;
@@ -265,10 +268,13 @@ export const readXYOpsConfig: ReadXYOpsConfig = (
 type ConfigFileRecord = Record<string, unknown>;
 const CONFIG_KEYS = new Set([
   "source_workspace",
+  "source_folder",
   "source_project",
+  "source_path",
   "source_version",
   "destination_workspace",
   "destination_folder",
+  "destination_path",
   "target_schema_version",
   "secrets",
 ]);
@@ -304,6 +310,23 @@ const parseConfigString: ParseConfigString = (value, key) => {
 
 type ConfigFieldParser = (value: unknown) => string;
 
+type ParseResourcePath = (value: unknown) => string;
+const parseResourcePath: ParseResourcePath = (value) => {
+  if (typeof value !== "string")
+    throw new Error("path must be a string");
+  const segments = value.split("/").map((segment) => segment.trim());
+  if (segments.some((segment) => {
+    try {
+      parseResourceSelection(segment);
+      return false;
+    } catch {
+      return true;
+    }
+  }))
+    throw new Error("path contains an invalid segment");
+  return value.trim();
+};
+
 type ReadConfiguredSecrets = (value: unknown) => string | SecretEntries;
 const readConfiguredSecrets: ReadConfiguredSecrets = (value) => {
   if (typeof value === "string") return parseConfigString(value, "secrets");
@@ -327,10 +350,13 @@ type MigrationStringField = readonly [
 ];
 const MIGRATION_STRING_FIELDS: readonly MigrationStringField[] = [
   ["source_workspace", "sourceWorkspaceID"],
+  ["source_folder", "sourceFolderID"],
   ["source_project", "sourceProjectID"],
+  ["source_path", "sourcePath"],
   ["source_version", "sourceVersionID"],
   ["destination_workspace", "destinationWorkspaceID"],
   ["destination_folder", "destinationFolderID"],
+  ["destination_path", "destinationPath"],
   ["target_schema_version", "targetSchemaVersion"],
 ];
 
@@ -378,10 +404,13 @@ export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
     ConfigFieldParser,
   ])[] = [
     ["sourceWorkspaceID", "source_workspace", parseResourceSelection],
+    ["sourceFolderID", "source_folder", parseResourceSelection],
     ["sourceProjectID", "source_project", parseResourceSelection],
+    ["sourcePath", "source_path", parseResourcePath],
     ["sourceVersionID", "source_version", parseResourceSelection],
     ["destinationWorkspaceID", "destination_workspace", parseResourceSelection],
     ["destinationFolderID", "destination_folder", parseResourceSelection],
+    ["destinationPath", "destination_path", parseResourcePath],
     ["targetSchemaVersion", "target_schema_version", parseSchemaVersion],
   ];
   fields.forEach(([property, name, parser]) => {

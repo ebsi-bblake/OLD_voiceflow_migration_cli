@@ -134,10 +134,14 @@ const retrieveValidatedApiKey = async (
     throw new OperationFault(
       "DEPENDENCY_FAILURE",
       true,
-      `api-key-http-${response.status}`,
+      `api-key-http-${response.status}-project-${id}`,
     );
   if (!hasApiKey(keys))
-    throw new OperationFault("DEPENDENCY_FAILURE", true, "api-key-response");
+    throw new OperationFault(
+      "DEPENDENCY_FAILURE",
+      true,
+      `api-key-response-project-${id}`,
+    );
   return keys[0];
 };
 const normalizeProjectID = (

@@ -1,7 +1,5 @@
 {
-  "source_workspace": "NaR6Nz6jLK",
-  "source_project": "6a98609d0daffbbf8d5d765a",
-  "destination_workspace": "24W6RebVXA",
-  "destination_folder": "43",
+  "source_path": "empyrean-sandbox/boazmasteroftheuniversepoc",
+  "destination_path": "empyrean-sandbox/boaz",
   "secrets": "//df2v-fs-01.ebsi.corp/shared/Test/secrets-ci.config.json"
 }

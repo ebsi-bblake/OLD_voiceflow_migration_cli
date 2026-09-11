@@ -8,6 +8,9 @@ import type { Envelope, ExecuteResult } from "../types";
 import { createUUID } from "../uuid";
 import { createProjectSecrets } from "../logux";
 import { parseSecretEntries, resolveConfiguredSecretValues } from "../secrets";
+import { loadProjects } from "../catalog";
+import { findArchiveCandidate } from "../archive";
+import { renameProject } from "../logux/rename-project";
 
 export type { ExecuteResult } from "../types";
 
@@ -18,6 +21,11 @@ const normalizeConfirmation = (confirmed: boolean | undefined): boolean =>
 const normalizeSchemaVersion = (
   version: string | undefined,
 ): string | undefined => version;
+
+// Archive relocation is temporarily disabled while its behavior is investigated.
+// Keep the implementation and imports intact so the existing archive path can be
+// re-enabled without reconstructing the preflight flow.
+const ARCHIVE_EXISTING_PROJECTS = false;
 
 const executeConfirmedMigration = async (
   token: string,
@@ -49,6 +57,33 @@ const executeConfirmedMigration = async (
     );
     const plan = await buildMigrationPlan(auth, selection);
     ensureMatchingPlan(plan.planID, planID);
+    if (ARCHIVE_EXISTING_PROJECTS) {
+      stage = "archive-preflight";
+      const [sourceProjects, destinationProjects] = await Promise.all([
+        loadProjects(auth, sourceWorkspaceID),
+        loadProjects(auth, destinationWorkspaceID),
+      ]);
+      const sourceProject = sourceProjects.find(
+        (project) => project.id === sourceProjectID,
+      );
+      if (sourceProject === undefined) throw new OperationFault("NOT_FOUND");
+      const archive = findArchiveCandidate(
+        destinationProjects,
+        destinationWorkspaceID,
+        destinationFolderID,
+        sourceProject.label,
+        { now: () => new Date() },
+      );
+      if (archive !== undefined) {
+        stage = "archive";
+        await renameProject(
+          auth,
+          destinationWorkspaceID,
+          archive.project.id,
+          archive.name,
+        );
+      }
+    }
     stage = "import";
     const imported = await importVersion(
       auth,

@@ -27,6 +27,26 @@ describe("migration configuration contract", () => {
     });
   });
 
+  test("accepts path-based resource fields and source folder context", async () => {
+    await Bun.write(configPath, JSON.stringify({
+      source_path: " Source Workspace / Source Folder / Source Project ",
+      source_folder: "Source Folder",
+      destination_path: "Destination Workspace/Import Folder",
+    }));
+    await expect(readMigrationFileConfig(configPath)).resolves.toEqual({
+      sourcePath: "Source Workspace / Source Folder / Source Project",
+      sourceFolderID: "Source Folder",
+      destinationPath: "Destination Workspace/Import Folder",
+    });
+  });
+
+  test("rejects malformed path-based fields", async () => {
+    await Bun.write(configPath, JSON.stringify({ source_path: "   " }));
+    await expect(readMigrationFileConfig(configPath)).rejects.toMatchObject({
+      diagnostic: { code: "configuration" },
+    });
+  });
+
   test("rejects the removed ID-suffixed configuration fields", async () => {
     await Bun.write(configPath, JSON.stringify({
       source_workspace_id: "workspace",
@@ -219,6 +239,86 @@ describe("migration configuration contract", () => {
         expect(JSON.stringify(cliErrorOutput(error))).toContain(configurationName);
       }
     });
+  });
+
+  test("returns to destination folder selection after creation is declined", async () => {
+    const questions: string[] = [];
+    const executedEvents: string[] = [];
+    const context = {
+      reader: {
+        ask: async (question: string) => {
+          questions.push(question);
+          return ["Paricipant Assistants", "no", "Participant Assistants"][questions.length - 1];
+        },
+        close: () => undefined,
+      },
+      client: {
+        readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+          ok: true,
+          operation: parameters.operation,
+          operationID: "test",
+          warnings: [],
+          result: {
+            options: parameters.operation === "list_workspaces"
+              ? [{ value: "destination-workspace", label: "Destination Workspace" }]
+              : [{ value: "folder-id", label: "Participant Assistants" }],
+          },
+        }),
+        executeEvent: async () => {
+          executedEvents.push("create_folder");
+          return {};
+        },
+      },
+      config: { events: { listWorkspaces: "workspaces", listFolders: "folders", createFolder: "create-folder" } },
+      migrationConfig: { destinationWorkspaceID: "destination-workspace" },
+    } as never;
+
+    await expect(selectDestinationSelection(context)).resolves.toMatchObject({
+      destinationFolderID: "folder-id",
+    });
+    expect(questions).toEqual([
+      "Select number or enter a new folder name: ",
+      "Create destination folder 'Paricipant Assistants'? (yes/no): ",
+      "Select number or enter a new folder name: ",
+    ]);
+    expect(executedEvents).toEqual([]);
+  });
+
+  test("redisplays destination folders after an illegal number", async () => {
+    const questions: string[] = [];
+    const context = {
+      reader: {
+        ask: async (question: string) => {
+          questions.push(question);
+          return questions.length === 1 ? "99" : "1";
+        },
+        close: () => undefined,
+      },
+      client: {
+        readEvent: async (_event: unknown, parameters: { operation: string }) => ({
+          ok: true,
+          operation: parameters.operation,
+          operationID: "test",
+          warnings: [],
+          result: {
+            options: parameters.operation === "list_workspaces"
+              ? [{ value: "destination-workspace", label: "Destination Workspace" }]
+              : [{ value: "folder-id", label: "Participant Assistants" }],
+          },
+        }),
+        executeEvent: async () => { throw new Error("unexpected folder creation"); },
+      },
+      config: { events: { listWorkspaces: "workspaces", listFolders: "folders", createFolder: "create-folder" } },
+      migrationConfig: { destinationWorkspaceID: "destination-workspace" },
+    } as never;
+
+    await expect(selectDestinationSelection(context)).resolves.toMatchObject({
+      destinationFolderID: "folder-id",
+    });
+    expect(questions).toEqual([
+      "Select number or enter a new folder name: ",
+      "Select number or enter a new folder name: ",
+    ]);
   });
 
   test("preserves an omitted schema version for artifact discovery", async () => {

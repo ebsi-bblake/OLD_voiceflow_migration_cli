@@ -5,7 +5,6 @@ import {
   parseSecretsFile,
   resolveProjectPath,
 } from "../xyops/voiceflow/secrets";
-import { parseSecretEntries as parseArchivedSecretEntries } from "../windmill_agent_scripts/vf_secrets";
 
 const secret = (key: string, value: string) => ({ key, value, type: "" as const });
 
@@ -33,16 +32,9 @@ describe("secret file parsing", () => {
     ];
     malformed.forEach((entries) => {
       expect(() => parseSecretEntries(entries)).toThrow();
-      expect(() => parseArchivedSecretEntries(entries)).toThrow();
     });
     const duplicate = [secret("TEST_SECRET", "first"), secret("TEST_SECRET", "second")];
     expect(() => parseSecretEntries(duplicate)).toThrow("duplicate");
-    expect(() => parseArchivedSecretEntries(duplicate)).toThrow("duplicate");
-  });
-
-  test("keeps active and archived parsers aligned for valid entries", () => {
-    const entries = [secret("FIRST_SECRET", "first value"), secret("SECOND_SECRET", "second value")];
-    expect(parseArchivedSecretEntries(entries)).toEqual(parseSecretEntries(entries));
   });
 
   test("resolves a project path through workspace and nested folders", () => {

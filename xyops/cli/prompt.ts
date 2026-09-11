@@ -98,7 +98,9 @@ export const CreatePromptReader: CreatePromptReader = (lifecycle) => {
   type Ask = (question: string) => Promise<string>;
   const ask: Ask = (question) => {
     if (waiting) {
-      return Promise.reject(new Error("A prompt is already waiting for input"));
+      return Promise.reject(
+        new Error("\nA prompt is already waiting for input"),
+      );
     }
 
     lifecycle?.beforeAsk();
@@ -167,7 +169,7 @@ type RequireOptions = (
 ) => readonly Option[];
 const requireOptions: RequireOptions = (title, options) => {
   if (!options.length) {
-    throw new Error(`No ${title.toLowerCase()} options were returned.`);
+    throw new Error(`\nNo ${title.toLowerCase()} options were returned.`);
   }
 
   return options;
@@ -175,9 +177,10 @@ const requireOptions: RequireOptions = (title, options) => {
 
 type ReadOption = (
   reader: PromptReader,
+  title: string,
   options: readonly Option[],
 ) => Promise<string>;
-const readOption: ReadOption = (reader, options) =>
+const readOption: ReadOption = (reader, title, options) =>
   reader.ask("Select number: ").then((answer) => {
     const number = Number.parseInt(answer, 10);
 
@@ -185,9 +188,9 @@ const readOption: ReadOption = (reader, options) =>
       return options[number - 1].value;
     }
 
-    console.log("Please select one of the displayed numbers.");
+    console.log("\nPlease select one of the displayed numbers.");
 
-    return readOption(reader, options);
+    return chooseOption(reader, title, options);
   });
 
 type FormatOptionForPrompt = (option: Option) => string;
@@ -210,5 +213,5 @@ export const chooseOption: ChooseOption = async (reader, title, options) => {
     console.log(`${index + 1}. ${formatOptionForPrompt(option)}`),
   );
 
-  return readOption(reader, validOptions);
+  return readOption(reader, title, validOptions);
 };

@@ -19,6 +19,7 @@ import {
 } from "../xyops/voiceflow/export";
 import { importVersion as originalImportVersion } from "../xyops/voiceflow/import";
 import { buildMigrationPlan as originalBuildMigrationPlan } from "../xyops/voiceflow/planning";
+import type { ProjectRecord } from "../xyops/voiceflow/types";
 
 type ExecuteScenario = "retrieval-failure" | "success";
 
@@ -99,6 +100,12 @@ const buildMigrationPlan = mock(async () => plan);
 const exportVersion = mock(async () => artifact);
 const importVersion = mock(async () => imported);
 const retrieveApiKeyStatus = mock(async () => apiKeyOutcome);
+const loadProjects = mock(async (_auth: unknown, workspaceID: string): Promise<readonly ProjectRecord[]> => [{
+  id: selection.sourceProjectID,
+  label: "Source Project",
+  workspaceID,
+  environments: [],
+}]);
 
 function installDependencyMocks(): void {
   mock.module("../xyops/voiceflow/auth", () => ({ resolveVoiceflowAuth }));
@@ -106,6 +113,7 @@ function installDependencyMocks(): void {
   mock.module("../xyops/voiceflow/export", () => ({ exportVersion }));
   mock.module("../xyops/voiceflow/import", () => ({ importVersion }));
   mock.module("../xyops/voiceflow/api_key", () => ({ retrieveApiKeyStatus }));
+  mock.module("../xyops/voiceflow/catalog", () => ({ loadProjects }));
 }
 
 function restoreDependencyModules(): void {
@@ -123,6 +131,9 @@ function restoreDependencyModules(): void {
   }));
   mock.module("../xyops/voiceflow/api_key", () => ({
     retrieveApiKeyStatus: originalRetrieveApiKeyStatus,
+  }));
+  mock.module("../xyops/voiceflow/catalog", () => ({
+    loadProjects: async () => [],
   }));
 }
 

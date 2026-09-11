@@ -131,6 +131,45 @@ type ResolveConfiguredOption = (
   options: readonly { value: string; label: string }[],
   field: string,
 ) => string;
+const normalizeCatalogName = (value: string): string =>
+  value.normalize("NFC").trim().toLowerCase();
+
+const pathSegments = (value: string, field: string): readonly string[] => {
+  const segments = value.split("/").map((segment) => segment.trim());
+  if (segments.some((segment) =>
+    [...segment].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    }),
+  ))
+    throw fail("configuration", {
+      nextAction: `${field} contains an invalid path segment.`,
+    });
+  return segments;
+};
+
+type ResolvePath = (
+  value: string,
+  field: string,
+  minimumSegments: number,
+) => readonly string[];
+const resolvePath: ResolvePath = (value, field, minimumSegments) => {
+  const segments = pathSegments(value, field);
+  if (segments.length < minimumSegments)
+    throw fail("configuration", {
+      nextAction: `${field} must contain at least ${minimumSegments} path segments.`,
+    });
+  return segments;
+};
+
+const pathName = (value: string): string => {
+  const suffix = value.lastIndexOf(" (");
+  return suffix === -1 ? value : value.slice(0, suffix);
+};
+
+const matchesCatalogName = (left: string, right: string): boolean =>
+  normalizeCatalogName(left) === normalizeCatalogName(right);
+
 const resolveConfiguredOption: ResolveConfiguredOption = (
   configuredValue,
   options,
@@ -139,8 +178,9 @@ const resolveConfiguredOption: ResolveConfiguredOption = (
   const idMatch = options.find((option) => option.value === configuredValue);
   if (idMatch !== undefined) return idMatch.value;
 
-  const nameMatches = options.filter(
-    (option) => option.label === configuredValue,
+  const nameMatches = options.filter((option) =>
+    matchesCatalogName(option.label, configuredValue) ||
+    matchesCatalogName(pathName(option.label), configuredValue),
   );
   if (nameMatches.length === 1) return nameMatches[0].value;
   if (nameMatches.length > 1)
@@ -275,10 +315,29 @@ const selectSourceVersion: SelectSourceVersion = (
         "source_version",
       );
 
+type ConfiguredSourceValues = Readonly<{
+  workspace?: string;
+  project?: string;
+}>;
+const configuredSourceValues = (
+  migrationConfig: MigrationFileConfig | undefined,
+): ConfiguredSourceValues => {
+  if (migrationConfig?.sourcePath !== undefined) {
+    const segments = resolvePath(migrationConfig.sourcePath, "source_path", 2);
+    return { workspace: segments[0], project: segments.slice(1).join("/") };
+  }
+  const project = migrationConfig?.sourceFolderID === undefined
+    ? migrationConfig?.sourceProjectID
+    : `${migrationConfig.sourceFolderID}/${migrationConfig.sourceProjectID}`;
+  return { workspace: migrationConfig?.sourceWorkspaceID, project };
+};
+
 export const selectSourceSelection: SelectSourceSelection = async (context) => {
   const { reader, client, config } = context;
+  const configured = configuredSourceValues(context.migrationConfig);
+  const configuredSourceWorkspace = configured.workspace;
   const sourceWorkspaceID = await selectConfiguredOrCatalog(
-    context.migrationConfig?.sourceWorkspaceID,
+    configuredSourceWorkspace,
     reader,
     client,
     config.events.listWorkspaces,
@@ -287,7 +346,7 @@ export const selectSourceSelection: SelectSourceSelection = async (context) => {
     "source_workspace",
   );
   const sourceProjectID = await selectConfiguredOrCatalog(
-    context.migrationConfig?.sourceProjectID,
+    configured.project,
     reader,
     client,
     config.events.listProjects,
@@ -323,18 +382,15 @@ type CreateDestinationFolder = (
   context: MigrationContext,
   workspaceID: string,
   name: string,
-) => Promise<string>;
+) => Promise<string | undefined>;
 const createDestinationFolder: CreateDestinationFolder = async (
   { reader, client, config },
   workspaceID,
   name,
 ) => {
   console.log(`\nThe destination folder '${name}' does not exist.`);
-  console.log(" ~ Declining creation fails the migration and exits. ~");
-  if (!(await confirmFolderCreation(reader, name)))
-    throw fail("configuration", {
-      nextAction: "Destination folder creation was declined.",
-    });
+  console.log(" ~ Declining creation returns to folder selection. ~");
+  if (!(await confirmFolderCreation(reader, name))) return undefined;
   const response = await client.executeEvent(
     config.events.createFolder,
     createFolderParameters(workspaceID, name),
@@ -344,10 +400,28 @@ const createDestinationFolder: CreateDestinationFolder = async (
     .folder.value;
 };
 
-const selectInteractiveDestinationFolder = async (
+type ContinueDestinationFolderSelection = (
+  createdFolderID: string | undefined,
   context: MigrationContext,
   workspaceID: string,
-): Promise<string> => {
+) => Promise<string>;
+const continueDestinationFolderSelection: ContinueDestinationFolderSelection = (
+  createdFolderID,
+  context,
+  workspaceID,
+) =>
+  createdFolderID === undefined
+    ? selectInteractiveDestinationFolder(context, workspaceID)
+    : Promise.resolve(createdFolderID);
+
+type SelectInteractiveDestinationFolder = (
+  context: MigrationContext,
+  workspaceID: string,
+) => Promise<string>;
+const selectInteractiveDestinationFolder: SelectInteractiveDestinationFolder = async (
+  context,
+  workspaceID,
+) => {
   const { reader, client, config } = context;
   const response = await client.readEvent(
     config.events.listFolders,
@@ -375,9 +449,28 @@ const selectInteractiveDestinationFolder = async (
   const number = Number.parseInt(answer, 10);
   if (Number.isInteger(number) && number >= 1 && number <= options.length)
     return options[number - 1].value;
+  if (isOutOfRangeFolderNumber(answer, number, options.length)) {
+    console.log("\nPlease select one of the displayed folder numbers.");
+    return selectInteractiveDestinationFolder(context, workspaceID);
+  }
   const exact = resolveFolderInput(answer, options);
-  return exact ?? createDestinationFolder(context, workspaceID, answer);
+  if (exact !== undefined) return exact;
+  const created = await createDestinationFolder(context, workspaceID, answer);
+  return continueDestinationFolderSelection(created, context, workspaceID);
 };
+
+type IsOutOfRangeFolderNumber = (
+  answer: string,
+  number: number,
+  optionCount: number,
+) => boolean;
+const isOutOfRangeFolderNumber: IsOutOfRangeFolderNumber = (
+  answer,
+  number,
+  optionCount,
+) =>
+  /^\d+$/.test(answer) &&
+  (!Number.isInteger(number) || number < 1 || number > optionCount);
 
 const resolveFolderInput = (
   value: string,
@@ -385,7 +478,9 @@ const resolveFolderInput = (
 ): string | undefined => {
   const idMatch = options.find((option) => option.value === value);
   if (idMatch) return idMatch.value;
-  const matches = options.filter((option) => option.label === value);
+  const matches = options.filter((option) =>
+    matchesCatalogName(option.label, value),
+  );
   if (matches.length > 1)
     throw fail("configuration", {
       nextAction:
@@ -394,12 +489,35 @@ const resolveFolderInput = (
   return matches[0]?.value;
 };
 
+type ConfiguredDestinationValues = Readonly<{
+  workspace?: string;
+  folder?: string;
+}>;
+const configuredDestinationValues = (
+  migrationConfig: MigrationFileConfig | undefined,
+): ConfiguredDestinationValues => {
+  if (migrationConfig?.destinationPath !== undefined) {
+    const segments = resolvePath(
+      migrationConfig.destinationPath,
+      "destination_path",
+      2,
+    );
+    return { workspace: segments[0], folder: segments.slice(1).join("/") };
+  }
+  return {
+    workspace: migrationConfig?.destinationWorkspaceID,
+    folder: migrationConfig?.destinationFolderID,
+  };
+};
+
 export const selectDestinationSelection: SelectDestinationSelection = async (
   context,
 ) => {
   const { reader, client, config } = context;
+  const configured = configuredDestinationValues(context.migrationConfig);
+  const configuredDestinationWorkspace = configured.workspace;
   const destinationWorkspaceID = await selectConfiguredOrCatalog(
-    context.migrationConfig?.destinationWorkspaceID,
+    configuredDestinationWorkspace,
     reader,
     client,
     config.events.listWorkspaces,
@@ -407,7 +525,7 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
     "Destination workspace",
     "destination_workspace",
   );
-  const configuredFolder = context.migrationConfig?.destinationFolderID;
+  const configuredFolder = configured.folder;
   const destinationFolderID =
     configuredFolder === undefined
       ? await selectInteractiveDestinationFolder(
@@ -422,14 +540,16 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
           );
           const options = readOptions(response, "destination_folder");
           const resolved = resolveFolderInput(configuredFolder, options);
-          return (
-            resolved ??
-            createDestinationFolder(
-              context,
-              destinationWorkspaceID,
-              configuredFolder,
-            )
+          if (resolved !== undefined) return resolved;
+          const created = await createDestinationFolder(
+            context,
+            destinationWorkspaceID,
+            configuredFolder,
           );
+          if (created !== undefined) return created;
+          throw fail("configuration", {
+            nextAction: "Destination folder creation was declined.",
+          });
         })();
   return {
     destinationWorkspaceID,
