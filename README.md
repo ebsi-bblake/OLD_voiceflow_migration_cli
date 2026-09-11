@@ -144,6 +144,66 @@ interactive default `13.1`. The former `--secrets` option is rejected.
 `XYOPS_EVENT_*` variables accept `title:<event-title>` or `id:<event-id>`.
 After confirmation, the CLI performs a real Voiceflow export and import.
 
+### Application invariants
+
+These invariants apply across the CLI, XYOps plugin, Voiceflow adapters, and
+migration workflow:
+
+- The operation boundary is explicit: one input job produces one JSON response.
+  stdout is reserved for protocol output; diagnostics go to stderr.
+- `VOICEFLOW_JWT` is supplied through the XYOps Secret Vault, never through
+  ordinary parameters, source, artifacts, logs, or diagnostics.
+- Untrusted input and external responses are validated at boundaries. Internal
+  code does not treat malformed records, missing IDs, or unknown operations as
+  valid state.
+- Workspace, folder, project, and version identity is carried by canonical IDs;
+  display names are not sufficient to cross a boundary. Resources are never
+  selected from a different workspace than the resolved operation scope.
+- Planning and execution use the same migration selection and plan ID. Execution
+  rejects a mismatched plan and does not silently substitute another resource.
+- A real migration requires explicit confirmation at the execution boundary.
+  An omitted or false confirmation performs no import.
+- Export, archive preflight, import, and secret creation are ordered stages.
+  Import does not begin after a failed archive stage, and failures identify the
+  stage without exposing credentials or raw sensitive payloads.
+- Successful import results are returned with the plan ID and selected
+  migration context. Unknown import outcomes require destination reconciliation
+  before retry because migrations are not idempotent.
+- Secret values and exported project data are never printed, persisted in
+  diagnostics, committed, or included in screenshots.
+- Operation failures use stable error categories and preserve retryability at
+  the boundary; unexpected failures are not presented as successful operations.
+- The active deployment is the native XYOps plugin. Archived Windmill sources
+  are reference material only and are not part of the active build.
+
+### Archive invariants
+
+When the destination folder already contains a project with the migration's
+name, the existing project is archived before import:
+
+- The archive folder is named `Archive`. Its ID is resolved from folders in the
+  destination workspace only; a same-named folder in another workspace is never
+  used.
+- If the destination workspace has no `Archive` folder, it is created
+  automatically. Archive-folder creation does not require an additional user
+  confirmation.
+- The existing project is renamed with the
+  `<project_name>_YYYYMMDD_HHmm` suffix, using the JavaScript `Temporal` API
+  (provided by `@js-temporal/polyfill`) with the runtime's local timezone. An
+  archive name must not overwrite an
+  existing project; timestamp/name collisions are handled automatically or
+  reported as a failure.
+- The renamed project is moved to `Archive` before migration import starts.
+  The original destination folder is unchanged except that the archived project
+  is removed; creating or reusing `Archive` occurs within the same workspace.
+- Rename and relocation are separate operations. If rename succeeds but the
+  move fails, the renamed project remains in its original folder. A retry moves
+  that renamed project without adding another timestamp suffix.
+- A relocation failure exits with status `1`, does not start migration import,
+  and does not expose credentials or raw sensitive API payloads.
+- Application-level concurrency coordination is not part of this contract;
+  Logux is responsible for concurrency concerns.
+
 See [`xyops/voiceflow/README.md`](xyops/voiceflow/README.md) for native plugin
 build, target-server installation, registration, and test procedures.
 

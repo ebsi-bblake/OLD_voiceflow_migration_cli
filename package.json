@@ -22,5 +22,8 @@
     "verify:cli": "bun scripts/validate-cli-artifacts.ts",
     "probe:network-secrets": "bun scripts/probe-network-secrets.ts",
     "check": "bun run lint && bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1"
   }
 }
