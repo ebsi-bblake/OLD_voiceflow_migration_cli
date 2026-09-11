@@ -1,7 +1,9 @@
 @cli @selection @folders
 Feature: Retry destination folder selection after declining creation
   Declining creation of a missing folder should return the user to folder
-  selection so a typo can be corrected without restarting the CLI.
+  selection so a typo can be corrected without restarting the CLI. This feature
+  covers selection only; after migration confirmation, the user cannot return
+  to the selection flow.
 
   Background:
     Given destination folder catalog loading has completed
@@ -12,6 +14,13 @@ Feature: Retry destination folder selection after declining creation
     When the user declines creation of the requested folder
     Then the folder creation prompt ends
     And the destination folder selection is displayed again
+    And migration planning has not started
+
+  @retry
+  Scenario: Show folder choices again after an illegal number
+    When the user enters a folder number that is not displayed
+    Then the folder choices are displayed again
+    And no new folder is created
     And migration planning has not started
 
   @retry
