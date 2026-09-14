@@ -24,6 +24,11 @@ const normalizeSchemaVersion = (
 
 const RENAME_BARRIER_ATTEMPTS = 5;
 const RENAME_BARRIER_DELAY_MS = 250;
+const IMPORT_CONSISTENCY_DELAY_MS = 1_000;
+
+type WaitForImportConsistency = () => Promise<void>;
+const waitForImportConsistency: WaitForImportConsistency = () =>
+  new Promise<void>((resolve) => setTimeout(resolve, IMPORT_CONSISTENCY_DELAY_MS));
 
 type IsRenamedProject = (
   project: ProjectRecord | undefined,
@@ -144,6 +149,7 @@ const executeConfirmedMigration = async (
         archive.project.id,
         archive.name,
       );
+      await waitForImportConsistency();
     }
     stage = "import";
     const imported = await importVersion(
