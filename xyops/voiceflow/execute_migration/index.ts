@@ -24,7 +24,7 @@ const normalizeSchemaVersion = (
 
 const RENAME_BARRIER_ATTEMPTS = 5;
 const RENAME_BARRIER_DELAY_MS = 250;
-const RENAME_IMPORT_DELAY_MS = 10_000;
+const RENAME_IMPORT_DELAY_MS = 1_000;
 
 type WaitForRenameImportDelay = () => Promise<void>;
 const waitForRenameImportDelay: WaitForRenameImportDelay = () =>
