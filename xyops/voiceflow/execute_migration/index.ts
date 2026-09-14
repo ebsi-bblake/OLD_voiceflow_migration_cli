@@ -4,7 +4,7 @@ import { importVersion } from "../import";
 import { buildMigrationPlan } from "../planning";
 import { failure, OperationFault, success } from "../contracts";
 import { isConfirmationGranted } from "../guards";
-import type { Envelope, ExecuteResult } from "../types";
+import type { Envelope, ExecuteResult, ProjectRecord } from "../types";
 import { createUUID } from "../uuid";
 import { createProjectSecrets } from "../logux";
 import { parseSecretEntries, resolveConfiguredSecretValues } from "../secrets";
@@ -22,10 +22,65 @@ const normalizeSchemaVersion = (
   version: string | undefined,
 ): string | undefined => version;
 
-// Archive relocation is temporarily disabled while its behavior is investigated.
-// Keep the implementation and imports intact so the existing archive path can be
-// re-enabled without reconstructing the preflight flow.
-const ARCHIVE_EXISTING_PROJECTS = false;
+const RENAME_BARRIER_ATTEMPTS = 5;
+const RENAME_BARRIER_DELAY_MS = 250;
+
+type IsRenamedProject = (
+  project: ProjectRecord | undefined,
+  workspaceID: string,
+  folderID: string,
+  projectID: string,
+  name: string,
+) => boolean;
+const isRenamedProject: IsRenamedProject = (
+  project,
+  workspaceID,
+  folderID,
+  projectID,
+  name,
+) =>
+  project?.id === projectID &&
+  project.workspaceID === workspaceID &&
+  project.folderID === folderID &&
+  project.label === name;
+
+type ConfirmRenamedProject = (
+  auth: Parameters<typeof loadProjects>[0],
+  workspaceID: string,
+  folderID: string,
+  projectID: string,
+  name: string,
+) => Promise<void>;
+const confirmRenamedProject: ConfirmRenamedProject = async (
+  auth,
+  workspaceID,
+  folderID,
+  projectID,
+  name,
+) => {
+  for (let attempt = 0; attempt < RENAME_BARRIER_ATTEMPTS; attempt += 1) {
+    try {
+      const projects: readonly ProjectRecord[] = await loadProjects(
+        auth,
+        workspaceID,
+      );
+      const project = projects.find((candidate) => candidate.id === projectID);
+      if (isRenamedProject(project, workspaceID, folderID, projectID, name))
+        return;
+    } catch {
+      // A later catalog read can observe the committed Logux state.
+    }
+    if (attempt < RENAME_BARRIER_ATTEMPTS - 1)
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, RENAME_BARRIER_DELAY_MS),
+      );
+  }
+  throw new OperationFault(
+    "DEPENDENCY_TIMEOUT",
+    true,
+    "archive-durability rename state was not confirmed",
+  );
+};
 
 const executeConfirmedMigration = async (
   token: string,
@@ -57,32 +112,38 @@ const executeConfirmedMigration = async (
     );
     const plan = await buildMigrationPlan(auth, selection);
     ensureMatchingPlan(plan.planID, planID);
-    if (ARCHIVE_EXISTING_PROJECTS) {
-      stage = "archive-preflight";
-      const [sourceProjects, destinationProjects] = await Promise.all([
-        loadProjects(auth, sourceWorkspaceID),
-        loadProjects(auth, destinationWorkspaceID),
-      ]);
-      const sourceProject = sourceProjects.find(
-        (project) => project.id === sourceProjectID,
+    stage = "archive-preflight";
+    const [sourceProjects, destinationProjects] = await Promise.all([
+      loadProjects(auth, sourceWorkspaceID),
+      loadProjects(auth, destinationWorkspaceID),
+    ]);
+    const sourceProject = sourceProjects.find(
+      (project) => project.id === sourceProjectID,
+    );
+    if (sourceProject === undefined) throw new OperationFault("NOT_FOUND");
+    const archive = findArchiveCandidate(
+      destinationProjects,
+      destinationWorkspaceID,
+      destinationFolderID,
+      sourceProject.label,
+      { now: () => new Date() },
+    );
+    if (archive !== undefined) {
+      stage = "archive";
+      await renameProject(
+        auth,
+        destinationWorkspaceID,
+        archive.project.id,
+        archive.name,
       );
-      if (sourceProject === undefined) throw new OperationFault("NOT_FOUND");
-      const archive = findArchiveCandidate(
-        destinationProjects,
+      stage = "archive-durability";
+      await confirmRenamedProject(
+        auth,
         destinationWorkspaceID,
         destinationFolderID,
-        sourceProject.label,
-        { now: () => new Date() },
+        archive.project.id,
+        archive.name,
       );
-      if (archive !== undefined) {
-        stage = "archive";
-        await renameProject(
-          auth,
-          destinationWorkspaceID,
-          archive.project.id,
-          archive.name,
-        );
-      }
     }
     stage = "import";
     const imported = await importVersion(
