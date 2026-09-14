@@ -25,6 +25,16 @@ const parseFrame = (value: unknown): Frame | undefined => {
 };
 const actionOf = (frame: Frame): RecordValue | undefined =>
   isRecord(frame[2]) ? frame[2] : undefined;
+
+type ProcessedForOrigin = (frame: Frame, origin: string) => boolean;
+const processedForOrigin: ProcessedForOrigin = (frame, origin) => {
+  const action = actionOf(frame);
+  return (
+    action?.type === "logux/processed" &&
+    typeof action.id === "string" &&
+    action.id.includes(` ${origin} `)
+  );
+};
 /* oxlint-disable complexity -- protocol payload validation has explicit guards. */
 export const patchCompleted = (
   frame: Frame,
@@ -150,11 +160,13 @@ export const renameProject: RenameProject = (
         }
         return;
       }
-      if (
-        subscriptionComplete &&
-        mutationSent &&
-        patchCompleted(frame, workspaceID, projectID, name, origin)
-      )
+      if (!subscriptionComplete || !mutationSent) return;
+      if (processedForOrigin(frame, origin)) {
+        // Logux processed confirms transport handling only. The caller performs
+        // the authoritative catalog read before allowing import to proceed.
         settle();
+        return;
+      }
+      if (patchCompleted(frame, workspaceID, projectID, name, origin)) settle();
     };
   });
