@@ -11,6 +11,7 @@ import { parseSecretEntries, resolveConfiguredSecretValues } from "../secrets";
 import { loadProjects } from "../catalog";
 import { findArchiveCandidate } from "../archive";
 import { renameProject } from "../logux/rename-project";
+import { confirmProjectRename } from "../catalog/rename-barrier";
 
 export type { ExecuteResult } from "../types";
 
@@ -77,6 +78,12 @@ const executeConfirmedMigration = async (
         archive.project.id,
         archive.name,
       );
+      await confirmProjectRename(auth, {
+        workspaceID: destinationWorkspaceID,
+        folderID: destinationFolderID,
+        projectID: archive.project.id,
+        name: archive.name,
+      });
     }
     stage = "import";
     const imported = await importVersion(

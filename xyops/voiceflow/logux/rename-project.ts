@@ -25,6 +25,14 @@ const parseFrame = (value: unknown): Frame | undefined => {
 };
 const actionOf = (frame: Frame): RecordValue | undefined =>
   isRecord(frame[2]) ? frame[2] : undefined;
+const isProcessedForOrigin = (frame: Frame, origin: string): boolean => {
+  const action = actionOf(frame);
+  return (
+    action?.type === "logux/processed" &&
+    typeof action.id === "string" &&
+    action.id.includes(` ${origin} `)
+  );
+};
 /* oxlint-disable complexity -- protocol payload validation has explicit guards. */
 export const patchCompleted = (
   frame: Frame,
@@ -125,6 +133,7 @@ export const renameProject: RenameProject = (
           },
           { id: -2, time: time++ },
         ]);
+      if (isProcessedForOrigin(frame, origin)) return settle();
       if (patchCompleted(frame, workspaceID, projectID, name)) settle();
     };
   });
