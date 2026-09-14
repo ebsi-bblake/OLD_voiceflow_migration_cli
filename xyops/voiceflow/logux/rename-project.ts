@@ -133,7 +133,7 @@ export const renameProject: RenameProject = (
         try {
           send(ws, [
             "sync",
-            subscriptionID,
+            0,
             {
               type: "assistant.PATCH_ONE",
               payload: {
