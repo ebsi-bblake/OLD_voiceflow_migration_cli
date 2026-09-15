@@ -66,7 +66,12 @@ export const renameProject: RenameProject = (
     let settled = false;
     let subscriptionComplete = false;
     let mutationSent = false;
+    let mutationAcknowledged = false;
+    let patchObserved = false;
+    let lifecycle = "connecting";
     const observedActionTypes = new Set<string>();
+    const diagnostic = (event: string, detail?: string): string =>
+      `rename-${lifecycle}-${event}${detail ? ` ${detail}` : ""}; observed=${[...observedActionTypes].join(",") || "none"}; mutationAck=${mutationAcknowledged}; patchObserved=${patchObserved}`;
     const settle = (error?: OperationFault): void => {
       if (settled) return;
       settled = true;
@@ -85,16 +90,19 @@ export const renameProject: RenameProject = (
           new OperationFault(
             "DEPENDENCY_TIMEOUT",
             true,
-            `rename acknowledgement timeout; observed=${[...observedActionTypes].join(",") || "none"}`,
+            diagnostic("timeout"),
           ),
         ),
       15_000,
     );
-    ws.onerror = () => settle(new OperationFault("DEPENDENCY_FAILURE", true));
+    ws.onerror = () =>
+      settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error")));
     ws.onclose = () => {
-      if (!settled) settle(new OperationFault("DEPENDENCY_FAILURE", true));
+      if (!settled)
+        settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close")));
     };
     ws.onopen = () => {
+      lifecycle = "connected";
       try {
         send(ws, [
           "connect",
@@ -110,11 +118,26 @@ export const renameProject: RenameProject = (
     ws.onmessage = (event) => {
       const frame = parseFrame(event.data);
       if (frame === undefined) return;
-      if (frame[0] === "error")
-        return settle(new OperationFault("DEPENDENCY_FAILURE", true));
+      if (frame[0] === "error") {
+        lifecycle = "error-frame";
+        const errorCode =
+          typeof frame[1] === "string" ||
+          typeof frame[1] === "number" ||
+          typeof frame[1] === "boolean"
+            ? String(frame[1]).replace(/\s+/g, " ").slice(0, 80)
+            : "unknown";
+        return settle(
+          new OperationFault(
+            "DEPENDENCY_FAILURE",
+            true,
+            diagnostic("received", `serverCode=${errorCode}`),
+          ),
+        );
+      }
       const action = actionOf(frame);
       if (typeof action?.type === "string") observedActionTypes.add(action.type);
       if (frame[0] === "connected") {
+        lifecycle = "subscribing";
         try {
           send(ws, [
             "sync",
@@ -122,7 +145,6 @@ export const renameProject: RenameProject = (
             {
               channel: `workspace/${workspaceID}`,
               type: "logux/subscribe",
-              since: { id: "0", time: 0 },
             },
             { id: -1, time: time++ },
           ]);
@@ -132,9 +154,11 @@ export const renameProject: RenameProject = (
         return;
       }
       if (frame[0] === "synced" && frame[1] === subscriptionID) {
+        lifecycle = "subscribed";
         subscriptionComplete = true;
         if (mutationSent) return;
         mutationSent = true;
+        lifecycle = "renaming";
         try {
           send(ws, [
             "sync",
@@ -160,11 +184,12 @@ export const renameProject: RenameProject = (
         // The matching `synced` frame acknowledges this mutation. Do not use a
         // generic `logux/processed` event: stale processed events can belong to
         // an earlier request and allow import to race the rename.
+        mutationAcknowledged = true;
         settle();
         return;
       }
-      // A project patch broadcast is state propagation, not the request
-      // acknowledgement. Only the matching `synced` frame may release the
-      // import barrier.
+      if (patchCompleted(frame, workspaceID, projectID, name, origin)) {
+        patchObserved = true;
+      }
     };
   });

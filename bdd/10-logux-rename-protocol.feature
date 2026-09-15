@@ -103,21 +103,22 @@ Feature: Safely rename a colliding Voiceflow project before import
     And meta.origin equals the session origin
     And the response meta.actionID may differ from the request meta.actionID
     And the response actionID must not be compared to the request actionID
-    And the project patch is the WebSocket state-change acknowledgement
+    And the project patch is an observed state-change broadcast, not the WebSocket mutation acknowledgement
 
   @ordering
   Scenario: Keep import behind the rename acknowledgement
     Given the rename mutation has been sent
     When logux/processed is received
     Then import remains blocked
-    When the matching project.CRUD:PATCH is received
-    Then rename acknowledgement completes
+    When the matching mutation synced is received
+    Then the WebSocket rename acknowledgement completes
+    And import remains blocked until the durable catalog barrier completes
     And only then may the import request be sent
     And the imported project keeps the original source name
 
   @durability-barrier
   Scenario: Confirm renamed state before calling import
-    Given the matching project.CRUD:PATCH has been received
+    Given the matching mutation synced has been received
     When the rename completion barrier runs
     Then the plugin re-reads the destination project state through the established catalog boundary
     And the read is scoped to the destination workspace
@@ -137,7 +138,7 @@ Feature: Safely rename a colliding Voiceflow project before import
 
   @race-prevention
   Scenario: Do not claim the race is solved from a broadcast alone
-    Given project.CRUD:PATCH has been observed on the WebSocket
+    Given the matching mutation synced has been observed on the WebSocket
     When the authoritative catalog still represents the project under the old name
     Then rename completion has not been established
     And import remains blocked

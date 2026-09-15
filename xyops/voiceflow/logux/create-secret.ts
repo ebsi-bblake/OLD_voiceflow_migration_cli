@@ -9,6 +9,29 @@ type CreateSecret = (
   assistantID: string,
   secret: SecretEntry,
 ) => Promise<void>;
+
+type TraceFields = Readonly<Record<string, unknown>>;
+const trace = (event: string, fields: TraceFields = {}): void =>
+  console.error(`[logux-secret] ${JSON.stringify({ event, ...fields })}`);
+
+const actionSummary = (frame: Frame): TraceFields => {
+  const action = frame[2];
+  if (!isRecord(action)) return {};
+  const meta = isRecord(action.meta) ? action.meta : {};
+  return {
+    actionType: typeof action.type === "string" ? action.type : undefined,
+    actionID: typeof meta.actionID === "string" ? meta.actionID : undefined,
+    processedID: typeof action.id === "string" ? action.id : undefined,
+  };
+};
+
+const traceFrame = (direction: "in" | "out", frame: Frame): void =>
+  trace(`${direction} frame`, {
+    frameType: frame[0],
+    syncID: frame[1],
+    ...actionSummary(frame),
+  });
+
 export const createSecret: CreateSecret = (auth, assistantID, secret) =>
   new Promise((resolve, reject) => {
     const ws = new WebSocket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
@@ -18,6 +41,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
     const origin = `${auth.creatorID}:${clientID}:${createUUID().replace(VoiceflowRegex.base64UrlDash, "").slice(0, 8)}`;
     const actionID = createUUID();
     const subscriptionID = Math.floor(Math.random() * 1_000_000_000) + 1;
+    const mutationSyncID = subscriptionID + 1;
     let actionTime = 1;
     let lifecycle = "connecting";
     let settled = false;
@@ -64,6 +88,14 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
     };
     ws.onopen = () => {
       lifecycle = "connected";
+      const frame: Frame = [
+        "connect",
+        4,
+        origin,
+        0,
+        { token: "[redacted]", subprotocol: "1.9.0" },
+      ];
+      traceFrame("out", frame);
       ws.send(
         JSON.stringify([
           "connect",
@@ -78,6 +110,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       if (typeof event.data !== "string") return;
       const frame = parseFrame(event.data);
       if (!frame) return;
+      traceFrame("in", frame);
       if (frame[0] === "error")
         return settle(
           new OperationFault(
@@ -98,6 +131,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
           secret,
           origin,
           actionID,
+          mutationSyncID,
           actionTime++,
         );
       }
@@ -113,19 +147,20 @@ const sendSubscription = (
   assistantID: string,
   subscriptionID: number,
   time: number,
-): void =>
-  ws.send(
-    JSON.stringify([
-      "sync",
-      subscriptionID,
-      {
-        channel: `assistant/${assistantID}`,
-        type: "logux/subscribe",
-        since: { id: "0", time: 0 },
-      },
-      { id: randomActionNumber(), time },
-    ]),
-  );
+): void => {
+  const frame: Frame = [
+    "sync",
+    subscriptionID,
+    {
+      channel: `assistant/${assistantID}`,
+      type: "logux/subscribe",
+      since: { id: "0", time: 0 },
+    },
+    { id: randomActionNumber(), time },
+  ];
+  traceFrame("out", frame);
+  ws.send(JSON.stringify(frame));
+};
 const isSubscriptionComplete = (
   frame: Frame,
   subscriptionID: number,
@@ -137,27 +172,29 @@ const sendCreateAction = (
   secret: SecretEntry,
   origin: string,
   actionID: string,
+  mutationSyncID: number,
   time: number,
-): void =>
-  ws.send(
-    JSON.stringify([
-      "sync",
-      0,
-      {
-        type: "secret.CREATE_ONE_STARTED",
-        payload: {
-          context: { assistantID },
-          data: {
-            name: secret.name,
-            visibility: "masked",
-            defaultValue: secret.value,
-          },
+): void => {
+  const frame: Frame = [
+    "sync",
+    mutationSyncID,
+    {
+      type: "secret.CREATE_ONE_STARTED",
+      payload: {
+        context: { assistantID },
+        data: {
+          name: secret.name,
+          visibility: "masked",
+          defaultValue: secret.value,
         },
-        meta: { origin, actionID },
       },
-      { id: randomActionNumber(), time },
-    ]),
-  );
+      meta: { origin, actionID },
+    },
+    { id: randomActionNumber(), time },
+  ];
+  traceFrame("out", frame);
+  ws.send(JSON.stringify(frame));
+};
 const randomActionNumber = (): number =>
   Math.floor(Math.random() * 1_000_000_000) + 1;
 

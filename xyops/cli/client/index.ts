@@ -132,30 +132,43 @@ export const createXYOpsClient = (
   const readTerminalStream = <T>(
     id: string,
     guard: ResponseGuard<VoiceflowEnvelope<T>>,
-  ) =>
-    streamer(fetcher, config.baseURL, config.apiKey, id, config.httpTimeoutMs, {
-      maxBytes: config.streamMaxBytes,
-      maxFrameBytes: config.streamMaxFrameBytes,
-    })
-      .catch((error) => Promise.reject(translateExecuteStreamError(error)))
-      .then((stream) => {
-        if (stream.kind === "failure")
-          return Promise.reject(
-            requireSuccessfulJob(
-              stream.data,
-              "/api/app/stream_job/v1",
-              "The migration execute job failed.",
-            ),
-          );
-        try {
-          const output = normalizeVoiceflowResponse(
-            readJobOutput(stream.data, "/api/app/stream_job/v1"),
-          );
-          return requireEnvelope(output, guard, "/api/app/stream_job/v1");
-        } catch {
-          return readFinalJob(id, guard);
-        }
-      });
+  ) => {
+    const streamOrJob = streamer(
+      fetcher,
+      config.baseURL,
+      config.apiKey,
+      id,
+      config.httpTimeoutMs,
+      {
+        maxBytes: config.streamMaxBytes,
+        maxFrameBytes: config.streamMaxFrameBytes,
+      },
+    ).catch((error) => {
+      const diagnostic = readCliDiagnostic(error);
+      return diagnostic?.code === "stream"
+        ? readFinalJob(id, guard)
+        : Promise.reject(translateExecuteStreamError(error));
+    });
+    return streamOrJob.then((streamOrJobResult) => {
+      if (!("kind" in streamOrJobResult)) return streamOrJobResult;
+      if (streamOrJobResult.kind === "failure")
+        return Promise.reject(
+          requireSuccessfulJob(
+            streamOrJobResult.data,
+            "/api/app/stream_job/v1",
+            "The migration execute job failed.",
+          ),
+        );
+      try {
+        const output = normalizeVoiceflowResponse(
+          readJobOutput(streamOrJobResult.data, "/api/app/stream_job/v1"),
+        );
+        return requireEnvelope(output, guard, "/api/app/stream_job/v1");
+      } catch {
+        return readFinalJob(id, guard);
+      }
+    });
+  };
 
   const executeEvent = <T>(
     reference: XYOpsEventReference,
