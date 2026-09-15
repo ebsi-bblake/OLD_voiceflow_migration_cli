@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { findArchiveCandidate } from "../xyops/voiceflow/archive";
-import { patchCompleted } from "../xyops/voiceflow/logux/rename-project";
+import {
+  patchCompleted,
+  syncedForRequest,
+} from "../xyops/voiceflow/logux/rename-project";
 import type { ProjectRecord } from "../xyops/voiceflow/types";
 
 const project = (
@@ -40,6 +43,12 @@ describe("project archive preflight", () => {
         { now: () => new Date(2026, 1, 3, 14, 5) },
       ),
     ).toBeUndefined();
+  });
+
+  test("recognizes only the matching Logux sync acknowledgement", () => {
+    expect(syncedForRequest(["synced", 42], 42)).toBe(true);
+    expect(syncedForRequest(["synced", 41], 42)).toBe(false);
+    expect(syncedForRequest(["sync", 42], 42)).toBe(false);
   });
 
   test("recognizes the Logux rename completion envelope", () => {

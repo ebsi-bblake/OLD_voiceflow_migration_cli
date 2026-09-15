@@ -1,7 +1,7 @@
 {
   "name": "voiceflow-automation",
   "version": "0.0.1",
-  "pluginVersion": "0.0.3",
+  "pluginVersion": "0.0.2",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "oxlint": "^1.80.0",
