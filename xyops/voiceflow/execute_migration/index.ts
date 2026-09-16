@@ -4,9 +4,9 @@ import { importVersion } from "../import";
 import { buildMigrationPlan } from "../planning";
 import { failure, OperationFault, success } from "../contracts";
 import { isConfirmationGranted } from "../guards";
-import type { Envelope, ExecuteResult } from "../types";
+import type { AuthContext, Envelope, ExecuteResult, ImportedReceipt, ProjectRecord } from "../types";
 import { createUUID } from "../uuid";
-import { createProjectSecrets } from "../logux";
+import { reconcileProjectSecrets } from "../logux";
 import { parseSecretEntries, resolveConfiguredSecretValues } from "../secrets";
 import { loadProjects } from "../catalog";
 import { findArchiveCandidate } from "../archive";
@@ -25,6 +25,7 @@ const normalizeSchemaVersion = (
 ): string | undefined => version;
 
 
+/* oxlint-disable complexity -- ordered migration stages are explicit for diagnostics. */
 const executeConfirmedMigration = async (
   token: string,
   planID: string,
@@ -103,7 +104,19 @@ const executeConfirmedMigration = async (
       configuredSecrets,
     );
     stage = "SECRET_CREATION";
-    await createProjectSecrets(auth, imported.projectID, secrets);
+    if (secrets.length > 0) {
+      const destinationVersionID = await resolveImportedVersionID(
+        auth,
+        imported,
+        destinationWorkspaceID,
+      );
+      await reconcileProjectSecrets(
+        auth,
+        imported.assistantID ?? imported.projectID,
+        destinationVersionID,
+        secrets,
+      );
+    }
     const result: ExecuteResult = {
       planID,
       exportStatus: artifact.status,
@@ -138,6 +151,30 @@ const addFailureStage = (error: unknown, stage: string): unknown =>
 
 const parseSecretFileContents = (contents: unknown) =>
   contents === undefined ? [] : parseSecretEntries(contents);
+
+type ResolveImportedVersionID = (
+  auth: AuthContext,
+  imported: ImportedReceipt,
+  workspaceID: string,
+) => Promise<string>;
+const resolveImportedVersionID: ResolveImportedVersionID = (
+  auth,
+  imported,
+  workspaceID,
+) => {
+  if (imported.versionID !== undefined) return Promise.resolve(imported.versionID);
+  return loadProjects(auth, workspaceID).then((projects) => {
+    const project = projects.find((candidate) => candidate.id === imported.projectID);
+    const versionID = project === undefined ? undefined : draftVersionID(project);
+    if (versionID === undefined)
+      throw new OperationFault("DEPENDENCY_FAILURE", true, "missing-destination-version-id");
+    return versionID;
+  });
+};
+const draftVersionID = (project: ProjectRecord): string | undefined =>
+  project.environments
+    .map((environment) => environment.draftVersionID)
+    .find((versionID): versionID is string => versionID !== undefined && versionID !== "");
 const ensureMatchingPlan = (
   actualPlanID: string,
   expectedPlanID: string,

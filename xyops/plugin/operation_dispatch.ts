@@ -10,6 +10,7 @@ import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
 import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
 import type { VoiceflowOperation } from "../voiceflow/types";
+import { configureDebug } from "../voiceflow/debug";
 export type { OperationHandlers } from "./types";
 
 type PluginEnvelope = Envelope<unknown>;
@@ -140,8 +141,10 @@ export const dispatchOperation: DispatchOperation = (
   job,
   token,
   handlers = defaultOperationHandlers,
-) =>
-  invokeOperation(
+) => {
+  configureDebug(job.params.DEBUG);
+  return invokeOperation(
     job.operation,
     () => operationInvocations[job.operation](job, token, handlers),
   );
+};

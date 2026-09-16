@@ -63,7 +63,7 @@ const isScopedCompletion = (
   event: Extract<FolderEvent, { readonly kind: "folder-completed" }>,
 ): boolean =>
   event.actionID === state.context.actionID &&
-  event.origin === state.context.origin &&
+  (event.origin === undefined || event.origin === state.context.origin) &&
   event.channel === state.context.channel &&
   event.workspaceID === state.context.workspaceID;
 

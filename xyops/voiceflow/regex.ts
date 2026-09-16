@@ -3,9 +3,9 @@ export const VoiceflowRegex = {
   bearerPrefix: /^Bearer\s+/i,
   base64UrlDash: /-/g,
   base64UrlUnderscore: /_/g,
-  // This range intentionally includes C0 and C1 control characters.
+  // Match C0 controls, DEL, and C1 controls without rejecting ordinary ASCII.
   // eslint-disable-next-line no-control-regex
-  controlCharacter: new RegExp("[\\u0000-\\u009f]"),
+  controlCharacter: new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]"),
   creatorID: /^[A-Za-z0-9_-]{1,128}$/,
   diagnosticStage: /stage=[a-z-]+/i,
   filename: /^[^/\\]+\.vf$/i,

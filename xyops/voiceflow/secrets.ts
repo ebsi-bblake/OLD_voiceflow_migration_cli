@@ -1,14 +1,69 @@
 import type {
   AuthContext,
   ConfigSecret,
+  ExistingSecret,
   FolderRecord,
   ProjectRecord,
   SecretEntry,
 } from "./types";
 import { retrieveProjectApiKey } from "./api_key";
 import { loadFolders, loadProjects, loadWorkspaces } from "./catalog";
+import { requestBytes } from "./http";
+import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
+import { OperationFault } from "./contracts";
+
+export type { ExistingSecret } from "./types";
 
 export type { ConfigSecret, SecretEntry } from "./types";
+
+type LoadExistingSecrets = (
+  auth: AuthContext,
+  versionID: string,
+) => Promise<readonly ExistingSecret[]>;
+export const loadExistingSecrets: LoadExistingSecrets = async (auth, versionID) => {
+  const response = await requestBytes({
+    url: `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/load-creator/${encodePathSegment(versionID)}`,
+    init: { headers: { Authorization: `Bearer ${auth.token}` } },
+    maxBytes: 8_388_608,
+    timeoutMs: 15_000,
+  });
+  if (response.status < 200 || response.status >= 300)
+    throw new OperationFault("DEPENDENCY_FAILURE", true);
+  return parseExistingSecrets(response.bytes);
+};
+
+const parseExistingSecrets = (bytes: ArrayBuffer): readonly ExistingSecret[] => {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!isRecord(value) || !Array.isArray(value.secrets))
+      throw new Error();
+    return value.secrets.map(parseExistingSecret);
+  } catch {
+    throw new OperationFault("DEPENDENCY_FAILURE", true, "secret-list-invalid");
+  }
+};
+
+const parseExistingSecret = (value: unknown): ExistingSecret => {
+  if (!isRecord(value)) throw new Error();
+  const identity = parseSecretIdentity(value);
+  const visibility = parseSecretVisibility(value.visibility);
+  if (typeof value.hasValue !== "boolean") throw new Error();
+  return { ...identity, visibility, hasValue: value.hasValue };
+};
+const parseSecretIdentity = (value: Record<string, unknown>): Pick<ExistingSecret, "id" | "assistantID" | "name"> => {
+  const id = primitiveString(value.id);
+  const assistantID = primitiveString(value.assistantID);
+  const name = primitiveString(value.name);
+  if (id === undefined || assistantID === undefined || name === undefined)
+    throw new Error();
+  return { id, assistantID, name };
+};
+const parseSecretVisibility = (value: unknown): ExistingSecret["visibility"] => {
+  if (value === "masked" || value === "restricted") return value;
+  throw new Error();
+};
+const primitiveString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== "" ? value : undefined;
 
 type ParseSecretsFile = (contents: string) => readonly ConfigSecret[];
 export const parseSecretsFile: ParseSecretsFile = (contents) =>

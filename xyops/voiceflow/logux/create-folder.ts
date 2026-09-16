@@ -156,9 +156,17 @@ export const createFolder: CreateFolder = (auth, workspaceID, name) => {
       const meta = isRecord(action.meta) ? action.meta : undefined;
       const payload = action.payload;
       const payloadRecord = isRecord(payload) ? payload : undefined;
-      const completionWorkspaceID = isRecord(payloadRecord?.context) && typeof payloadRecord.context.workspaceID === "string"
-        ? payloadRecord.context.workspaceID
-        : undefined;
+      const params = isRecord(payloadRecord?.params) ? payloadRecord.params : {};
+      const paramsContext = isRecord(params.context) ? params.context : {};
+      const result = isRecord(payloadRecord?.result) ? payloadRecord.result : {};
+      const resultData = isRecord(result.data) ? result.data : {};
+      const completionWorkspaceID = [
+        payloadRecord?.context,
+        paramsContext,
+        resultData,
+      ]
+        .map((value) => isRecord(value) ? value.workspaceID : undefined)
+        .find((value): value is string => typeof value === "string");
       const completionChannel = typeof action.channel === "string" ? action.channel : context.channel;
       return {
         kind: "folder-completed",

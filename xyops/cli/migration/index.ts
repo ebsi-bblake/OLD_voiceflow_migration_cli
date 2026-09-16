@@ -33,7 +33,7 @@ import { progress } from "../progress";
 type PrintHelp = () => void;
 const printHelp: PrintHelp = () => {
   [
-    "Usage: voiceflow-cli [--config=<path>]",
+    "Usage: voiceflow-cli [--config=<path>] [--debug[=<name[,name...]>]]",
     "Interactively plan and execute a Voiceflow migration through XYOps.",
     `Local configuration: XYOPS_API_KEY=<key> (required), XYOPS_BASE_URL=<url> (default: ${DEFAULT_XYOPS_BASE_URL}).`,
     "Optional --config=<JSON-file> supplies migration resource names or IDs, schema version, and project secrets.",
@@ -41,6 +41,7 @@ const printHelp: PrintHelp = () => {
     "Configured IDs or exact catalog names are resolved before planning; missing values are selected interactively.",
     "Optional XYOPS_EVENT_* overrides accept title:<event-title> or id:<event-id>.",
     "Default event titles must match the configured XYOps Event titles.",
+    "Optional --debug enables stderr diagnostics; --debug=<name[,name...]> narrows them by logger name.",
   ].forEach((msg) => console.log(msg));
 };
 

@@ -10,6 +10,7 @@ import {
   createCatalogState,
   transitionCatalogState,
 } from "../xyops/voiceflow/logux/catalog-state-machine";
+import { summarizeSecretFailureFrame } from "../xyops/voiceflow/logux/create-secret";
 import {
   createFolderState,
   transitionFolderState,
@@ -58,6 +59,19 @@ describe("Logux state machines", () => {
     });
     expect(completed.state.kind).toBe("COMPLETED");
     expect(completed.effects).toEqual([{ kind: "close-socket" }, { kind: "settle" }]);
+
+    const serverCompletionWithoutOrigin = transitionFolderState(
+      state,
+      {
+        kind: "folder-completed",
+        actionID: "action",
+        channel: "workspace/42",
+        workspaceID: "42",
+        folderID: "7",
+        folderName: "Imports",
+      },
+    );
+    expect(serverCompletionWithoutOrigin.state.kind).toBe("COMPLETED");
   });
 
   test("classifies folder close and timeout outcomes by lifecycle state", () => {
@@ -228,6 +242,42 @@ describe("Logux state machines", () => {
 
   test("bypasses rename when no exact collision exists", () => {
     expect(bypassRename(renameContext).kind).toBe("BYPASSED_NO_COLLISION");
+  });
+
+  test("summarizes secret failures without exposing sensitive detail", () => {
+    const summary = summarizeSecretFailureFrame([
+      "sync",
+      20,
+      {
+        type: "secret.CREATE_ONE_FAILED",
+        payload: {
+          error: {
+            code: "secret.invalid-value",
+            message:
+              "Bearer eyJheader.payload.signature VF.DM.fake-value https://example.test/private",
+          },
+        },
+      },
+    ]);
+
+    expect(summary).toEqual({
+      failureCode: "secret.invalid-value",
+      failureMessage: "Bearer [redacted] VF.DM.[redacted] [redacted-url]",
+      failureDetails: "opaque",
+    });
+    expect(JSON.stringify(summary)).not.toContain("eyJheader.payload.signature");
+    expect(JSON.stringify(summary)).not.toContain("fake-value");
+
+    const longMessage = summarizeSecretFailureFrame([
+      "sync",
+      20,
+      {
+        type: "secret.CREATE_ONE_FAILED",
+        payload: { error: { message: `${"head ".repeat(100)}tail-reason` } },
+      },
+    ]);
+    expect(longMessage.failureMessage).toContain("tail-reason");
+    expect(longMessage.failureMessage?.length).toBeLessThanOrEqual(484);
   });
 
   test("requires the matching secret action ID", () => {

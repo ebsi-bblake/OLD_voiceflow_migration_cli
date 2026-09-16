@@ -144,7 +144,99 @@ sync 34 assistant.PATCH_ONE
 - Before import after an unknown rename result, reconcile the destination project by exact project ID, workspace ID, folder ID, and timestamped name.
 - If reconciliation cannot confirm the rename, return a retryable dependency failure and do not import.
 
-## 5. Secret creation invariants
+## 5. Secret discovery and reconciliation invariants
+
+The HTTP creator-load response is the authoritative source for existing
+project-secret metadata:
+
+```text
+GET /v1alpha1/assistant/load-creator/<destination-version-id>
+```
+
+Its relevant shape is:
+
+```json
+{
+  "assistant": {"id":"<assistant-id>"},
+  "project": {"_id":"<assistant-id>"},
+  "version": {"_id":"<version-id>"},
+  "secrets": [
+    {
+      "id":"<secret-id>",
+      "assistantID":"<assistant-id>",
+      "name":"<secret-name>",
+      "visibility":"masked|restricted",
+      "hasValue":true
+    }
+  ],
+  "secretOverrides": []
+}
+```
+
+- Match configured entries by `name`; never create a duplicate when an existing
+  name is present.
+- Preserve the existing secret ID and assistant scope for updates.
+- `hasValue` is metadata only; the value is never returned by this endpoint.
+- `secretOverrides` is distinct from the project-level `secrets` collection.
+- Import receipts should retain an optional destination `versionID` when the
+  import response provides it; the creator-load endpoint is version-scoped.
+- Reject malformed or oversized creator-load responses without exposing the raw
+  body.
+
+The verified existing-secret update lifecycle is:
+
+```text
+secret.PATCH_ONE_WITH_VALUE → secret.PATCH_ONE → synced(mutation-sync-id)
+```
+
+The captured request and broadcast shapes are:
+
+```json
+{
+  "type":"secret.PATCH_ONE_WITH_VALUE",
+  "payload":{
+    "context":{"assistantID":"<assistant-id>"},
+    "id":"<secret-id>",
+    "patch":{
+      "name":"<secret-name>",
+      "visibility":"masked|restricted",
+      "defaultValue":"<secret-value>"
+    }
+  },
+  "meta":{"origin":"<origin>","actionID":"<request-action-id>"}
+}
+```
+
+The server then broadcasts the value-free projection. In the captured update,
+the request used sync ID `196`; the broadcast was delivered on sync ID `0`,
+then `synced(196)` acknowledged the mutation, followed by `logux/processed`.
+The surrounding editor reconnect also demonstrated replay subscriptions with
+`since: {id, time}` across creator, schema, workspace, project, assistant, and
+organization channels; those replay subscriptions are unrelated to secret
+mutation correlation.
+
+The server broadcasts the value-free projection:
+
+```json
+{
+  "type":"secret.PATCH_ONE",
+  "payload":{
+    "id":"<secret-id>",
+    "patch":{"name":"<secret-name>","visibility":"masked","hasValue":true},
+    "context":{"assistantID":"<assistant-id>","broadcastOnly":true}
+  }
+}
+```
+
+The mutation uses a positive sync ID. Completion is the matching `synced`
+frame for that mutation sync ID; the broadcast has no request `actionID` and
+must not be used for correlation. A later `logux/processed` frame is not
+required for completion.
+
+The exact update action payload must remain the captured UI shape; do not
+substitute the create payload or infer fields from the response projection.
+
+## 6. Secret creation invariants
 
 The successful Voiceflow UI capture established this sequence:
 

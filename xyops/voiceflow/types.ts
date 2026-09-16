@@ -76,8 +76,16 @@ export type ImportedReceipt = Readonly<{
   importBytes: number;
   projectID: string;
   assistantID?: string;
+  versionID?: string;
   workspaceID?: string;
   folderID?: string;
+}>;
+export type ExistingSecret = Readonly<{
+  id: string;
+  assistantID: string;
+  name: string;
+  visibility: "masked" | "restricted";
+  hasValue: boolean;
 }>;
 export type AuthContext = Readonly<{ token: string; creatorID: string }>;
 export type ConfigSecret = Readonly<{

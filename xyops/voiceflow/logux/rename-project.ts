@@ -1,6 +1,7 @@
 import type { AuthContext } from "../types";
 import { OperationFault } from "../contracts";
 import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
+import { debugLog } from "../debug";
 import { createUUID } from "../uuid";
 import {
   createRenameState,
@@ -56,7 +57,21 @@ export const patchCompleted = (
     (expectedOrigin === undefined || meta?.origin === expectedOrigin)
   );
 };
-const send = (ws: WebSocket, frame: Frame): void => ws.send(JSON.stringify(frame));
+const actionSummary = (frame: Frame): Readonly<Record<string, unknown>> => {
+  const action = actionOf(frame);
+  return {
+    frameType: frame[0],
+    syncID: frame[1],
+    actionType: typeof action?.type === "string" ? action.type : undefined,
+    actionID: isRecord(action?.meta) && typeof action.meta.actionID === "string" ? action.meta.actionID : undefined,
+  };
+};
+const traceFrame = (direction: "in" | "out", frame: Frame): void =>
+  debugLog("logux-rename", "frame", { direction, ...actionSummary(frame) });
+const send = (ws: WebSocket, frame: Frame): void => {
+  traceFrame("out", frame);
+  ws.send(JSON.stringify(frame));
+};
 
 export const renameProject: RenameProject = (
   auth,
@@ -133,6 +148,7 @@ export const renameProject: RenameProject = (
     ws.onmessage = (event) => {
       const frame = parseFrame(event.data);
       if (frame === undefined) return;
+      traceFrame("in", frame);
       if (frame[0] === "error") {
         const errorCode =
           typeof frame[1] === "string" ||

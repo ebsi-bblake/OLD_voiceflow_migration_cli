@@ -64,11 +64,21 @@ const receiptFromRecord = (
     importStatus: status,
     importBytes: bytes,
     projectID,
-    assistantID: primitiveID(value.assistantID),
-    workspaceID: primitiveID(value.workspaceID),
-    folderID: primitiveID(value.folderID),
+    ...optionalReceiptField("assistantID", primitiveID(value.assistantID)),
+    ...optionalReceiptField("versionID", versionIDFromRecord(value)),
+    ...optionalReceiptField("workspaceID", primitiveID(value.workspaceID)),
+    ...optionalReceiptField("folderID", primitiveID(value.folderID)),
   };
 };
+
+const versionIDFromRecord = (value: RecordValue): string | undefined =>
+  primitiveID(value.versionID) ??
+  primitiveID(value.environmentID) ??
+  (isRecord(value.version) ? primitiveID(value.version._id) : undefined);
+const optionalReceiptField = <K extends "assistantID" | "versionID" | "workspaceID" | "folderID">(
+  key: K,
+  value: string | undefined,
+): Partial<Record<K, string>> => (value === undefined ? {} : { [key]: value } as Partial<Record<K, string>>);
 
 const projectIDFromRecord = (value: RecordValue): string | undefined =>
   firstProjectID(value) ?? nestedProjectID(value);

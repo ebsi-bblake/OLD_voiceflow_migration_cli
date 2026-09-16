@@ -3,6 +3,7 @@ import { OperationFault } from "../contracts";
 import { VoiceflowRegex } from "../regex";
 import { createUUID } from "../uuid";
 import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
+import { debugLog } from "../debug";
 import {
   createSecretState,
   transitionSecretState,
@@ -18,7 +19,7 @@ type CreateSecret = (
 
 type TraceFields = Readonly<Record<string, unknown>>;
 const trace = (event: string, fields: TraceFields = {}): void =>
-  console.error(`[logux-secret] ${JSON.stringify({ event, ...fields })}`);
+  debugLog("logux-secret", event, fields);
 
 const actionSummary = (frame: Frame): TraceFields => {
   const action = frame[2];
@@ -36,6 +37,7 @@ const traceFrame = (direction: "in" | "out", frame: Frame): void =>
     frameType: frame[0],
     syncID: frame[1],
     ...actionSummary(frame),
+    ...summarizeSecretFailureFrame(frame),
   });
 
 export const createSecret: CreateSecret = (auth, assistantID, secret) =>
@@ -127,12 +129,13 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       if (!frame) return;
       traceFrame("in", frame);
       if (frame[0] === "error") {
+        const lifecycle = state.kind.toLowerCase();
         dispatch({ kind: "error-frame" });
         return settle(
           new OperationFault(
             "DEPENDENCY_FAILURE",
             true,
-            `logux-${state.kind.toLowerCase()}-error-frame`,
+            `logux-${lifecycle}-error-frame`,
           ),
         );
       }
@@ -164,6 +167,17 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
           settle(new OperationFault("DEPENDENCY_FAILURE", true));
         }
         return;
+      }
+      if (isFailedFrame(frame, actionID)) {
+        const lifecycle = state.kind.toLowerCase();
+        dispatch({ kind: "error-frame" });
+        return settle(
+          new OperationFault(
+            "DEPENDENCY_FAILURE",
+            true,
+            `logux-${lifecycle}-failed`,
+          ),
+        );
       }
       if (isDoneFrame(frame, actionID, assistantID)) {
         dispatch({ kind: "secret-done", actionID });
@@ -237,6 +251,39 @@ const parseFrame = (text: string): Frame | undefined => {
     return undefined;
   }
 };
+type SummarizeSecretFailureFrame = (frame: Frame) => TraceFields;
+export const summarizeSecretFailureFrame: SummarizeSecretFailureFrame = (frame) => {
+  const action = frame[2];
+  if (!isRecord(action) || action.type !== "secret.CREATE_ONE_FAILED") return {};
+  const payload = isRecord(action.payload) ? action.payload : undefined;
+  const error = payload && isRecord(payload.error) ? payload.error : undefined;
+  return {
+    failureCode: safeFailureText(error?.code),
+    failureMessage: safeFailureText(error?.message),
+    failureDetails: error === undefined ? "missing" : "opaque",
+  };
+};
+const safeFailureText = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const sanitized = value
+    .replace(VoiceflowRegex.redactedBearer, "Bearer [redacted]")
+    .replace(VoiceflowRegex.voiceflowAPIKey, "VF.DM.[redacted]")
+    .replace(VoiceflowRegex.redactedURL, "[redacted-url]")
+    .replace(VoiceflowRegex.longSecretToken, "[redacted-token]")
+    .replace(VoiceflowRegex.controlCharacter, " ")
+    .replace(VoiceflowRegex.whitespace, " ")
+    .trim();
+  return sanitized.length <= 480
+    ? sanitized
+    : `${sanitized.slice(0, 240)} … ${sanitized.slice(-240)}`;
+};
+const isFailedFrame = (frame: Frame, actionID: string): boolean => {
+  const action = frame[2];
+  if (!isRecord(action) || action.type !== "secret.CREATE_ONE_FAILED")
+    return false;
+  const meta = action.meta;
+  return isRecord(meta) && meta.actionID === actionID;
+};
 const isDoneFrame = (
   frame: Frame,
   actionID: string,
@@ -248,8 +295,9 @@ const isDoneFrame = (
   const meta = action.meta;
   if (!isRecord(meta) || meta.actionID !== actionID) return false;
   const payload = isRecord(action.payload) ? action.payload : undefined;
-  const context = payload && isRecord(payload.context) ? payload.context : undefined;
-  return context?.assistantID === undefined || context.assistantID === assistantID;
+  const result = payload && isRecord(payload.result) ? payload.result : undefined;
+  const context = result && isRecord(result.context) ? result.context : undefined;
+  return context?.assistantID === assistantID;
 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);

@@ -108,8 +108,48 @@ by the CLI contract, including `SOURCE_WORKSPACE_ID`, `SOURCE_PROJECT_ID`,
 `TARGET_SCHEMA_VERSION`, `PLAN_ID`, and the literal boolean `CONFIRMED` for
 execution. The local CLI can source these values and project secrets from the
 single `--config=<path>` object described in [`../../docs/migration-config.md`](../../docs/migration-config.md).
+Run the CLI with `--debug` to enable all named stderr diagnostics, or
+`--debug=logux-secret,logux-rename` to select specific logger names. Selectors
+also match child names and logger prefixes. The debug selector is passed through
+to the Event as an internal `DEBUG` parameter and never appears in stdout.
 That file's project `secrets` array is distinct from this plugin's
 `VOICEFLOW_JWT` Secret Vault binding.
+
+### Imported project secret reconciliation
+
+The import response may identify the created project, assistant, and destination
+version. When a destination version ID is available, existing secret metadata is
+loaded from:
+
+```text
+GET /v1alpha1/assistant/load-creator/<destination-version-id>
+Authorization: Bearer <JWT>
+```
+
+The response is a JSON object whose relevant fields are `assistant.id`,
+`project._id`, `version._id`, and `secrets`. Each `secrets[]` entry contains
+`id`, `assistantID`, `name`, `visibility` (`masked` or `restricted`), and
+`hasValue`; secret values are never returned or logged. `secretOverrides` is a
+separate array and must not be treated as project secrets.
+
+The verified create lifecycle is:
+
+```text
+assistant subscribe → synced(subscription) →
+secret.CREATE_ONE_STARTED → secret.ADD_ONE → secret.CREATE_ONE_DONE
+```
+
+The create mutation uses a distinct positive mutation sync ID. Completion is
+correlated by the outgoing `meta.actionID`; `logux/processed` is not the
+completion signal. Existing-name reconciliation must preserve the returned
+secret ID and use the verified two-step update lifecycle:
+
+```text
+secret.PATCH_ONE_WITH_VALUE → secret.PATCH_ONE → synced(mutation)
+```
+
+Never send or record JWTs, cookies, secret values, exported project data, or raw
+HTTP error bodies in diagnostics.
 
 ## Test the artifact
 

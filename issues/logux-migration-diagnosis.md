@@ -276,7 +276,50 @@ Capture the exact import request and response, including:
 
 Do not record JWTs, exported project data, or secret values.
 
-### 8. XYOps execution stream
+### 8. Creator-load secret projection
+
+The destination creator-load HTTP response provides the missing existing-secret
+identity mapping:
+
+```text
+GET /v1alpha1/assistant/load-creator/<version-id>
+```
+
+The response contains `assistant.id`, `project._id`, `version._id`, and a
+`secrets` array. Each secret projection contains only metadata:
+
+```json
+{
+  "assistantID":"<assistant-id>",
+  "id":"<secret-id>",
+  "name":"<secret-name>",
+  "visibility":"masked|restricted",
+  "hasValue":true
+}
+```
+
+The observed response had ten project secrets, including both masked and
+restricted visibility records; only one record had `hasValue: true`. The
+response also contained `secretOverrides: []`, which is a separate collection
+and must not be merged into `secrets`.
+
+This establishes the lookup policy: match configured secret names against
+`secrets[].name`, preserve the matched `secrets[].id`, and update existing
+records instead of issuing `secret.CREATE_ONE`. Values are never read back or
+written to diagnostics.
+
+The verified update lifecycle is:
+
+```text
+secret.PATCH_ONE_WITH_VALUE → secret.PATCH_ONE → synced(<mutation-sync-id>)
+```
+
+The exact captured action payloads remain the protocol contract; do not infer
+or substitute them from the create mutation. The import receipt must retain the
+destination version ID when the import service returns it, because
+`load-creator` is version-scoped.
+
+### 9. XYOps execution stream
 
 The CLI runs the migration through XYOps and reads:
 

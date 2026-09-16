@@ -11,8 +11,10 @@ import {
 } from "./catalog-state-machine";
 import { createSecret } from "./create-secret";
 import { createUUID } from "../uuid";
-import type { SecretEntry } from "../types";
+import type { ExistingSecret, SecretEntry } from "../types";
 import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
+import { loadExistingSecrets } from "../secrets";
+import { updateSecret } from "./update-secret";
 
 type Row = Readonly<Record<string, unknown>>;
 
@@ -156,3 +158,34 @@ export const createProjectSecrets: CreateProjectSecrets = (
       pending.then(() => createSecret(auth, assistantID, secret)),
     Promise.resolve(),
   );
+
+type ReconcileProjectSecrets = (
+  auth: AuthContext,
+  assistantID: string,
+  versionID: string,
+  secrets: readonly SecretEntry[],
+) => Promise<void>;
+export const reconcileProjectSecrets: ReconcileProjectSecrets = (
+  auth,
+  assistantID,
+  versionID,
+  secrets,
+) =>
+  loadExistingSecrets(auth, versionID).then((existing) =>
+    secrets.reduce(
+      (pending, secret) => pending.then(() => reconcileSecret(auth, assistantID, existing, secret)),
+      Promise.resolve(),
+    ),
+  );
+
+const reconcileSecret = (
+  auth: AuthContext,
+  assistantID: string,
+  existing: readonly ExistingSecret[],
+  secret: SecretEntry,
+): Promise<void> => {
+  const match = existing.find((candidate) => candidate.name === secret.name);
+  return match === undefined
+    ? createSecret(auth, assistantID, secret)
+    : updateSecret(auth, assistantID, match, secret);
+};

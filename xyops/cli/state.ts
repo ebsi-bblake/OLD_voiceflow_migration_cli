@@ -68,6 +68,14 @@ type ChooseOptionValue = (
 export const chooseOptionValue: ChooseOptionValue = (options, index) =>
   options[index]?.value;
 
+type DebugParameter = () => string | true | undefined;
+const debugParameter: DebugParameter = () => {
+  const argument = process.argv.find((value) => value === "--debug" || value.startsWith("--debug="));
+  if (argument === "--debug") return true;
+  if (argument?.startsWith("--debug=")) return argument.slice("--debug=".length);
+  return undefined;
+};
+
 type EventParametersFor = (
   operation: string,
   values?: Readonly<Record<string, EventParameterValue | undefined>>,
@@ -77,7 +85,7 @@ export const eventParametersFor: EventParametersFor = (
   values = {},
 ) =>
   Object.fromEntries(
-    Object.entries({ operation, ...values } as Record<
+    Object.entries({ operation, ...values, DEBUG: debugParameter() } as Record<
       string,
       EventParameterValue | undefined
     >).filter(isEventParameterEntry),

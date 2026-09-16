@@ -3,12 +3,18 @@ import { describe, expect, test } from "bun:test";
 import { folderOptions } from "../xyops/voiceflow/catalog";
 import { importVersion } from "../xyops/voiceflow/import";
 import { requireVoiceflowString } from "../xyops/voiceflow/validation";
+import { VoiceflowRegex } from "../xyops/voiceflow/regex";
 
 describe("Voiceflow destination-folder validation", () => {
   test("shares required-string trimming and rejection across Voiceflow boundaries", () => {
     expect(requireVoiceflowString("  workspace-1 ")).toBe("workspace-1");
     expect(() => requireVoiceflowString(" \t ")).toThrow("invalid");
     expect(() => requireVoiceflowString(undefined)).toThrow("invalid");
+  });
+
+  test("recognizes ordinary folder names without accepting control characters", () => {
+    expect(VoiceflowRegex.controlCharacter.test("temp folder for testing")).toBe(false);
+    expect(VoiceflowRegex.controlCharacter.test("temp\u0000folder")).toBe(true);
   });
 
   test("excludes project IDs from folder options", () => {
