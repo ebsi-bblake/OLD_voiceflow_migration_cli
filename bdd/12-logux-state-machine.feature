@@ -1,5 +1,7 @@
 @migration @logux @state-machine
 Feature: Model Voiceflow Logux operations as explicit state machines
+  This is the foundational behavior contract for bdd/11-logux-debug-logging.feature.
+  Implement and verify these lifecycle transitions before projecting them into logs.
   Logux remains the transport protocol. The plugin models each operation as a
   typed lifecycle state machine so that frame handling, ordering, acknowledgement,
   timeout, and unknown-outcome behavior are explicit.

@@ -4,6 +4,8 @@ Feature: Opt-in Voiceflow Logux debugging
   DEBUG_LOGUX and is always sent as an explicit boolean. When enabled, the
   plugin emits bounded, structured, allowlisted diagnostics without changing
   migration ordering, acknowledgement, retryability, or unknown-outcome rules.
+  Lifecycle names and transition semantics come from bdd/12-logux-state-machine.feature;
+  this feature defines their observable diagnostic projection.
 
   Background:
     Given the migration CLI is invoked through the XYOps execute path
