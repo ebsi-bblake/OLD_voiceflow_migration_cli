@@ -13,7 +13,6 @@ import { eventBody, pollJob, readEventWithRetry } from "./polling";
 import { streamJob, type StreamJob } from "./streaming";
 import {
   readJobOutput,
-  readJobResponse,
   readLaunchID,
   requireEnvelope,
   requireSuccessfulJob,
@@ -100,25 +99,25 @@ export const createXYOpsClient = (
       guard,
     );
 
-  const readFinalJob = <T>(
+  const reconcileAfterStreamFailure = <T>(
     id: string,
     guard: ResponseGuard<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> =>
-    request(JOB_PATH, { id }, JOB_PATH)
-      .then((response) => readJobResponse(response, JOB_PATH))
-      .then((job) =>
-        normalizeVoiceflowResponse(
-          readJobOutput(
-            requireSuccessfulJob(
-              job,
-              JOB_PATH,
-              "The migration execute job failed.",
-            ),
-            JOB_PATH,
-          ),
-        ),
+    pollJob(id, request, sleeper, config, guard).catch((error) => {
+      const diagnostic = readCliDiagnostic(error);
+      if (
+        diagnostic?.code === "job" &&
+        diagnostic.nextAction !== "The migration execute job failed."
       )
-      .then((data) => requireEnvelope(data, guard, JOB_PATH));
+        return Promise.reject(
+          fail("execute-outcome-unknown", {
+            endpoint: JOB_PATH,
+            nextAction:
+              "The execute job outcome is unknown; reconcile before retrying.",
+          }),
+        );
+      return Promise.reject(error);
+    });
 
   const readTerminalStream = <T>(
     id: string,
@@ -134,7 +133,17 @@ export const createXYOpsClient = (
         maxBytes: config.streamMaxBytes,
         maxFrameBytes: config.streamMaxFrameBytes,
       },
-    ).catch(() => readFinalJob(id, guard));
+    ).catch((error) =>
+      readCliDiagnostic(error) === undefined
+        ? Promise.reject(
+            fail("execute-outcome-unknown", {
+              endpoint: "/api/app/stream_job/v1",
+              nextAction:
+                "The execute stream outcome is unknown; reconcile before retrying.",
+            }),
+          )
+        : reconcileAfterStreamFailure(id, guard),
+    );
     return streamOrJob.then((streamOrJobResult) => {
       if (!("kind" in streamOrJobResult)) return streamOrJobResult;
       if (streamOrJobResult.kind === "failure")
@@ -151,7 +160,7 @@ export const createXYOpsClient = (
         );
         return requireEnvelope(output, guard, "/api/app/stream_job/v1");
       } catch {
-        return readFinalJob(id, guard);
+        return reconcileAfterStreamFailure(id, guard);
       }
     });
   };
