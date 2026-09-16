@@ -12,6 +12,7 @@ import { loadProjects } from "../catalog";
 import { findArchiveCandidate } from "../archive";
 import { renameProject } from "../logux/rename-project";
 import { confirmProjectRename } from "../catalog/rename-barrier";
+import type { MigrationStage } from "../execute-migration-state-machine";
 
 export type { ExecuteResult } from "../types";
 
@@ -36,14 +37,14 @@ const executeConfirmedMigration = async (
   operationID: string,
   secretFileContents?: unknown,
 ): Promise<Envelope<ExecuteResult>> => {
-  let stage = "authentication";
+  let stage: MigrationStage = "AUTHENTICATION";
   try {
     const auth = await resolveVoiceflowAuth(token);
-    stage = "export";
+    stage = "EXPORT";
     const artifact = await exportVersion(auth, sourceVersionID);
     const resolvedSchemaVersion =
       targetSchemaVersion ?? resolveTargetSchemaVersion(artifact);
-    stage = "planning";
+    stage = "PLANNING";
     const selection = migrationSelection(
       sourceWorkspaceID,
       sourceProjectID,
@@ -54,7 +55,7 @@ const executeConfirmedMigration = async (
     );
     const plan = await buildMigrationPlan(auth, selection);
     ensureMatchingPlan(plan.planID, planID);
-    stage = "archive-preflight";
+    stage = "ARCHIVE_PREFLIGHT";
     const [sourceProjects, destinationProjects] = await Promise.all([
       loadProjects(auth, sourceWorkspaceID),
       loadProjects(auth, destinationWorkspaceID),
@@ -71,7 +72,7 @@ const executeConfirmedMigration = async (
       { now: () => new Date() },
     );
     if (archive !== undefined) {
-      stage = "archive";
+      stage = "ARCHIVE";
       await renameProject(
         auth,
         destinationWorkspaceID,
@@ -86,7 +87,7 @@ const executeConfirmedMigration = async (
         name: archive.name,
       });
     }
-    stage = "import";
+    stage = "IMPORT";
     const imported = await importVersion(
       auth,
       artifact,
@@ -94,14 +95,14 @@ const executeConfirmedMigration = async (
       destinationFolderID,
       resolvedSchemaVersion,
     );
-    stage = `secret-input-${secretInputKind(secretFileContents)}`;
+    stage = "SECRET_INPUT";
     const configuredSecrets = parseSecretFileContents(secretFileContents);
-    stage = "secret-resolution";
+    stage = "SECRET_RESOLUTION";
     const secrets = await resolveConfiguredSecretValues(
       auth,
       configuredSecrets,
     );
-    stage = "secret-creation";
+    stage = "SECRET_CREATION";
     await createProjectSecrets(auth, imported.projectID, secrets);
     const result: ExecuteResult = {
       planID,
@@ -134,13 +135,6 @@ const addFailureStage = (error: unknown, stage: string): unknown =>
     : new Error(
         `stage=${stage} error=${error instanceof Error ? error.message : String(error)}`,
       );
-
-const secretInputKind = (contents: unknown): string => {
-  if (contents === undefined) return "missing";
-  if (contents === null) return "null";
-  if (Array.isArray(contents)) return "array";
-  return typeof contents;
-};
 
 const parseSecretFileContents = (contents: unknown) =>
   contents === undefined ? [] : parseSecretEntries(contents);
