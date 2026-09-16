@@ -56,8 +56,7 @@ Feature: Safely rename a colliding Voiceflow project before import
     Then it sends a sync frame with a positive numeric subscription request ID
     And the action type is logux/subscribe
     And the channel is workspace/<destination_workspace_id>
-    And since.id is "0"
-    And since.time is 0
+    And the current rename subscription frame does not include a since field
     When Logux returns synced for that subscription request ID
     Then the plugin is authorized to send the rename mutation
     When Logux returns synced for a different request ID
@@ -67,7 +66,7 @@ Feature: Safely rename a colliding Voiceflow project before import
   Scenario: Send the rename mutation on the active workspace subscription
     Given the workspace subscription has returned synced
     When the plugin sends the rename mutation
-    Then the sync frame request ID equals the active workspace subscription request ID
+    Then the sync frame request ID is a distinct positive mutation request ID
     And the action type is assistant.PATCH_ONE
     And the payload has the shape:
       | field | value |
@@ -173,22 +172,31 @@ Feature: Safely rename a colliding Voiceflow project before import
     When the response project.CRUD:PATCH has actionID response-action
     And the response project.CRUD:PATCH has origin session-origin
     And workspace, project ID, and requested name all match
-    Then the response is accepted as the rename state-change acknowledgement
+    Then the response is accepted as observed rename state propagation
     And the differing response actionID is not treated as an error
+    And the response does not replace the matching mutation synced acknowledgement
 
   @timeouts
-  Scenario: Stop safely when the project patch is never observed
+  Scenario: Stop safely when the mutation acknowledgement is never observed
     Given the rename mutation has been sent
-    When no matching project.CRUD:PATCH arrives before the rename timeout
+    When no matching mutation synced arrives before the rename timeout
     Then the rename operation fails with DEPENDENCY_TIMEOUT
     And the error is retryable
     And import is not started
     And the diagnostic includes the stage and observed action types
     And the diagnostic excludes the JWT and raw sensitive payloads
 
+  @optional-broadcast
+  Scenario: Do not fail the WebSocket operation when the project broadcast is absent
+    Given the matching mutation synced has been received
+    And no matching project.CRUD:PATCH arrives
+    When the rename WebSocket operation completes
+    Then the rename acknowledgement is complete
+    And the catalog durability barrier is required before import
+
   @timeouts
   Scenario: Stop safely when durable state never reflects the rename
-    Given a matching project.CRUD:PATCH has been observed
+    Given the matching mutation synced has been observed
     When the authoritative catalog never reflects the timestamped name
     Then the rename barrier fails with a retryable dependency timeout
     And import is not started
@@ -206,7 +214,7 @@ Feature: Safely rename a colliding Voiceflow project before import
 
   @duplicates
   Scenario: Ignore duplicate acknowledgements after completion
-    Given the matching project.CRUD:PATCH has completed the rename
+    Given the matching mutation synced has completed the WebSocket rename
     When another matching project patch arrives
     Then the Promise settles only once
     And the WebSocket is closed only once
