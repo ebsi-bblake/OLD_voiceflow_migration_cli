@@ -10,7 +10,6 @@ import type {
   VoiceflowWarning,
 } from "../types";
 import { executeParameters } from "../state";
-import { fail } from "../diagnostics";
 import type { MigrationContext } from "./selection";
 
 type DisplayPlan = (plan: MigrationPlan) => void;
@@ -40,13 +39,19 @@ const warnAPIKeyRetrieval = (
   response: VoiceflowEnvelope<ExecuteResult>,
 ): void => {
   if (hasAPIKeyRetrievalWarning(response)) {
-    console.error("WARNING: migration completed, but API-key retrieval failed.");
+    console.error(
+      "WARNING: migration completed, but API-key retrieval failed.",
+    );
     process.exitCode = 2;
   }
 };
 
-type RequestMigrationConfirmation = (reader: MigrationContext["reader"]) => Promise<boolean>;
-export const requestMigrationConfirmation: RequestMigrationConfirmation = (reader) =>
+type RequestMigrationConfirmation = (
+  reader: MigrationContext["reader"],
+) => Promise<boolean>;
+export const requestMigrationConfirmation: RequestMigrationConfirmation = (
+  reader,
+) =>
   reader.ask("Perform this real migration? (yes/no): ").then((answer) => {
     const confirmation = answer.trim().toLowerCase();
     if (["y", "yes"].includes(confirmation)) return true;
@@ -59,7 +64,7 @@ type ExecuteConfirmedMigration = (
   selection: MigrationSelection,
   planID: string,
   secretFileContents?: SecretEntries,
-) => Promise<void>;
+) => Promise<ExecuteResult>;
 export const executeConfirmedMigration: ExecuteConfirmedMigration = async (
   { client, config },
   selection,
@@ -76,8 +81,8 @@ export const executeConfirmedMigration: ExecuteConfirmedMigration = async (
     "execute_migration",
     isExecuteResult,
   );
-  console.log(JSON.stringify(summarizeExecution(execute, planID)));
   warnAPIKeyRetrieval(executeResponse);
+  return execute;
 };
 
 type ConfirmAndExecuteMigration = (
@@ -93,27 +98,10 @@ export const confirmAndExecuteMigration: ConfirmAndExecuteMigration = async (
   secretFileContents,
 ) => {
   if (await requestMigrationConfirmation(context.reader))
-    await executeConfirmedMigration(context, selection, planID, secretFileContents);
-};
-
-const executionFieldKeys = [
-  "exportStatus",
-  "exportBytes",
-  "importStatus",
-  "importBytes",
-] as const;
-const summarizeExecution = (
-  value: unknown,
-  planID: string,
-): Readonly<Record<string, unknown>> => {
-  if (!isExecuteResult(value))
-    throw fail("envelope", {
-      nextAction: "The execute event returned an invalid result.",
-    });
-  return {
-    migrationCompleted: true,
-    planID,
-    ...Object.fromEntries(executionFieldKeys.map((key) => [key, value[key]])),
-    apiKeyRetrieved: value.apiKeyRetrieved,
-  };
+    await executeConfirmedMigration(
+      context,
+      selection,
+      planID,
+      secretFileContents,
+    );
 };

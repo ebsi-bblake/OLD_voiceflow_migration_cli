@@ -98,7 +98,7 @@ const performMigration: PerformMigration = async (context) => {
 
   if (!confirmed) return;
 
-  await progress.run("execute_migration", () =>
+  const execute = await progress.run("execute_migration", () =>
     executeConfirmedMigration(
       context,
       selection,
@@ -106,6 +106,15 @@ const performMigration: PerformMigration = async (context) => {
       secretFileContents,
     ),
   );
+  console.log("\n" + JSON.stringify({
+    migrationCompleted: true,
+    planID: plan.planID,
+    exportStatus: execute.exportStatus,
+    exportBytes: execute.exportBytes,
+    importStatus: execute.importStatus,
+    importBytes: execute.importBytes,
+    apiKeyRetrieved: execute.apiKeyRetrieved,
+  }));
 };
 
 type Run = () => Promise<void>;

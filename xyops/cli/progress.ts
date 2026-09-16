@@ -28,13 +28,17 @@ const createProgressReporter = (): ProgressReporter => {
 
   const run = <T>(label: string, task: ProgressTask<T>): Promise<T> => {
     if (!process.stderr.isTTY) return task();
+    const name = label
+      .split("_")
+      .map((w, i) => `${w[0].toUpperCase()}${w.slice(1)}${i ? "" : "ing"}`)
+      .join(" ");
 
     let tick = 0;
     let timer: ReturnType<typeof setInterval> | undefined;
     let finished = false;
     let paused = false;
     const render = (): void => {
-      process.stderr.write(`\r${progressLine(label, tick++)}`);
+      process.stderr.write(`\r${progressLine(name, tick++)}`);
     };
     const startTimer = (): void => {
       if (!paused && !finished && timer === undefined) {
@@ -67,7 +71,7 @@ const createProgressReporter = (): ProgressReporter => {
       if (finished) return;
       finished = true;
       stopTimer();
-      process.stderr.write(`\r${label} [${"#".repeat(BAR_WIDTH)}] ${status}\n`);
+      process.stderr.write(`\r${name} [${"#".repeat(BAR_WIDTH)}] ${status}\n`);
       if (lifecycle === currentLifecycle) lifecycle = undefined;
     };
     let taskResult: Promise<T>;
