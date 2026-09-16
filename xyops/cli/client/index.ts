@@ -54,15 +54,6 @@ const isUnknownOutcomeTransport = (
   diagnostic: CliDiagnostic | undefined,
 ): diagnostic is CliDiagnostic =>
   diagnostic !== undefined && ["timeout", "network"].includes(diagnostic.code);
-const translateExecuteStreamError = (error: unknown): CliError => {
-  const diagnostic = readCliDiagnostic(error);
-  return fail("execute-outcome-unknown", {
-    endpoint: "/api/app/stream_job/v1",
-    status: diagnostic?.status,
-    nextAction:
-      "The execute stream outcome is unknown; reconcile before retrying.",
-  });
-};
 const translateExecuteJobError = (error: unknown): CliError => {
   const diagnostic = readCliDiagnostic(error);
   if (isUnknownOutcomeTransport(diagnostic))
@@ -143,12 +134,7 @@ export const createXYOpsClient = (
         maxBytes: config.streamMaxBytes,
         maxFrameBytes: config.streamMaxFrameBytes,
       },
-    ).catch((error) => {
-      const diagnostic = readCliDiagnostic(error);
-      return diagnostic?.code === "stream"
-        ? readFinalJob(id, guard)
-        : Promise.reject(translateExecuteStreamError(error));
-    });
+    ).catch(() => readFinalJob(id, guard));
     return streamOrJob.then((streamOrJobResult) => {
       if (!("kind" in streamOrJobResult)) return streamOrJobResult;
       if (streamOrJobResult.kind === "failure")
