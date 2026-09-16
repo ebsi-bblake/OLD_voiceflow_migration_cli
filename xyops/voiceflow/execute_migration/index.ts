@@ -76,6 +76,7 @@ const executeConfirmedMigration = async (
         auth,
         destinationWorkspaceID,
         archive.project.id,
+        destinationFolderID,
         archive.name,
       );
       await confirmProjectRename(auth, {

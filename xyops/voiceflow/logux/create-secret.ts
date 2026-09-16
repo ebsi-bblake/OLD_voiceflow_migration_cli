@@ -3,6 +3,12 @@ import { OperationFault } from "../contracts";
 import { VoiceflowRegex } from "../regex";
 import { createUUID } from "../uuid";
 import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
+import {
+  createSecretState,
+  transitionSecretState,
+  type SecretEvent,
+  type SecretState,
+} from "./state-machine";
 
 type CreateSecret = (
   auth: AuthContext,
@@ -43,8 +49,11 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
     const subscriptionID = Math.floor(Math.random() * 1_000_000_000) + 1;
     const mutationSyncID = subscriptionID + 1;
     let actionTime = 1;
-    let lifecycle = "connecting";
+    let state: SecretState = createSecretState(assistantID, actionID);
     let settled = false;
+    const dispatch = (event: SecretEvent): void => {
+      state = transitionSecretState(state, event);
+    };
     const settle = (error?: OperationFault): void => {
       if (settled) return;
       settled = true;
@@ -58,36 +67,42 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       error ? reject(error) : resolve();
     };
     const timer = setTimeout(
-      () =>
+      () => {
+        dispatch({ kind: "timeout" });
         settle(
           new OperationFault(
             "DEPENDENCY_TIMEOUT",
             true,
-            `logux-${lifecycle}-timeout`,
+            `logux-${state.kind.toLowerCase()}-timeout`,
           ),
-        ),
+        );
+      },
       15_000,
     );
-    ws.onerror = () =>
+    ws.onerror = () => {
+      dispatch({ kind: "socket-error" });
       settle(
         new OperationFault(
           "DEPENDENCY_FAILURE",
           true,
-          `logux-${lifecycle}-error`,
+          `logux-${state.kind.toLowerCase()}-error`,
         ),
       );
+    };
     ws.onclose = () => {
-      if (!settled)
+      if (!settled) {
+        dispatch({ kind: "socket-close" });
         settle(
           new OperationFault(
             "DEPENDENCY_FAILURE",
             true,
-            `logux-${lifecycle}-close`,
+            `logux-${state.kind.toLowerCase()}-close`,
           ),
         );
+      }
     };
     ws.onopen = () => {
-      lifecycle = "connected";
+      dispatch({ kind: "socket-open" });
       const frame: Frame = [
         "connect",
         4,
@@ -111,32 +126,47 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       const frame = parseFrame(event.data);
       if (!frame) return;
       traceFrame("in", frame);
-      if (frame[0] === "error")
+      if (frame[0] === "error") {
+        dispatch({ kind: "error-frame" });
         return settle(
           new OperationFault(
             "DEPENDENCY_FAILURE",
             true,
-            `logux-${lifecycle}-error-frame`,
+            `logux-${state.kind.toLowerCase()}-error-frame`,
           ),
         );
+      }
       if (frame[0] === "connected") {
-        lifecycle = "subscribing";
-        return sendSubscription(ws, assistantID, subscriptionID, actionTime++);
+        dispatch({ kind: "connected" });
+        try {
+          sendSubscription(ws, assistantID, subscriptionID, actionTime++);
+        } catch {
+          dispatch({ kind: "socket-error" });
+          settle(new OperationFault("DEPENDENCY_FAILURE", true));
+        }
+        return;
       }
       if (isSubscriptionComplete(frame, subscriptionID)) {
-        lifecycle = "creating";
-        return sendCreateAction(
-          ws,
-          assistantID,
-          secret,
-          origin,
-          actionID,
-          mutationSyncID,
-          actionTime++,
-        );
+        dispatch({ kind: "subscription-synced" });
+        try {
+          sendCreateAction(
+            ws,
+            assistantID,
+            secret,
+            origin,
+            actionID,
+            mutationSyncID,
+            actionTime++,
+          );
+          dispatch({ kind: "mutation-sent", mutationSyncID });
+        } catch {
+          dispatch({ kind: "socket-error" });
+          settle(new OperationFault("DEPENDENCY_FAILURE", true));
+        }
+        return;
       }
-      if (isDoneFrame(frame, actionID)) {
-        lifecycle = "completed";
+      if (isDoneFrame(frame, actionID, assistantID)) {
+        dispatch({ kind: "secret-done", actionID });
         settle();
       }
     };
@@ -207,12 +237,19 @@ const parseFrame = (text: string): Frame | undefined => {
     return undefined;
   }
 };
-const isDoneFrame = (frame: Frame, actionID: string): boolean => {
+const isDoneFrame = (
+  frame: Frame,
+  actionID: string,
+  assistantID: string,
+): boolean => {
   const action = frame[2];
   if (!isRecord(action) || action.type !== "secret.CREATE_ONE_DONE")
     return false;
   const meta = action.meta;
-  return isRecord(meta) && meta.actionID === actionID;
+  if (!isRecord(meta) || meta.actionID !== actionID) return false;
+  const payload = isRecord(action.payload) ? action.payload : undefined;
+  const context = payload && isRecord(payload.context) ? payload.context : undefined;
+  return context?.assistantID === undefined || context.assistantID === assistantID;
 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
