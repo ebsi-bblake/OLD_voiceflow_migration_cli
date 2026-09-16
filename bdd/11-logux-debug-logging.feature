@@ -167,50 +167,106 @@ Feature: Opt-in Voiceflow Logux debugging
     And mutation ordering and completion barriers remain unchanged
     And the migration result follows the underlying operation outcome
 
-# IMPLEMENTATION GATES: these decisions are required before this feature is
-# implementation-ready. They are intentionally recorded here so the contract
-# cannot silently acquire incompatible defaults during implementation.
-#
-# 1. Configuration contract:
-#    Decide whether debugLogux is the config key, define the environment key,
-#    define CLI > config > environment > default precedence, and distinguish
-#    malformed CLI values (validation failure) from malformed remote event
-#    values (reject or fail closed).
-#
-# 2. Diagnostic transport:
-#    Verify whether plugin stderr is captured as the XYOps job diagnostic
-#    channel. If not, define the transport and ownership for plugin and CLI
-#    diagnostics without putting raw traces in the migration result envelope.
-#
-# 3. Context propagation:
-#    Define how operationID, stage, workspaceID, projectID, and correlation
-#    context reach rename, catalog-barrier, and secret Logux helpers.
-#
-# 4. State observability:
-#    Decide whether logs contain every state transition, only terminal state,
-#    or both. Define the semantics of unknown/not-started values for
-#    catalogDurable and patchObserved, including whether patchObserved is
-#    WebSocket-session scoped.
-#
-# 5. Redaction policy:
-#    Approve whether workspace/project IDs are plaintext in opt-in logs and
-#    specify a stable non-reversible redaction algorithm for origin and action
-#    correlation identifiers.
-#
-# 6. Output budget and backpressure:
-#    Define exact byte and line limits, the logging_suppressed behavior, and
-#    whether logging failures are counted, reported once, or silently ignored.
-#
-# 7. Event schema:
-#    Define schema version, timestamp/monotonic sequence requirements, and the
-#    distinction between frameType, event, actionType, and derived state.
-#    In particular, decide how logux/processed is classified.
-#
-# 8. Disabled-mode compatibility:
-#    Verify that DEBUG_LOGUX=false emits no debug schema fields, raw frames, or
-#    debug payloads in the migration result while preserving normal failures.
-#
-# 9. Evidence fixtures:
-#    Add expected redacted JSON fixtures for connect, mutation sent, mutation
-#    acknowledgement, absent project broadcast, timeout, secret completion,
-#    and wrong-format error handling.
+  @configuration-contract
+  Scenario: Resolve all debug configuration sources
+    Given the configuration key is debugLogux
+    And the environment key is DEBUG_LOGUX
+    And the default is false
+    When CLI flags, configuration, and environment provide conflicting values
+    Then the precedence is CLI flag, configuration, environment, default
+    And the execute-event field is named DEBUG_LOGUX
+    And the execute-event field is always an explicit boolean
+    When the remote DEBUG_LOGUX value is absent or non-boolean
+    Then the plugin fails closed with DEBUG_LOGUX=false
+    And CLI malformed values remain configuration errors
+
+  @diagnostic-transport
+  Scenario: Route diagnostics through the XYOps job diagnostic channel
+    Given DEBUG_LOGUX=true
+    When the plugin emits a debug record
+    Then the record is written to plugin stderr
+    And XYOps captures plugin stderr as the job diagnostic channel
+    And the CLI may display the channel without parsing it for migration success
+    And raw debug records are not placed in the migration result envelope
+
+  @context
+  Scenario: Include operation context in every debug record
+    Given DEBUG_LOGUX=true
+    When any rename, catalog-barrier, or secret Logux record is emitted
+    Then operationID and stage are present
+    And workspaceID and projectID are present when known
+    And the helper receives the context explicitly rather than reading ambient state
+    And missing context fields are omitted rather than replaced with empty strings
+
+  @state-observability
+  Scenario: Emit state transitions and a terminal state summary
+    Given DEBUG_LOGUX=true
+    When a Logux operation changes lifecycle state
+    Then one record is emitted for the transition
+    And the record contains previousState and nextState
+    When the operation reaches a terminal state
+    Then one terminal summary is emitted
+    And catalogDurable is unknown before catalog reconciliation starts
+    And patchObserved is scoped to project broadcasts observed on the current rename session
+
+  @redaction
+  Scenario: Apply the approved correlation redaction policy
+    Given DEBUG_LOGUX=true
+    When a debug record contains an origin or action ID
+    Then the raw value is never emitted
+    And its correlation value is an HMAC-SHA-256 digest using a process-local key truncated to 12 hexadecimal characters
+    And the same input correlates within the operation
+    And the digest is not reusable across operations after the process key changes
+    And workspaceID and projectID are emitted as plaintext approved identifiers
+
+  @output-budget
+  Scenario: Enforce deterministic debug output limits
+    Given DEBUG_LOGUX=true
+    And the debug output limits are 1 MiB and 2000 records per operation
+    When either limit is reached
+    Then one logging_suppressed record is emitted when possible
+    And the record contains the suppressed record count
+    And subsequent debug records are dropped
+    And migration execution does not wait for dropped records
+
+  @schema-version
+  Scenario: Emit a versioned event schema
+    Given DEBUG_LOGUX=true
+    When a debug record is emitted
+    Then schemaVersion is 1
+    And timestamp is an ISO-8601 UTC timestamp
+    And sequence is a monotonically increasing integer per operation
+    And frameType describes the wire frame kind
+    And event describes the diagnostic lifecycle event
+    And actionType describes the allowlisted action type when present
+
+  @processed-classification
+  Scenario: Classify logux processed without confusing it with acknowledgement
+    Given DEBUG_LOGUX=true
+    When a logux/processed action is received
+    Then frameType is sync
+    And event is action-received
+    And actionType is logux/processed
+    And transportProcessing is true
+    And mutationAck is not changed by that record
+
+  @disabled-compatibility
+  Scenario: Keep the migration contract unchanged when debugging is disabled
+    Given DEBUG_LOGUX=false
+    When a migration succeeds or fails
+    Then the migration result has no debug schema fields
+    And the migration result has no raw frames or debug payloads
+    And ordinary failure diagnostics retain their existing behavior
+    And debug logging cannot change the migration outcome
+
+  @fixtures
+  Scenario: Provide redacted records for protocol regression tests
+    Given DEBUG_LOGUX=true
+    When protocol diagnostics are tested
+    Then fixtures cover connect
+    And fixtures cover mutation sent
+    And fixtures cover mutation acknowledgement
+    And fixtures cover an absent project broadcast
+    And fixtures cover timeout
+    And fixtures cover secret completion
+    And fixtures cover a wrong-format error
