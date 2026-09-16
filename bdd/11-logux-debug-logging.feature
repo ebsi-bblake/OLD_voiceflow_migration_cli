@@ -166,3 +166,51 @@ Feature: Opt-in Voiceflow Logux debugging
     Then the logging failure is not treated as a Voiceflow mutation failure
     And mutation ordering and completion barriers remain unchanged
     And the migration result follows the underlying operation outcome
+
+# IMPLEMENTATION GATES: these decisions are required before this feature is
+# implementation-ready. They are intentionally recorded here so the contract
+# cannot silently acquire incompatible defaults during implementation.
+#
+# 1. Configuration contract:
+#    Decide whether debugLogux is the config key, define the environment key,
+#    define CLI > config > environment > default precedence, and distinguish
+#    malformed CLI values (validation failure) from malformed remote event
+#    values (reject or fail closed).
+#
+# 2. Diagnostic transport:
+#    Verify whether plugin stderr is captured as the XYOps job diagnostic
+#    channel. If not, define the transport and ownership for plugin and CLI
+#    diagnostics without putting raw traces in the migration result envelope.
+#
+# 3. Context propagation:
+#    Define how operationID, stage, workspaceID, projectID, and correlation
+#    context reach rename, catalog-barrier, and secret Logux helpers.
+#
+# 4. State observability:
+#    Decide whether logs contain every state transition, only terminal state,
+#    or both. Define the semantics of unknown/not-started values for
+#    catalogDurable and patchObserved, including whether patchObserved is
+#    WebSocket-session scoped.
+#
+# 5. Redaction policy:
+#    Approve whether workspace/project IDs are plaintext in opt-in logs and
+#    specify a stable non-reversible redaction algorithm for origin and action
+#    correlation identifiers.
+#
+# 6. Output budget and backpressure:
+#    Define exact byte and line limits, the logging_suppressed behavior, and
+#    whether logging failures are counted, reported once, or silently ignored.
+#
+# 7. Event schema:
+#    Define schema version, timestamp/monotonic sequence requirements, and the
+#    distinction between frameType, event, actionType, and derived state.
+#    In particular, decide how logux/processed is classified.
+#
+# 8. Disabled-mode compatibility:
+#    Verify that DEBUG_LOGUX=false emits no debug schema fields, raw frames, or
+#    debug payloads in the migration result while preserving normal failures.
+#
+# 9. Evidence fixtures:
+#    Add expected redacted JSON fixtures for connect, mutation sent, mutation
+#    acknowledgement, absent project broadcast, timeout, secret completion,
+#    and wrong-format error handling.
