@@ -1,9 +1,18 @@
-.slim/deepwork/
+# Local agent and workspace artifacts
+.obsidian/
+.slim/
+archive/
+AGENTS.md
+ENGINEERING_AUDIT.md
+runtime-*
+xyops-voiceflow-*
+
 node_modules/
 dist/
 .env
 .env.*
 !.env.example
+xyops/cli/migration.local.json
 coverage/
 *.log
 .DS_Store

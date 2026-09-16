@@ -2,23 +2,24 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   resolveVoiceflowAuth as originalResolveVoiceflowAuth,
   type AuthContext,
-} from "../xyops/voiceflow/vf_auth";
+} from "../xyops/voiceflow/auth";
 import {
   retrieveApiKeyStatus as originalRetrieveApiKeyStatus,
   type ApiKeyStatus,
-} from "../xyops/voiceflow/vf_api_key";
+} from "../xyops/voiceflow/api_key";
 import type {
   ImportedReceipt,
   MigrationPlan,
   MigrationSelection,
   Warning,
-} from "../xyops/voiceflow/vf_contracts";
+} from "../xyops/voiceflow/contracts";
 import {
   exportVersion as originalExportVersion,
   type ExportArtifact,
-} from "../xyops/voiceflow/vf_export";
-import { importVersion as originalImportVersion } from "../xyops/voiceflow/vf_import";
-import { buildMigrationPlan as originalBuildMigrationPlan } from "../xyops/voiceflow/vf_planning";
+} from "../xyops/voiceflow/export";
+import { importVersion as originalImportVersion } from "../xyops/voiceflow/import";
+import { buildMigrationPlan as originalBuildMigrationPlan } from "../xyops/voiceflow/planning";
+import type { ProjectRecord } from "../xyops/voiceflow/types";
 
 type ExecuteScenario = "retrieval-failure" | "success";
 
@@ -77,16 +78,6 @@ const executeArguments = [
   true,
 ] as const;
 
-const notIdempotentWarning: Warning = {
-  code: "NOT_IDEMPOTENT",
-  message: "Import is not idempotent; do not retry blindly.",
-};
-
-const apiKeyRetrievalFailedWarning: Warning = {
-  code: "API_KEY_RETRIEVAL_FAILED",
-  message: "Project API key could not be retrieved.",
-};
-
 const successfulApiKeyOutcome: ApiKeyStatus = {
   apiKeyRetrieved: true,
 };
@@ -109,30 +100,40 @@ const buildMigrationPlan = mock(async () => plan);
 const exportVersion = mock(async () => artifact);
 const importVersion = mock(async () => imported);
 const retrieveApiKeyStatus = mock(async () => apiKeyOutcome);
+const loadProjects = mock(async (_auth: unknown, workspaceID: string): Promise<readonly ProjectRecord[]> => [{
+  id: selection.sourceProjectID,
+  label: "Source Project",
+  workspaceID,
+  environments: [],
+}]);
 
 function installDependencyMocks(): void {
-  mock.module("../xyops/voiceflow/vf_auth", () => ({ resolveVoiceflowAuth }));
-  mock.module("../xyops/voiceflow/vf_planning", () => ({ buildMigrationPlan }));
-  mock.module("../xyops/voiceflow/vf_export", () => ({ exportVersion }));
-  mock.module("../xyops/voiceflow/vf_import", () => ({ importVersion }));
-  mock.module("../xyops/voiceflow/vf_api_key", () => ({ retrieveApiKeyStatus }));
+  mock.module("../xyops/voiceflow/auth", () => ({ resolveVoiceflowAuth }));
+  mock.module("../xyops/voiceflow/planning", () => ({ buildMigrationPlan }));
+  mock.module("../xyops/voiceflow/export", () => ({ exportVersion }));
+  mock.module("../xyops/voiceflow/import", () => ({ importVersion }));
+  mock.module("../xyops/voiceflow/api_key", () => ({ retrieveApiKeyStatus }));
+  mock.module("../xyops/voiceflow/catalog", () => ({ loadProjects }));
 }
 
 function restoreDependencyModules(): void {
-  mock.module("../xyops/voiceflow/vf_auth", () => ({
+  mock.module("../xyops/voiceflow/auth", () => ({
     resolveVoiceflowAuth: originalResolveVoiceflowAuth,
   }));
-  mock.module("../xyops/voiceflow/vf_planning", () => ({
+  mock.module("../xyops/voiceflow/planning", () => ({
     buildMigrationPlan: originalBuildMigrationPlan,
   }));
-  mock.module("../xyops/voiceflow/vf_export", () => ({
+  mock.module("../xyops/voiceflow/export", () => ({
     exportVersion: originalExportVersion,
   }));
-  mock.module("../xyops/voiceflow/vf_import", () => ({
+  mock.module("../xyops/voiceflow/import", () => ({
     importVersion: originalImportVersion,
   }));
-  mock.module("../xyops/voiceflow/vf_api_key", () => ({
+  mock.module("../xyops/voiceflow/api_key", () => ({
     retrieveApiKeyStatus: originalRetrieveApiKeyStatus,
+  }));
+  mock.module("../xyops/voiceflow/catalog", () => ({
+    loadProjects: async () => [],
   }));
 }
 
@@ -148,7 +149,7 @@ async function executeMockedScenario(scenario: ExecuteScenario): Promise<unknown
 
   try {
     const { main: executeMigration } = await import(
-      "../xyops/voiceflow/vf_execute_migration"
+      "../xyops/voiceflow/execute_migration"
     );
     return await executeMigration(...executeArguments);
   } finally {
@@ -196,7 +197,7 @@ function validateExecuteStdout(stdout: string): void {
   if (!stdout) throw new Error("Isolated execute scenario returned no envelope");
 }
 
-function expectedExecuteResult(apiKeyStatus: ApiKeyStatus) {
+function expectedExecuteResult() {
   return {
     planID: plan.planID,
     exportStatus: artifact.status,
@@ -205,19 +206,15 @@ function expectedExecuteResult(apiKeyStatus: ApiKeyStatus) {
     importBytes: imported.importBytes,
     selected: selection,
     imported,
-    ...apiKeyStatus,
   };
 }
 
-function expectedSuccessEnvelope(
-  apiKeyStatus: ApiKeyStatus,
-  warnings: readonly Warning[],
-) {
+function expectedSuccessEnvelope(warnings: readonly Warning[]) {
   return {
     ok: true,
     operation: "execute_migration",
     operationID: expect.any(String),
-    result: expectedExecuteResult(apiKeyStatus),
+    result: expectedExecuteResult(),
     warnings,
   };
 }
@@ -237,9 +234,7 @@ if (requestedScenario !== undefined) {
       const envelope = executeScenarioInIsolatedProcess("success");
 
       expect(envelope).toEqual(
-        expectedSuccessEnvelope(successfulApiKeyOutcome, [
-          notIdempotentWarning,
-        ]),
+        expectedSuccessEnvelope([]),
       );
       expect(envelope).not.toHaveProperty("result.postImport");
     });
@@ -248,14 +243,7 @@ if (requestedScenario !== undefined) {
       const envelope = executeScenarioInIsolatedProcess("retrieval-failure");
 
       expect(envelope).toEqual(
-        expectedSuccessEnvelope(apiKeyRetrievalFailure, [
-          notIdempotentWarning,
-          apiKeyRetrievalFailedWarning,
-        ]),
-      );
-      expect(envelope).toHaveProperty(
-        "result.postImport",
-        apiKeyRetrievalFailure.postImport,
+        expectedSuccessEnvelope([]),
       );
     });
   });

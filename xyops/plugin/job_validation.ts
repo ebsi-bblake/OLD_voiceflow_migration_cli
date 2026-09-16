@@ -7,7 +7,6 @@ import type {
 } from "./types";
 export { isPluginOperation } from "./guards";
 
-type SelectOperation = (params: PluginParameters) => PluginOperation;
 const requireOperationName = (value: unknown): string => {
   if (!isNonEmptyString(value))
     throw new PluginValidationFault(
@@ -16,6 +15,7 @@ const requireOperationName = (value: unknown): string => {
     );
   return value;
 };
+
 const requireSupportedOperation = (value: string): PluginOperation => {
   if (!isPluginOperation(value))
     throw new PluginValidationFault(
@@ -24,28 +24,33 @@ const requireSupportedOperation = (value: string): PluginOperation => {
     );
   return value;
 };
+
+type SelectOperation = (params: PluginParameters) => PluginOperation;
 const selectOperation: SelectOperation = (params) =>
   requireSupportedOperation(requireOperationName(params.operation));
 
-type ValidatePluginJob = (value: unknown) => NativePluginJob;
 const isPluginEventJob = (
   value: unknown,
 ): value is { readonly params: PluginParameters } => {
   if (!isRecord(value)) return false;
   return isEventRecord(value);
 };
+
 const isEventRecord = (
   value: Record<string, unknown>,
 ): value is { readonly params: PluginParameters } => {
   if (value.xy !== 1) return false;
   return isEventTypeRecord(value);
 };
+
 const isEventTypeRecord = (
   value: Record<string, unknown>,
 ): value is { readonly params: PluginParameters } => {
   if (value.type !== "event") return false;
   return isRecord(value.params);
 };
+
+type ValidatePluginJob = (value: unknown) => NativePluginJob;
 export const validatePluginJob: ValidatePluginJob = (value) => {
   if (!isPluginEventJob(value))
     throw new PluginValidationFault(

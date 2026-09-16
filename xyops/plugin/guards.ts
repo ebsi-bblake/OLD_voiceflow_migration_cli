@@ -9,6 +9,7 @@ const isObject = (value: unknown): value is object =>
 
 const isArray = (value: unknown): value is readonly unknown[] =>
   Array.isArray(value);
+
 export const isRecord: IsRecord = (value): value is RecordValue => {
   if (!isObject(value)) return false;
   return !isArray(value);

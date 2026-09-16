@@ -1,134 +1,217 @@
 import type { Option } from "./types";
 
-/** A line reader that does not depend on the Node readline pause/resume shim. */
-export class PromptReader {
-  private readonly input = process.stdin;
-  private readonly decoder = new TextDecoder();
-  private buffer = "";
-  private waiting: ((line: string) => void) | undefined;
-  private listening = false;
+export type PromptLifecycle = Readonly<{
+  beforeAsk: () => void;
+  afterAsk: () => void;
+}>;
 
-  private readonly onData = (chunk: unknown): void => {
-    this.buffer += readChunk(chunk, this.decoder);
-    this.resolveLineIfReady();
-  };
+export type PromptReader = Readonly<{
+  ask: (question: string) => Promise<string>;
+  close: () => void;
+}>;
 
-  constructor() {
-    this.input.on("data", this.onData);
-    this.listening = true;
-    this.input.resume();
-  }
-
-  private resolveLineIfReady(): void {
-    const resolve = this.waiting;
-    if (!resolve) return;
-    this.resolveWaitingLine(resolve);
-  }
-
-  private resolveWaitingLine(resolve: (line: string) => void): void {
-    const newline = findNewline(this.buffer);
-    if (newline === undefined) return;
-    const line = this.buffer.slice(0, newline.index);
-    const end = newline.end;
-    this.buffer = this.buffer.slice(end);
-    this.waiting = undefined;
-    resolve(line);
-  }
-
-  ask(question: string): Promise<string> {
-    if (this.waiting)
-      return Promise.reject(new Error("A prompt is already waiting for input"));
-    process.stdout.write(question);
-    return new Promise((resolve) => {
-      this.waiting = resolve;
-      this.resolveLineIfReady();
-    });
-  }
-
-  close(): void {
-    if (this.listening) this.input.off("data", this.onData);
-    this.listening = false;
-    this.input.pause();
-  }
-}
-
-type ReadChunk = (chunk: unknown, decoder: TextDecoder) => string;
-const readStringChunk = (chunk: unknown): string | undefined =>
+type ReadStringChunk = (chunk: unknown) => string | undefined;
+const readStringChunk: ReadStringChunk = (chunk) =>
   typeof chunk === "string" ? chunk : undefined;
-const readBytesChunk = (
+
+type ReadBytesChunk = (
   chunk: unknown,
   decoder: TextDecoder,
-): string | undefined =>
+) => string | undefined;
+const readBytesChunk: ReadBytesChunk = (chunk, decoder) =>
   chunk instanceof Uint8Array
     ? decoder.decode(chunk, { stream: true })
     : undefined;
-const firstDefined = (values: readonly (string | undefined)[]): string =>
+
+type FirstDefined = (values: readonly (string | undefined)[]) => string;
+const firstDefined: FirstDefined = (values) =>
   values.find((value) => value !== undefined) ?? "";
+
+type ReadChunk = (chunk: unknown, decoder: TextDecoder) => string;
 const readChunk: ReadChunk = (chunk, decoder) =>
   firstDefined([readStringChunk(chunk), readBytesChunk(chunk, decoder)]);
-type Newline = Readonly<{ index: number; end: number }>;
-const findNewline = (buffer: string): Newline | undefined => {
+
+type Newline = Readonly<{
+  index: number;
+  end: number;
+}>;
+
+type NewlineEnd = (buffer: string, index: number) => number;
+const newlineEnd: NewlineEnd = (buffer, index) =>
+  index + (Number(buffer.startsWith("\r\n", index)) + 1);
+
+type FindNewline = (buffer: string) => Newline | undefined;
+const findNewline: FindNewline = (buffer) => {
   const indices = [buffer.indexOf("\r"), buffer.indexOf("\n")].filter(
     (index) => index >= 0,
   );
+
   if (!indices.length) return undefined;
+
   const index = Math.min(...indices);
-  return { index, end: newlineEnd(buffer, index) };
+
+  return {
+    index,
+    end: newlineEnd(buffer, index),
+  };
 };
-const newlineEnd = (buffer: string, index: number): number =>
-  index + (Number(buffer.startsWith("\r\n", index)) + 1);
+
+type CreatePromptReader = (lifecycle?: PromptLifecycle) => PromptReader;
+export const CreatePromptReader: CreatePromptReader = (lifecycle) => {
+  const input = process.stdin;
+  const decoder = new TextDecoder();
+
+  let buffer = "";
+  let waiting: ((line: string) => void) | undefined;
+  let listening = false;
+
+  type ResolveWaitingLine = (resolve: (line: string) => void) => void;
+  const resolveWaitingLine: ResolveWaitingLine = (resolve) => {
+    const newline = findNewline(buffer);
+
+    if (newline === undefined) return;
+
+    const line = buffer.slice(0, newline.index);
+
+    buffer = buffer.slice(newline.end);
+    waiting = undefined;
+
+    lifecycle?.afterAsk();
+    resolve(line);
+  };
+
+  type ResolveLineIfReady = () => void;
+  const resolveLineIfReady: ResolveLineIfReady = () => {
+    const resolve = waiting;
+
+    if (!resolve) return;
+
+    resolveWaitingLine(resolve);
+  };
+
+  type OnData = (chunk: unknown) => void;
+  const onData: OnData = (chunk) => {
+    buffer += readChunk(chunk, decoder);
+    resolveLineIfReady();
+  };
+
+  type Ask = (question: string) => Promise<string>;
+  const ask: Ask = (question) => {
+    if (waiting) {
+      return Promise.reject(
+        new Error("\nA prompt is already waiting for input"),
+      );
+    }
+
+    lifecycle?.beforeAsk();
+    process.stdout.write(question);
+
+    return new Promise((resolve) => {
+      waiting = resolve;
+      resolveLineIfReady();
+    });
+  };
+
+  type Close = () => void;
+  const close: Close = () => {
+    if (listening) input.off("data", onData);
+
+    listening = false;
+    input.pause();
+  };
+
+  input.on("data", onData);
+  listening = true;
+  input.resume();
+
+  return {
+    ask,
+    close,
+  };
+};
 
 type Bounded = (value: unknown, max?: number) => string;
-const isControlCharacter = (character: string): boolean => {
+export const bounded: Bounded = (value, max = 200) =>
+  truncateText(sanitizeText(stringifyValue(value)), max);
+
+type IsControlCharacter = (character: string) => boolean;
+const isControlCharacter: IsControlCharacter = (character) => {
   const code = character.charCodeAt(0);
+
   return code < 32 || code === 127;
 };
-const stringifyFallback = (value: unknown): string =>
+
+type StringifyFallback = (value: unknown) => string;
+const stringifyFallback: StringifyFallback = (value) =>
   JSON.stringify(value) ?? String(value);
-const stringifyValue = (value: unknown): string =>
+
+type StringifyValue = (value: unknown) => string;
+const stringifyValue: StringifyValue = (value) =>
   typeof value === "string" ? value : stringifyFallback(value);
-const sanitizeText = (text: string): string =>
+
+type SanitizeText = (text: string) => string;
+const sanitizeText: SanitizeText = (text) =>
   [...text]
     .map((character) => (isControlCharacter(character) ? " " : character))
     .join("");
-const truncateText = (text: string, max: number): string =>
+
+type TruncateText = (text: string, max: number) => string;
+const truncateText: TruncateText = (text, max) =>
   text.length > max ? `${text.slice(0, max)}…` : text;
-export const bounded: Bounded = (value, max = 200) =>
-  truncateText(sanitizeText(stringifyValue(value)), max);
+
+type IsOptionNumber = (number: number, length: number) => boolean;
+const isOptionNumber: IsOptionNumber = (number, length) =>
+  number >= 1 && number <= length;
+
+type RequireOptions = (
+  title: string,
+  options: readonly Option[],
+) => readonly Option[];
+const requireOptions: RequireOptions = (title, options) => {
+  if (!options.length) {
+    throw new Error(`\nNo ${title.toLowerCase()} options were returned.`);
+  }
+
+  return options;
+};
+
+type ReadOption = (
+  reader: PromptReader,
+  title: string,
+  options: readonly Option[],
+) => Promise<string>;
+const readOption: ReadOption = (reader, title, options) =>
+  reader.ask("Select number: ").then((answer) => {
+    const number = Number.parseInt(answer, 10);
+
+    if (isOptionNumber(number, options.length)) {
+      return options[number - 1].value;
+    }
+
+    console.log("\nPlease select one of the displayed numbers.");
+
+    return chooseOption(reader, title, options);
+  });
+
+type FormatOptionForPrompt = (option: Option) => string;
+const formatOptionForPrompt: FormatOptionForPrompt = (option) =>
+  option.label.endsWith(` (${option.value})`)
+    ? bounded(option.label)
+    : `${bounded(option.label)} (${bounded(option.value, 100)})`;
 
 type ChooseOption = (
   reader: PromptReader,
   title: string,
   options: readonly Option[],
 ) => Promise<string>;
-const isOptionNumber = (number: number, length: number): boolean =>
-  number >= 1 && number <= length;
-const requireOptions = (
-  title: string,
-  options: readonly Option[],
-): readonly Option[] => {
-  if (!options.length)
-    throw new Error(`No ${title.toLowerCase()} options were returned.`);
-  return options;
-};
-const readOption = (
-  reader: PromptReader,
-  options: readonly Option[],
-): Promise<string> =>
-  reader.ask("Select number: ").then((answer) => {
-    const number = Number.parseInt(answer, 10);
-    if (isOptionNumber(number, options.length))
-      return options[number - 1].value;
-    console.log("Please select one of the displayed numbers.");
-    return readOption(reader, options);
-  });
 export const chooseOption: ChooseOption = async (reader, title, options) => {
   const validOptions = requireOptions(title, options);
+
   console.log(`\n${title}:`);
-  options.forEach((option, index) =>
-    console.log(
-      `${index + 1}. ${bounded(option.label)} (${bounded(option.value, 100)})`,
-    ),
+
+  validOptions.forEach((option, index) =>
+    console.log(`${index + 1}. ${formatOptionForPrompt(option)}`),
   );
-  return readOption(reader, validOptions);
+
+  return readOption(reader, title, validOptions);
 };

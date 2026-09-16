@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { exportVersion } from "../xyops/voiceflow/vf_export";
+import { exportVersion } from "../xyops/voiceflow/export";
 import {
   importVersion,
   isImportOutcomeUnknownStatus,
-} from "../xyops/voiceflow/vf_import";
-import { isRetryableHttpStatus } from "../xyops/voiceflow/vf_http";
+} from "../xyops/voiceflow/import";
+import { isRetryableHttpStatus } from "../xyops/voiceflow/http";
 
 const TOKEN = "aaa.eyJzdWIiOiJjcmVhdG9yIn0.zzz";
 const AUTH = { token: TOKEN, creatorID: "creator" };
@@ -30,7 +30,7 @@ const isServerError = (status: number): boolean => status >= 500 && status < 600
 
 function runCheckSessionScenario(status: number): unknown {
   installStatusResponse(status);
-  return import("../xyops/voiceflow/vf_check_session").then(({ main }) => main(TOKEN));
+  return import("../xyops/voiceflow/check_session").then(({ main }) => main(TOKEN));
 }
 
 function runIsolatedCheckSession(status: number): unknown {

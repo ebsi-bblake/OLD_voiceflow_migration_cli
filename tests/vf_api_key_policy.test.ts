@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AuthContext } from "../xyops/voiceflow/vf_auth";
+import type { AuthContext } from "../xyops/voiceflow/auth";
 import {
   retrieveApiKeyStatus,
   type ApiKeyStatus,
-} from "../xyops/voiceflow/vf_api_key";
+} from "../xyops/voiceflow/api_key";
 
 const auth: AuthContext = {
   creatorID: "creator",
@@ -49,7 +49,7 @@ function requestObjectURL(input: Request | URL): string {
 
 async function retrieveWithControlledFetch(
   body: string,
-  projectID = " imported-project ",
+  projectID = " 0123456789abcde0 ",
 ): Promise<ApiKeyCall> {
   const previousFetch = globalThis.fetch;
   const requests: FetchObservation[] = [];
@@ -113,8 +113,8 @@ describe("Voiceflow API-key policy", () => {
     expect(status).toEqual(successfulStatus);
     expect(requests).toEqual([
       {
-        url: "https://identity-api.empyrean.voiceflow.com/v1alpha1/api-key/legacy/project/imported-project",
-        method: "POST",
+        url: "https://identity-api.empyrean.voiceflow.com/v1alpha1/api-key/legacy/project/0123456789abcde0",
+        method: "GET",
         authorization: `Bearer ${auth.token}`,
       },
     ]);
@@ -146,14 +146,14 @@ describe("Voiceflow API-key policy", () => {
     expectSanitizedStatus(status, [key]);
   });
 
-  test("rejects multiple distinct valid keys without exposing either key", async () => {
+  test("uses the first valid key from the returned list", async () => {
     const firstKey = "VF.DM.first-secret";
     const secondKey = "VF.DM.second-secret";
-    const body = JSON.stringify({ apiKey: firstKey, token: secondKey });
+    const body = JSON.stringify([firstKey, secondKey]);
 
     const { status } = await retrieveWithControlledFetch(body);
 
-    expect(status).toEqual(failedStatus);
+    expect(status).toEqual(successfulStatus);
     expectSanitizedStatus(status, [firstKey, secondKey]);
   });
 });

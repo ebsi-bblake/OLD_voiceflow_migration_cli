@@ -5,6 +5,7 @@ import {
   isCheckSessionResult,
   isOptionResult,
   isVoiceflowEnvelope,
+  isEventParameterEntry,
 } from "../xyops/cli/guards";
 import { run } from "../xyops/cli/index";
 import {
@@ -70,6 +71,16 @@ const nextPollCount = (path: string, pollCount: number): number => path === "/ap
 const isFirstPoll = (pollCount: number): boolean => pollCount === 1;
 
 describe("XYOps CLI adapter", () => {
+  test("guards secret event parameters as ordered name/value arrays", () => {
+    expect(isEventParameterEntry(["SECRET_FILE_CONTENTS", [
+      { key: "TOKEN", value: "value", type: "" },
+    ]])).toBe(true);
+    expect(isEventParameterEntry(["SECRET_FILE_CONTENTS", { TOKEN: "value" }])).toBe(false);
+    expect(isEventParameterEntry(["SECRET_FILE_CONTENTS", [
+      { key: "TOKEN", value: "value", type: "", extra: true },
+    ]])).toBe(false);
+  });
+
   test("sends a title-based event request without a JWT and unwraps a read-only envelope", async () => {
     const requests: Array<{ url: string; body: string; headers: Headers }> = [];
     const client = createXYOpsClient(config, {
@@ -171,6 +182,7 @@ describe("XYOps CLI adapter", () => {
       listProjects: { title: "voiceflow_list_projects" },
       listVersions: { title: "voiceflow_list_versions" },
       listFolders: { title: "voiceflow_list_folders" },
+      createFolder: { title: "voiceflow_create_folder" },
       planMigration: { title: "voiceflow_plan_migration" },
       executeMigration: { title: "voiceflow_execute_migration" },
     });
@@ -606,7 +618,12 @@ describe("XYOps CLI adapter", () => {
       PLAN_ID: "plan-1",
       CONFIRMED: true,
     });
-    expect(executeParameters(selection, "plan-1", { VF_TEST_SECRET: "value" }))
-      .toMatchObject({ SECRET_FILE_CONTENTS: { VF_TEST_SECRET: "value" } });
+    expect(
+      executeParameters(selection, "plan-1", [
+        { key: "VF_TEST_SECRET", value: "value", type: "" },
+      ]),
+    ).toMatchObject({
+      SECRET_FILE_CONTENTS: [{ key: "VF_TEST_SECRET", value: "value", type: "" }],
+    });
   });
 });

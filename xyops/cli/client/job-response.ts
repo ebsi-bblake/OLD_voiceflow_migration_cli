@@ -1,4 +1,5 @@
 import { fail } from "../diagnostics";
+import { VoiceflowRegex } from "../../voiceflow/regex";
 import {
   isJobLaunch,
   isRecord,
@@ -63,8 +64,7 @@ const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined =>
       ? readJobContainer(response.data)
       : undefined;
 
-const sensitiveField =
-  /token|api[_-]?key|password|secret|authorization|credential|params?|output|data|activity|fields|env/i;
+const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
 
 // Debug logging is deliberately isolated and redacts sensitive DTO branches.
 const redactResponseDTO = (value: unknown, key = ""): unknown => {
@@ -112,9 +112,9 @@ const MAX_FAILURE_DESCRIPTION_LENGTH = 240;
 
 const hasSensitiveDetail = (value: string): boolean =>
   [
-    /\b(?:api[\s_-]*key|access[\s_-]*token|password|secret|authorization|bearer|credential)\b/i,
-    /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
-    /\b[A-Za-z0-9_-]{40,}\b/,
+    VoiceflowRegex.failureSensitiveDetail,
+    VoiceflowRegex.jwt,
+    VoiceflowRegex.longSecretToken,
   ].some((pattern) => pattern.test(value));
 
 const selectFailureDetail = (job: XYOpsJobResult): string | undefined =>
@@ -125,8 +125,8 @@ const selectFailureDetail = (job: XYOpsJobResult): string | undefined =>
 
 const normalizeFailureDetail = (value: string): string =>
   value
-    .replace(/[^\x20-\x7e]+/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(VoiceflowRegex.nonPrintable, " ")
+    .replace(VoiceflowRegex.whitespace, " ")
     .trim();
 
 // These checks intentionally guard against accidentally exposing structured or secret data.
@@ -135,6 +135,9 @@ const isUnsafeFailureDetail = (value: string): boolean =>
   value.startsWith("{") ||
   value.startsWith("[") ||
   hasSensitiveDetail(value);
+
+const failureStage = (value: string): string | undefined =>
+  value.match(/stage=[a-z-]+(?: api-key-(?:http-\d+|response))?/i)?.[0];
 
 const boundFailureDetail = (value: string): string =>
   value.length <= MAX_FAILURE_DESCRIPTION_LENGTH
@@ -151,9 +154,11 @@ const describeFailure = (job: XYOpsJobResult, fallback: string): string => {
   const detail = selectFailureDetail(job);
   if (detail === undefined) return fallback;
   const normalized = normalizeFailureDetail(detail);
-  return isUnsafeFailureDetail(normalized)
+  if (!isUnsafeFailureDetail(normalized)) return boundFailureDetail(normalized);
+  const stage = failureStage(normalized);
+  return stage === undefined
     ? "XYOps reported a job failure."
-    : boundFailureDetail(normalized);
+    : `XYOps reported a job failure (${stage}).`;
 };
 
 export const requireSuccessfulJob = (

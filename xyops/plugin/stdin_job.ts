@@ -2,12 +2,14 @@ import { parsePluginJob } from "./job_validation";
 import type { NativePluginJob, PluginInput } from "./types";
 export type { PluginInput, PluginInputChunk } from "./types";
 
-type ReadPluginInput = (input: PluginInput) => Promise<string>;
-const decodePluginChunk = (
+type DecodePluginChunk = (
   chunk: Uint8Array | string,
   decoder: TextDecoder,
-): string =>
+) => string;
+const decodePluginChunk: DecodePluginChunk = (chunk, decoder) =>
   typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+
+type ReadPluginInput = (input: PluginInput) => Promise<string>;
 export const readPluginInput: ReadPluginInput = async (input) => {
   const decoder = new TextDecoder();
   let value = "";

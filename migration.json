@@ -1,0 +1,5 @@
+{
+  "source_path": "empyrean-ci/boaz/boazmasteroftheuniversepoc",
+  "destination_path": "empyrean-ci/someNewFoldee",
+  "secrets": "//df2v-fs-01.ebsi.corp/shared/Test/secrets-ci.config.json"
+}

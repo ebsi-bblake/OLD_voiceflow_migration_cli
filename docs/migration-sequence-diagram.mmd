@@ -1,0 +1,148 @@
+sequenceDiagram
+    autonumber
+    actor User as User / Terminal
+    participant CLI as XYOps CLI Engine
+    participant Server as XYOps Server API
+    participant Plugin as Voiceflow Native Plugin
+    participant VF_API as Voiceflow REST APIs
+    participant Logux as Logux WebSocket
+
+    rect rgb(240, 244, 248)
+        note over User, CLI: Phase 1: Initialization & Configuration
+        User->>CLI: Execute command (e.g. voiceflow-cli --config=cfg.json)
+        CLI->>CLI: Load process.env and parse config JSON
+        CLI->>CLI: Validate configuration and initialize XYOps client and PromptReader
+    end
+
+    rect rgb(240, 248, 240)
+        note over CLI, Logux: Phase 2: Session Check & Catalog Resolution
+        CLI->>Server: POST /api/app/run_event/v1/wait (check_session)
+        Server->>Plugin: Pass event job over stdin
+        Plugin->>VF_API: GET /v1alpha1/user (validate VOICEFLOW_JWT)
+        VF_API-->>Plugin: 200 OK (session active)
+        Plugin-->>CLI: Return success envelope
+        loop Resource selection (workspaces, projects, versions, folders)
+            alt Field omitted in --config
+                CLI->>Server: POST /api/app/run_event/v1/wait (list_*)
+                Server->>Plugin: Pass event job over stdin
+                Plugin->>Logux: Connect WebSocket and subscribe to workspace/{workspaceID}
+                Logux-->>Plugin: Stream workspace/project/assistant/folder CRUD actions
+                Plugin->>Plugin: Validate rows and scope IDs to requested workspace
+                Plugin-->>CLI: Return success envelope with catalog options [{value, label}]
+                CLI->>User: Display numbered option prompt
+                User-->>CLI: Enter option selection
+            else Field configured in --config
+                CLI->>CLI: Resolve configured string or exact catalog name
+                CLI->>CLI: Reject missing, ambiguous, or cross-workspace resources
+            end
+        end
+    end
+
+    rect rgb(255, 248, 240)
+        note over User, CLI: Phase 3: Migration Planning and Confirmation
+        CLI->>Server: POST /api/app/run_event/v1/wait (plan_migration)
+        Server->>Plugin: Pass source and destination selection over stdin
+        Plugin->>Plugin: Resolve target schema from configuration or export metadata
+        Plugin->>Plugin: Compute SHA-256 planID and gather canonical catalog labels
+        Plugin-->>CLI: Return MigrationPlan envelope
+        CLI->>User: Print migration plan details
+        User->>CLI: Confirm execution (Perform real migration? yes/no)
+        alt Confirmation is not literal true
+            CLI-->>User: Return CONFIRMATION_REQUIRED without export or import
+        else Confirmed
+            CLI->>Server: Submit confirmed execute_migration request
+        end
+    end
+
+    rect rgb(248, 240, 248)
+        note over CLI, Logux: Phase 4: Real Migration Execution and Collision Rename
+        CLI->>Server: POST /api/app/run_event/v1 (execute_migration)
+        Server-->>CLI: Return asynchronous job ID
+        Server->>Plugin: Pass job (CONFIRMED: true) over stdin
+        Plugin->>VF_API: GET /v1alpha1/assistant/export-json/{sourceVersionID}
+        VF_API-->>Plugin: Download binary assistant file (.vf)
+        Plugin->>Plugin: Extract payload._version and verify matching planID
+        Plugin->>Plugin: Load source and destination project catalogs
+
+        alt Exact same-name project exists in destination workspace and folder
+            Plugin->>Plugin: Select collision by workspaceID, folderID, and project ID
+            Plugin->>Plugin: Generate {project_name}_YYYYMMDD_HHmm in local time
+            Plugin->>Plugin: Add _1, _2, ... when timestamped name already exists
+            Plugin->>Logux: Connect using protocol 4
+            Logux-->>Plugin: connected
+            Plugin->>Logux: Send four-element sync subscription frame
+            Note over Plugin, Logux: workspace subscription uses channel and type; client metadata is frame[3]
+            Logux-->>Plugin: synced(subscriptionSyncID)
+            Plugin->>Logux: Send four-element sync assistant.PATCH_ONE frame
+            Note over Plugin, Logux: payload changes name only; action.meta contains origin and actionID
+            Logux-->>Plugin: synced(mutationSyncID)
+            Note over Plugin, Logux: Matching mutation synced is the WebSocket acknowledgement
+            opt Project state broadcast is delivered
+                Logux-->>Plugin: project.CRUD:PATCH
+                Note over Plugin, Logux: Optional evidence; not the mutation acknowledgement
+            end
+            Plugin->>Plugin: Close rename socket after matching mutation synced
+            Plugin->>Logux: Re-read destination catalog through a scoped subscription
+            Logux-->>Plugin: Return project catalog actions
+            Plugin->>Plugin: Confirm project ID, workspace ID, folder ID, and new name
+            Note over Plugin: Import remains blocked until catalog durability is confirmed
+        else No exact same-name project exists
+            Plugin->>Plugin: Skip timestamp rename
+        end
+
+        Note over Plugin: Folder creation and archive-folder relocation are not part of the current execute_migration path
+        Plugin->>VF_API: POST /v1alpha1/assistant/import-file/{destinationWorkspaceID} (multipart form)
+        Note over Plugin, VF_API: Multipart form includes destination folderID and target schema version
+        VF_API-->>Plugin: Return imported receipt (imported projectID)
+    end
+
+    rect rgb(248, 244, 236)
+        note over Plugin, Logux: Phase 5: Optional Project Secrets Provisioning
+        opt Project secrets are configured
+            alt Secret type is projectId
+                Plugin->>VF_API: Resolve project ID and GET project API key
+                VF_API-->>Plugin: Return source project API key
+            else Secret type is empty or url
+                Plugin->>Plugin: Preserve configured secret value
+            end
+            loop Each resolved secret
+                Plugin->>Logux: Connect and subscribe to assistant/{importedProjectID}
+                Logux-->>Plugin: synced(assistantSubscriptionID)
+                Plugin->>Logux: Send secret.CREATE_ONE_STARTED with positive mutation sync ID
+                Note over Plugin, Logux: Action metadata is nested under frame[2].meta
+                Logux-->>Plugin: secret.ADD_ONE (metadata only; no secret value)
+                Logux-->>Plugin: secret.CREATE_ONE_DONE with matching actionID
+                Logux-->>Plugin: logux/processed may arrive separately
+            end
+        end
+        Plugin->>Plugin: Redact credentials, secret values, and raw sensitive payloads
+        Plugin-->>Server: Write native response JSON envelope to stdout
+    end
+
+    rect rgb(240, 240, 248)
+        note over CLI, Server: Phase 6: Job Response and Output
+        alt SSE streaming enabled
+            CLI->>Server: GET /api/app/stream_job/v1?id={jobID}
+            Server-->>CLI: Stream SSE start, update, and end frames
+            alt Stream is incomplete or malformed
+                CLI->>Server: POST /api/app/get_job/v1 {id: jobID}
+                Server-->>CLI: Return final job response without redispatch
+            end
+        else Polling fallback
+            loop Every pollIntervalMs until complete
+                CLI->>Server: POST /api/app/get_job/v1 {id: jobID}
+                Server-->>CLI: Return job completion status
+            end
+        end
+        CLI->>CLI: Unframe envelope and inspect post-import warnings
+        alt Successful migration
+            CLI->>User: Print execution summary JSON
+            CLI->>CLI: Set exit code 0
+        else Archive, dependency, or migration failure
+            CLI->>User: Print bounded stage-specific diagnostic
+            CLI->>CLI: Set exit code 1
+        else Transport outcome remains unknown
+            CLI->>User: Require destination reconciliation before retry
+            CLI->>CLI: Do not redispatch automatically
+        end
+    end

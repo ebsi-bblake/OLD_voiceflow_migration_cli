@@ -28,6 +28,7 @@ list_workspaces
 list_projects
 list_versions
 list_folders
+create_folder
 plan_migration
 execute_migration
 ```
@@ -88,7 +89,7 @@ Use the XYOps Secret Vault for `VOICEFLOW_JWT`. Bind that secret to each Event
 execution under the `VOICEFLOW_JWT` name; never put it in the bundle, build
 arguments, committed files, or ordinary `params`.
 
-Point each of the seven Events at this one plugin registration:
+Point each of the eight Events at this one plugin registration:
 
 | Event title | `params.operation` |
 | --- | --- |
@@ -97,6 +98,7 @@ Point each of the seven Events at this one plugin registration:
 | `voiceflow_list_projects` | `list_projects` |
 | `voiceflow_list_versions` | `list_versions` |
 | `voiceflow_list_folders` | `list_folders` |
+| `voiceflow_create_folder` | `create_folder` |
 | `voiceflow_plan_migration` | `plan_migration` |
 | `voiceflow_execute_migration` | `execute_migration` |
 
@@ -104,7 +106,10 @@ The remaining operation parameters are the IDs and migration values documented
 by the CLI contract, including `SOURCE_WORKSPACE_ID`, `SOURCE_PROJECT_ID`,
 `SOURCE_VERSION_ID`, `DESTINATION_WORKSPACE_ID`, `DESTINATION_FOLDER_ID`,
 `TARGET_SCHEMA_VERSION`, `PLAN_ID`, and the literal boolean `CONFIRMED` for
-execution.
+execution. The local CLI can source these values and project secrets from the
+single `--config=<path>` object described in [`../../docs/migration-config.md`](../../docs/migration-config.md).
+That file's project `secrets` array is distinct from this plugin's
+`VOICEFLOW_JWT` Secret Vault binding.
 
 ## Test the artifact
 

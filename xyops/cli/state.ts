@@ -3,16 +3,15 @@ import type {
   EventParameters,
   MigrationSelection,
   Option,
-  SecretMap,
+  SecretEntries,
 } from "./types";
 import { isEventParameterEntry } from "./guards";
+import { fail } from "./diagnostics";
 import type { MigrationState } from "./types";
 export type { MigrationState } from "./types";
 
 type InitialMigrationState = () => MigrationState;
-export const initialMigrationState: InitialMigrationState = () => ({
-  targetSchemaVersion: "13.1",
-});
+export const initialMigrationState: InitialMigrationState = () => ({});
 
 type SetStateValue = <K extends keyof MigrationState>(
   state: MigrationState,
@@ -24,16 +23,29 @@ export const setStateValue: SetStateValue = (state, key, value) => ({
   [key]: value,
 });
 
+const isPresentStateValue = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== "";
+
+const CONFIGURATION_NAMES: Readonly<Record<keyof MigrationState, string>> = {
+  sourceWorkspaceID: "source_workspace",
+  sourceProjectID: "source_project",
+  sourceVersionID: "source_version",
+  destinationWorkspaceID: "destination_workspace",
+  destinationFolderID: "destination_folder",
+  targetSchemaVersion: "target_schema_version",
+  planID: "plan_id",
+};
+
 type RequireStateValue = (
   state: MigrationState,
   key: keyof MigrationState,
 ) => string;
-const isPresentStateValue = (value: unknown): value is string =>
-  typeof value === "string" && value.trim() !== "";
 export const requireStateValue: RequireStateValue = (state, key) => {
   const value = state[key];
   if (!isPresentStateValue(value))
-    throw new Error(`Missing state value: ${key}`);
+    throw fail("invalid-input", {
+      nextAction: `Required migration field '${CONFIGURATION_NAMES[key]}' is missing.`,
+    });
   return value;
 };
 
@@ -44,7 +56,9 @@ export const stateSelection: StateSelection = (state) => ({
   sourceVersionID: requireStateValue(state, "sourceVersionID"),
   destinationWorkspaceID: requireStateValue(state, "destinationWorkspaceID"),
   destinationFolderID: requireStateValue(state, "destinationFolderID"),
-  targetSchemaVersion: requireStateValue(state, "targetSchemaVersion"),
+  ...(state.targetSchemaVersion === undefined
+    ? {}
+    : { targetSchemaVersion: state.targetSchemaVersion }),
 });
 
 type ChooseOptionValue = (
@@ -94,6 +108,19 @@ export const listVersionsParameters: ListVersionsParameters = (
     SOURCE_PROJECT_ID: sourceProjectID,
   });
 
+type CreateFolderParameters = (
+  destinationWorkspaceID: string,
+  folderName: string,
+) => EventParameters;
+export const createFolderParameters: CreateFolderParameters = (
+  destinationWorkspaceID,
+  folderName,
+) =>
+  eventParametersFor("create_folder", {
+    DESTINATION_WORKSPACE_ID: destinationWorkspaceID,
+    DESTINATION_FOLDER_ID: folderName,
+  });
+
 type ListFoldersParameters = (
   destinationWorkspaceID: string,
 ) => EventParameters;
@@ -118,7 +145,7 @@ export const planParameters: PlanParameters = (selection) =>
 type ExecuteParameters = (
   selection: MigrationSelection,
   planID: string,
-  secretFileContents?: SecretMap,
+  secretFileContents?: SecretEntries,
 ) => EventParameters;
 export const executeParameters: ExecuteParameters = (
   selection,

@@ -1,6 +1,7 @@
 {
   "name": "voiceflow-automation",
-  "version": "0.1.8",
+  "version": "0.0.1",
+  "pluginVersion": "0.0.4",
   "devDependencies": {
     "@types/node": "^22.0.0",
     "oxlint": "^1.80.0",
@@ -11,7 +12,18 @@
     "lint": "oxlint xyops tests",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "build:plugin": "bun build xyops/plugin/entrypoint.ts --target=node --format=cjs --banner='// Voiceflow XYOps Event Plugin v0.1.8' --outfile=dist/voiceflow-event-plugin.cjs",
+    "build:plugin": "PLUGIN_VERSION=$(bun -e \"console.log(require('./package.json').pluginVersion)\") && bun build xyops/plugin/entrypoint.ts --target=node --format=cjs --banner=\"// Voiceflow XYOps Event Plugin v$PLUGIN_VERSION\" --outfile=dist/voiceflow-event-plugin.cjs",
+    "build:cli:darwin-arm64": "bun build xyops/cli/index.ts --compile --target=bun-darwin-arm64 --outfile=dist/voiceflow-cli-darwin-arm64",
+    "build:cli:darwin-x64": "bun build xyops/cli/index.ts --compile --target=bun-darwin-x64 --outfile=dist/voiceflow-cli-darwin-x64",
+    "build:cli:linux-arm64": "bun build xyops/cli/index.ts --compile --target=bun-linux-arm64 --outfile=dist/voiceflow-cli-linux-arm64",
+    "build:cli:linux-x64": "bun build xyops/cli/index.ts --compile --target=bun-linux-x64 --outfile=dist/voiceflow-cli-linux-x64",
+    "build:cli:windows-x64": "bun build xyops/cli/index.ts --compile --target=bun-windows-x64-baseline --outfile=dist/voiceflow-cli-windows-x64.exe",
+    "build:cli": "bun run build:cli:darwin-arm64 && bun run build:cli:darwin-x64 && bun run build:cli:linux-arm64 && bun run build:cli:linux-x64 && bun run build:cli:windows-x64",
+    "verify:cli": "bun scripts/validate-cli-artifacts.ts",
+    "probe:network-secrets": "bun scripts/probe-network-secrets.ts",
     "check": "bun run lint && bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1"
   }
 }

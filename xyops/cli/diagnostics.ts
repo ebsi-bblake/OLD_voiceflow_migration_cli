@@ -1,9 +1,10 @@
+import { VoiceflowRegex } from "../voiceflow/regex";
 import type { CliDiagnostic, CliDiagnosticCode } from "./types";
 export type { CliDiagnostic, CliDiagnosticCode } from "./types";
 
 type SafeEndpoint = (endpoint: string) => string;
 const safeEndpoint: SafeEndpoint = (endpoint) =>
-  endpoint.replace(/[^a-zA-Z0-9/_-]/g, "").slice(0, 80) || "xyops";
+  endpoint.replace(VoiceflowRegex.safeEndpoint, "").slice(0, 80) || "xyops";
 
 type CreateCliError = (
   diagnostic: Omit<CliDiagnostic, "endpoint"> & { endpoint?: string },

@@ -1,83 +1,73 @@
 import { PLUGIN_VERSION } from "./version";
-import type { PluginStage } from "./types";
+import { VoiceflowRegex } from "../voiceflow/regex";
+import { PluginStage } from "./types";
 export type { PluginStage } from "./types";
 
-export const pluginStages = [
-  "input",
-  "secret",
-  "dispatch",
-  "response",
-] as const;
+export const pluginStages = Object.values(PluginStage);
 
 const maxDiagnosticLength = 320;
 const maxErrorClassLength = 80;
 
-type ReadErrorClass = (error: unknown) => string;
 const readErrorName = (error: unknown): string =>
   error instanceof Error ? error.name : "UnknownError";
+
 const normalizeErrorName = (name: string): string =>
   name.trim() === "" ? "UnknownError" : name;
+
+type ReadErrorClass = (error: unknown) => string;
 const readErrorClass: ReadErrorClass = (error) =>
   normalizeErrorName(readErrorName(error));
 
-type ReadErrorMessage = (error: unknown) => string;
 const readErrorText = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown error";
+
 const normalizeErrorText = (message: string): string =>
   message.trim() === "" ? "Unknown error" : message;
+
+type ReadErrorMessage = (error: unknown) => string;
 const readErrorMessage: ReadErrorMessage = (error) =>
   normalizeErrorText(readErrorText(error));
 
 type RemoveStackLines = (message: string) => string;
 const removeStackLines: RemoveStackLines = (message) =>
   message
-    .split(/\r?\n/u)
-    .filter((line) => !/^\s*at\s+/u.test(line))
+    .split(VoiceflowRegex.pluginLineBreak)
+    .filter((line) => !VoiceflowRegex.stackFrame.test(line))
     .join(" ");
 
 type RedactSensitiveValues = (message: string) => string;
 const redactSensitiveValues: RedactSensitiveValues = (message) =>
   message
-    .replace(/\bBearer\s+[^\s,;}]+/giu, "Bearer [REDACTED]")
-    .replace(
-      /\b(?:eyJ[A-Za-z0-9_-]{4,}\.)[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gu,
-      "[REDACTED_JWT]",
-    )
-    .replace(
-      /(["']?(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|authorization|password|secret|token|jwt)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,;}\s]+)/giu,
-      "$1[REDACTED]",
-    )
-    .replace(
-      /(["']?(?:params?|payload|export(?:ed)?(?:data|base64)?)["']?\s*[:=]\s*)(?:\{[^\n]*\}|\[[^\n]*\]|[^,;}\s]+)/giu,
-      "$1[REDACTED_DATA]",
-    )
-    .replace(/\{[^\n]*\}|\[[^\n]*\]/gu, "[REDACTED_DATA]")
-    .replace(
-      /\b(?:jwt|token|api[ _-]?key|sk|pk|vf)[_-][A-Za-z0-9_-]+\b/giu,
-      "[REDACTED]",
-    )
-    .replace(/\b[A-Za-z0-9_-]{24,}\b/gu, "[REDACTED]");
+    .replace(VoiceflowRegex.bearerValue, "Bearer [REDACTED]")
+    .replace(VoiceflowRegex.pluginJWT, "[REDACTED_JWT]")
+    .replace(VoiceflowRegex.sensitiveAssignment, "$1[REDACTED]")
+    .replace(VoiceflowRegex.dataAssignment, "$1[REDACTED_DATA]")
+    .replace(VoiceflowRegex.structuredData, "[REDACTED_DATA]")
+    .replace(VoiceflowRegex.prefixedSecret, "[REDACTED]")
+    .replace(VoiceflowRegex.pluginLongToken, "[REDACTED]");
 
-type SanitizeDiagnosticText = (value: string, limit: number) => string;
 const isControlCharacter = (character: string): boolean => {
   const code = character.charCodeAt(0);
   if (code <= 31) return true;
   return code === 127;
 };
+
+type SanitizeDiagnosticText = (value: string, limit: number) => string;
 const sanitizeDiagnosticText: SanitizeDiagnosticText = (value, limit) =>
   redactSensitiveValues(removeStackLines(value))
     .split("")
     .map((character) => (isControlCharacter(character) ? " " : character))
     .join("")
-    .replace(/\s+/gu, " ")
+    .replace(VoiceflowRegex.whitespace, " ")
     .trim()
     .slice(0, limit);
 
-type FormatPluginDiagnostic = (stage: PluginStage, error: unknown) => string;
 const fallbackDiagnosticValue = (value: string, fallback: string): string => {
   if (value === "") return fallback;
   return value;
 };
+
+type FormatPluginDiagnostic = (stage: PluginStage, error: unknown) => string;
 export const formatPluginDiagnostic: FormatPluginDiagnostic = (
   stage,
   error,
@@ -86,10 +76,12 @@ export const formatPluginDiagnostic: FormatPluginDiagnostic = (
     readErrorClass(error),
     maxErrorClassLength,
   );
+
   const message = sanitizeDiagnosticText(
     readErrorMessage(error),
     maxDiagnosticLength,
   );
+
   return `pluginVersion=${PLUGIN_VERSION} stage=${stage} error=${fallbackDiagnosticValue(errorClass, "UnknownError")} message=${fallbackDiagnosticValue(message, "Unknown error")}`.slice(
     0,
     maxDiagnosticLength,

@@ -1,3 +1,5 @@
+import { XYOpsStreamEventType } from "./types";
+import { ErrorCode, VoiceflowOperation, WarningCode } from "../voiceflow/types";
 import type {
   EventParameterValue,
   ExecuteResult,
@@ -15,6 +17,7 @@ import type {
   XYOpsResponse,
   XYOpsWaitJob,
   XYOpsWaitResponse,
+  XYOpsStreamEvent,
 } from "./types";
 
 type IsObject = (value: unknown) => value is object;
@@ -28,7 +31,7 @@ export const isRecord: IsRecord = (
   isObject(value) && !Array.isArray(value);
 
 type IsNonEmptyString = (value: unknown) => value is string;
-const isNonEmptyString: IsNonEmptyString = (value): value is string =>
+export const isNonEmptyString: IsNonEmptyString = (value): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
 type All = (values: readonly boolean[]) => boolean;
@@ -45,6 +48,14 @@ export const isOption: IsOption = (value) =>
     all([isNonEmptyString(record.value), isNonEmptyString(record.label)]),
   );
 
+type IsCreatedFolderResult = (
+  value: unknown,
+) => value is Readonly<{ folder: Option }>;
+export const isCreatedFolderResult: IsCreatedFolderResult = (value) =>
+  satisfiesRecord<Readonly<{ folder: Option }>>(value, (record) =>
+    isOption(record.folder),
+  );
+
 type IsOptionResult = (
   value: unknown,
 ) => value is Readonly<{ options: readonly Option[] }>;
@@ -59,14 +70,18 @@ const hasCode = (value: Readonly<Record<string, unknown>>): boolean =>
   [typeof value.code === "number", typeof value.code === "string"].some(
     Boolean,
   );
+
 const hasJobCodeOrState = (value: Readonly<Record<string, unknown>>): boolean =>
   [hasCode(value), isNonEmptyString(value.state)].some(Boolean);
+
 const hasDescription = (value: Readonly<Record<string, unknown>>): boolean =>
   [!("description" in value), typeof value.description === "string"].some(
     Boolean,
   );
+
 const hasID = (value: Readonly<Record<string, unknown>>): boolean =>
   [!("id" in value), typeof value.id === "string"].some(Boolean);
+
 export const isXYOpsResponse: IsXYOpsResponse = (value) =>
   satisfiesRecord<XYOpsResponse>(value, (record) =>
     all([hasCode(record), hasDescription(record), hasID(record)]),
@@ -93,6 +108,7 @@ const isNativePluginData: IsNativePluginData = (value) =>
     value,
     (record) => "voiceflow" in record,
   );
+
 type NormalizeVoiceflowResponse = (value: unknown) => unknown;
 const nativeNormalizers: readonly ((value: unknown) => unknown | undefined)[] =
   [
@@ -100,21 +116,36 @@ const nativeNormalizers: readonly ((value: unknown) => unknown | undefined)[] =
       isNativePluginResponse(value) ? value.data.voiceflow : undefined,
     (value) => (isNativePluginData(value) ? value.voiceflow : undefined),
   ];
+
 export const normalizeVoiceflowResponse: NormalizeVoiceflowResponse = (value) =>
   nativeNormalizers
     .map((normalize) => normalize(value))
     .find((result) => result !== undefined) ?? value;
+
 type IsXYOpsLaunchResponse = (value: unknown) => value is XYOpsLaunchResponse;
 export const isXYOpsLaunchResponse: IsXYOpsLaunchResponse = (value) =>
   satisfiesRecord<XYOpsLaunchResponse>(value, (record) =>
     all([isXYOpsResponse(record), isNonEmptyString(record.id)]),
   );
+
+type IsXYOpsStreamEvent = (value: unknown) => value is XYOpsStreamEvent;
+export const isXYOpsStreamEvent: IsXYOpsStreamEvent = (value) =>
+  satisfiesRecord<XYOpsStreamEvent>(value, (record) =>
+    all([
+      typeof record.type === "string" &&
+        Object.values(XYOpsStreamEventType).some(
+          (type) => type === record.type,
+        ),
+      isRecord(record.data),
+    ]),
+  );
+
 type IsJobLaunch = (value: unknown) => value is Readonly<{ id: string }>;
 export const isJobLaunch: IsJobLaunch = (value) =>
   satisfiesRecord<Readonly<{ id: string }>>(value, (record) =>
     isNonEmptyString(record.id),
   );
-type IsXYOpsJob = (value: unknown) => value is XYOpsJob;
+
 const validCompleted = (value: Readonly<Record<string, unknown>>): boolean =>
   [
     !("completed" in value),
@@ -122,12 +153,15 @@ const validCompleted = (value: Readonly<Record<string, unknown>>): boolean =>
     typeof value.completed === "boolean",
     typeof value.completed === "number",
   ].some(Boolean);
+
 const validOutput = (value: Readonly<Record<string, unknown>>): boolean =>
   [
     !("output" in value),
     value.output === null,
     typeof value.output === "string",
   ].some(Boolean);
+
+type IsXYOpsJob = (value: unknown) => value is XYOpsJob;
 export const isXYOpsJob: IsXYOpsJob = (value) =>
   satisfiesRecord<XYOpsJob>(value, (record) =>
     all([
@@ -137,6 +171,7 @@ export const isXYOpsJob: IsXYOpsJob = (value) =>
       validOutput(record),
     ]),
   );
+
 type IsXYOpsJobResponse = (value: unknown) => value is XYOpsJobResponse;
 export const isXYOpsJobResponse: IsXYOpsJobResponse = (value) =>
   satisfiesRecord<XYOpsJobResponse>(value, (record) =>
@@ -147,6 +182,7 @@ export const isXYOpsJobResponse: IsXYOpsJobResponse = (value) =>
       ),
     ]),
   );
+
 type IsXYOpsWaitJob = (value: unknown) => value is XYOpsWaitJob;
 export const isXYOpsWaitJob: IsXYOpsWaitJob = (value) =>
   satisfiesRecord<XYOpsWaitJob>(value, (record) =>
@@ -158,26 +194,40 @@ export const isXYOpsWaitJob: IsXYOpsWaitJob = (value) =>
       validCompleted(record),
     ]),
   );
+
 type IsXYOpsWaitResponse = (value: unknown) => value is XYOpsWaitResponse;
 export const isXYOpsWaitResponse: IsXYOpsWaitResponse = (value) =>
   satisfiesRecord<XYOpsWaitResponse>(value, (record) =>
     all([hasCode(record), hasDescription(record), isXYOpsWaitJob(record.job)]),
   );
-type IsVoiceflowEnvelope = <T>(
-  resultGuard: ResponseGuard<T>,
-) => ResponseGuard<VoiceflowEnvelope<T>>;
+
+const operations = Object.values(VoiceflowOperation);
+const errorCodes = Object.values(ErrorCode);
+const warningCodes = Object.values(WarningCode);
+
+const isKnownCode = (
+  value: unknown,
+  codes: readonly string[],
+): value is string =>
+  typeof value === "string" && codes.some((code) => code === value);
+
 const isWarning = (value: unknown): value is VoiceflowWarning =>
   satisfiesRecord<VoiceflowWarning>(value, (record) =>
-    all([isNonEmptyString(record.code), isNonEmptyString(record.message)]),
+    all([
+      isKnownCode(record.code, warningCodes),
+      isNonEmptyString(record.message),
+    ]),
   );
+
 const isFailure = (value: unknown): value is VoiceflowFailure["error"] =>
   satisfiesRecord<VoiceflowFailure["error"]>(value, (record) =>
     all([
-      isNonEmptyString(record.code),
+      isKnownCode(record.code, errorCodes),
       typeof record.message === "string",
       typeof record.retryable === "boolean",
     ]),
   );
+
 const isSuccessfulEnvelopeBody = <T>(
   record: Readonly<Record<string, unknown>>,
   guard: ResponseGuard<T>,
@@ -187,9 +237,11 @@ const isSuccessfulEnvelopeBody = <T>(
     Array.isArray(record.warnings) && record.warnings.every(isWarning),
     guard(record.result),
   ].every(Boolean);
+
 const isRejectedEnvelopeBody = (
   record: Readonly<Record<string, unknown>>,
 ): boolean => record.ok === false && isFailure(record.error);
+
 const isEnvelopeBody = <T>(
   record: Readonly<Record<string, unknown>>,
   guard: ResponseGuard<T>,
@@ -202,16 +254,22 @@ const isEnvelopeRecord = <T>(
   guard: ResponseGuard<T>,
 ): boolean =>
   all([
-    isNonEmptyString(record.operation),
+    typeof record.operation === "string" &&
+      operations.some((operation) => operation === record.operation),
     isNonEmptyString(record.operationID),
     isEnvelopeBody(record, guard),
   ]);
+
+type IsVoiceflowEnvelope = <T>(
+  resultGuard: ResponseGuard<T>,
+) => ResponseGuard<VoiceflowEnvelope<T>>;
 export const isVoiceflowEnvelope: IsVoiceflowEnvelope =
   <T>(resultGuard: ResponseGuard<T>) =>
   (value): value is VoiceflowEnvelope<T> =>
     satisfiesRecord<VoiceflowEnvelope<T>>(value, (record) =>
       isEnvelopeRecord(record, resultGuard),
     );
+
 type IsCheckSessionResult = (
   value: unknown,
 ) => value is Readonly<{ active: boolean }>;
@@ -220,6 +278,7 @@ export const isCheckSessionResult: IsCheckSessionResult = (value) =>
     value,
     (record) => typeof record.active === "boolean",
   );
+
 const selectionKeys = [
   "sourceWorkspaceID",
   "sourceProjectID",
@@ -228,10 +287,12 @@ const selectionKeys = [
   "destinationFolderID",
   "targetSchemaVersion",
 ] as const;
+
 const isMigrationSelection = (value: unknown): value is MigrationSelection =>
   satisfiesRecord<MigrationSelection>(value, (record) =>
     selectionKeys.every((key) => isNonEmptyString(record[key])),
   );
+
 const labelKeys = [
   "sourceWorkspace",
   "sourceProject",
@@ -239,6 +300,7 @@ const labelKeys = [
   "destinationWorkspace",
   "destinationFolder",
 ] as const;
+
 type IsMigrationPlan = (value: unknown) => value is MigrationPlan;
 export const isMigrationPlan: IsMigrationPlan = (value) =>
   satisfiesRecord<MigrationPlan>(value, (record) =>
@@ -251,12 +313,14 @@ export const isMigrationPlan: IsMigrationPlan = (value) =>
       ),
     ]),
   );
+
 const numericResultKeys = [
   "exportStatus",
   "exportBytes",
   "importStatus",
   "importBytes",
 ] as const;
+
 type IsExecuteResult = (value: unknown) => value is ExecuteResult;
 export const isExecuteResult: IsExecuteResult = (value) =>
   satisfiesRecord<ExecuteResult>(value, (record) =>
@@ -264,31 +328,53 @@ export const isExecuteResult: IsExecuteResult = (value) =>
       isNonEmptyString(record.planID),
       isMigrationSelection(record.selected),
       numericResultKeys.every((key) => typeof record[key] === "number"),
-      typeof record.apiKeyRetrieved === "boolean",
+      record.apiKeyRetrieved === undefined ||
+        typeof record.apiKeyRetrieved === "boolean",
       satisfiesRecord<Readonly<{ projectID: string }>>(
         record.imported,
         (imported) => isNonEmptyString(imported.projectID),
       ),
     ]),
   );
-type IsSecretMap = (value: unknown) => boolean;
-const isSecretMap: IsSecretMap = (value) =>
-  isRecord(value) && Object.values(value).every((entry) => typeof entry === "string");
+
+type IsSecretEntries = (value: unknown) => boolean;
+const isSecretEntries: IsSecretEntries = (value) => {
+  if (!Array.isArray(value)) return false;
+  const names = new Set<string>();
+  return value.every((entry) => {
+    if (
+      !isRecord(entry) ||
+      Object.keys(entry).length !== 3 ||
+      typeof entry.key !== "string" ||
+      typeof entry.value !== "string" ||
+      !["projectId", "", "url"].includes(entry.type as string) ||
+      names.has(entry.key)
+    )
+      return false;
+    names.add(entry.key);
+    return true;
+  });
+};
+
 const isPrimitiveEventParameter = (value: unknown): value is string | boolean =>
   typeof value === "string" || typeof value === "boolean";
+
 type IsEventParameterEntry = (
   entry: readonly [string, EventParameterValue | undefined],
 ) => entry is [string, EventParameterValue];
 export const isEventParameterEntry: IsEventParameterEntry = (
   entry,
 ): entry is [string, EventParameterValue] =>
-  isPrimitiveEventParameter(entry[1]) || isSecretMap(entry[1]);
+  isPrimitiveEventParameter(entry[1]) || isSecretEntries(entry[1]);
+
 type IsRetryableStatus = (status: number) => boolean;
 export const isRetryableStatus: IsRetryableStatus = (status) =>
   [status === 408, status === 429, status >= 500].some(Boolean);
+
 type IsSuccessfulCode = (code: number | string) => boolean;
 export const isSuccessfulCode: IsSuccessfulCode = (code) =>
   [0, 200, "0", "200", "OK", "ok"].includes(code);
+
 type IsCompletedJob = (
   completed: boolean | number | null | undefined,
 ) => boolean;
@@ -296,9 +382,11 @@ export const isCompletedJob: IsCompletedJob = (completed) =>
   [completed === true, typeof completed === "number" && completed > 0].some(
     Boolean,
   );
+
 type IsInvalidDuration = (value: number) => boolean;
 export const isInvalidDuration: IsInvalidDuration = (value) =>
   [!Number.isFinite(value), value <= 0, value > 3_600_000].some(Boolean);
+
 type IsHTTPURL = (url: URL) => boolean;
 export const isHTTPURL: IsHTTPURL = (url) =>
   [url.protocol === "http:", url.protocol === "https:"].some(Boolean);

@@ -5,7 +5,7 @@ export type MigrationSelection = Readonly<{
   sourceVersionID: string;
   destinationWorkspaceID: string;
   destinationFolderID: string;
-  targetSchemaVersion: string;
+  targetSchemaVersion?: string;
 }>;
 export type MigrationPlan = Readonly<{
   planID: string;
@@ -48,6 +48,51 @@ export type NativePluginResponse = Readonly<{
   data: Readonly<{ voiceflow: unknown }>;
 }>;
 export type XYOpsLaunchResponse = XYOpsResponse & Readonly<{ id: string }>;
+export const XYOpsStreamEventType = {
+  Start: "start",
+  Update: "update",
+  End: "end",
+} as const;
+export type XYOpsStreamEventType =
+  (typeof XYOpsStreamEventType)[keyof typeof XYOpsStreamEventType];
+export type XYOpsStreamEvent = Readonly<{
+  type: XYOpsStreamEventType;
+  data: Record<string, unknown>;
+}>;
+export type XYOpsStreamLimits = Readonly<{
+  maxBytes?: number;
+  maxFrameBytes?: number;
+}>;
+export type XYOpsStreamJob = (
+  fetcher: typeof fetch,
+  baseURL: string,
+  apiKey: string,
+  jobID: string,
+  timeoutMs: number,
+  limits?: XYOpsStreamLimits,
+) => Promise<XYOpsStreamResult>;
+export type XYOpsStreamResult =
+  | Readonly<{
+      kind: "success";
+      jobID: string;
+      code: number | string;
+      data: Record<string, unknown>;
+      requiresJobResponse: true;
+    }>
+  | Readonly<{
+      kind: "failure";
+      jobID: string;
+      code: number | string;
+      data: Record<string, unknown>;
+      requiresJobResponse: true;
+    }>;
+// These are the states currently documented by XYOps; unknown server states remain strings and are ignored safely.
+export const XYOpsJobState = {
+  Active: "active",
+  Complete: "complete",
+} as const;
+export type XYOpsJobState = (typeof XYOpsJobState)[keyof typeof XYOpsJobState];
+
 export type XYOpsJob = Readonly<{
   id?: string;
   state?: string;
@@ -81,11 +126,16 @@ export type ExecuteResult = Readonly<{
   importBytes: number;
   selected: MigrationSelection;
   imported: Readonly<{ projectID: string; [key: string]: unknown }>;
-  apiKeyRetrieved: boolean;
+  apiKeyRetrieved?: boolean;
+}>;
+export type ConfigSecret = Readonly<{
+  key: string;
+  value: string;
+  type: "projectId" | "" | "url";
 }>;
 export type SecretEntry = Readonly<{ name: string; value: string }>;
-export type SecretMap = Readonly<Record<string, string>>;
-export type EventParameterValue = string | boolean | SecretMap;
+export type SecretEntries = readonly ConfigSecret[];
+export type EventParameterValue = string | boolean | SecretEntries;
 export type EventParameters = Readonly<Record<string, EventParameterValue>>;
 export type XYOpsEventConfig = Readonly<{
   checkSession: XYOpsEventReference;
@@ -93,6 +143,7 @@ export type XYOpsEventConfig = Readonly<{
   listProjects: XYOpsEventReference;
   listVersions: XYOpsEventReference;
   listFolders: XYOpsEventReference;
+  createFolder: XYOpsEventReference;
   planMigration: XYOpsEventReference;
   executeMigration: XYOpsEventReference;
 }>;
@@ -107,6 +158,8 @@ export type XYOpsConfig = Readonly<{
   httpTimeoutMs: number;
   pollIntervalMs: number;
   pollTimeoutMs: number;
+  streamMaxBytes: number;
+  streamMaxFrameBytes: number;
 }>;
 export type MigrationState = Readonly<{
   sourceWorkspaceID?: string;
@@ -114,19 +167,23 @@ export type MigrationState = Readonly<{
   sourceVersionID?: string;
   destinationWorkspaceID?: string;
   destinationFolderID?: string;
-  targetSchemaVersion: string;
+  targetSchemaVersion?: string;
   planID?: string;
 }>;
+export const CliDiagnosticCode = {
+  Configuration: "configuration",
+  Network: "network",
+  Timeout: "timeout",
+  Http: "http",
+  Api: "api",
+  Envelope: "envelope",
+  Job: "job",
+  ExecuteOutcomeUnknown: "execute-outcome-unknown",
+  InvalidInput: "invalid-input",
+  Stream: "stream",
+} as const;
 export type CliDiagnosticCode =
-  | "configuration"
-  | "network"
-  | "timeout"
-  | "http"
-  | "api"
-  | "envelope"
-  | "job"
-  | "execute-outcome-unknown"
-  | "invalid-input";
+  (typeof CliDiagnosticCode)[keyof typeof CliDiagnosticCode];
 export type CliDiagnostic = Readonly<{
   code: CliDiagnosticCode;
   endpoint: string;
