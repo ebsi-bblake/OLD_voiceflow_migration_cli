@@ -12,19 +12,29 @@ This is the canonical inventory of Logux invariants used by the migration plugin
 - JWTs, cookies, secret values, and raw sensitive payloads are never written to diagnostics.
 - Socket cleanup is idempotent; duplicate terminal frames cannot settle an operation twice.
 
-Observed connect shape:
+Observed connect tuple shape (zero-based positions):
 
 ```json
-["connect",4,"<origin>",0,{"token":"<JWT>","subprotocol":"1.9.0"}]
+["connect", 4, "<origin>", 0, {"token":"<JWT>","subprotocol":"1.9.0"}]
 ```
+
+```text
+index 0 = frame kind: "connect"
+index 1 = Logux protocol version: 4
+index 2 = client/session origin
+index 3 = captured numeric connection-state value: 0
+index 4 = connection options and credentials
+```
+
+The value at index 3 is preserved as captured, but its formal Voiceflow/Logux meaning has not yet been independently verified. It must not be described as a sync ID or cursor without protocol evidence.
 
 ## 2. Frame and sync-ID invariants
 
-- Preserve the four-element Logux frame structure observed in Voiceflow traffic:
+- Preserve the tuple structure observed for each Logux frame kind; `connect` is five elements, while action `sync` frames are four elements:
   - `frame[0]`: frame kind
-  - `frame[1]`: sync/request ID
-  - `frame[2]`: action or action envelope
-  - `frame[3]`: client metadata
+  - `frame[1]`: sync/request ID for `sync` frames; protocol version for the observed `connect` frame
+  - `frame[2]`: action or action envelope for `sync` frames; origin for the observed `connect` frame
+  - `frame[3]`: client metadata for `sync` frames; captured connection-state value for the observed `connect` frame
 - For Voiceflow project rename and secret creation, action metadata (`origin`, `actionID`) is nested under `frame[2].meta`.
 - Subscription sync IDs are positive numeric IDs.
 - A subscription is complete only when the matching `synced` frame has the same sync ID.
