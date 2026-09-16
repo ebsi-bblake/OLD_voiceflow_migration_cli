@@ -1,20 +1,37 @@
 @migration @logux @debugging @observability
 Feature: Opt-in Voiceflow Logux debugging
-  Logux protocol diagnostics are useful while investigating Voiceflow traffic but
-  must be silent by default. A debug flag enables safe, structured summaries
-  without exposing credentials, secrets, or exported project data.
+  Logux diagnostics are disabled by default. The execute-event parameter is
+  DEBUG_LOGUX and is always sent as an explicit boolean. When enabled, the
+  plugin emits bounded, structured, allowlisted diagnostics without changing
+  migration ordering, acknowledgement, retryability, or unknown-outcome rules.
 
   Background:
     Given the migration CLI is invoked through the XYOps execute path
-    And the Logux debug flag is disabled unless explicitly requested
+    And CLI flag values are resolved before the execute request is built
+    And the resolved DEBUG_LOGUX value is sent explicitly as true or false
+    And the plugin treats any absent, malformed, or non-boolean DEBUG_LOGUX value as false
+    And normal migration errors remain visible independently of debug logging
+
+  @precedence @default-off
+  Scenario: Resolve the debug setting deterministically
+    Given the default debug value is false
+    And an environment setting may provide DEBUG_LOGUX
+    And configuration may provide debugLogux
+    And the CLI may provide --debug-logux or --no-debug-logux
+    When more than one source provides a value
+    Then CLI flags take precedence over configuration
+    And configuration takes precedence over the environment setting
+    And the environment setting takes precedence over the default
+    When no source provides a value
+    Then the resolved value is false
 
   @default-off
   Scenario: Keep Logux debugging disabled by default
-    Given the CLI is invoked without --debug-logux
+    Given the CLI is invoked without a debug flag, configuration value, or environment setting
     When an execute migration is dispatched
     Then the execute request contains DEBUG_LOGUX=false
-    And no Logux debug lines are emitted
-    And migration behavior is unchanged
+    And no Logux debug trace lines are emitted
+    And normal migration behavior is unchanged
 
   @enabled
   Scenario: Enable Logux debugging with the CLI flag
@@ -22,64 +39,130 @@ Feature: Opt-in Voiceflow Logux debugging
     When an execute migration is dispatched
     Then the execute request contains DEBUG_LOGUX=true
     And the remote operation enables Logux debug diagnostics
-    And diagnostics are written to stderr
+    And diagnostics are emitted through the configured job diagnostic channel
 
   @disabled-explicitly
-  Scenario: Allow debugging to be explicitly disabled
+  Scenario: Explicitly disable debugging
     Given the CLI is invoked with --no-debug-logux
     When an execute migration is dispatched
     Then the execute request contains DEBUG_LOGUX=false
-    And no Logux debug lines are emitted
+    And no Logux debug trace lines are emitted
 
   @scope
-  Scenario: Keep the debug flag scoped to Logux diagnostics
-    Given --debug-logux is enabled
-    When the migration runs
-    Then Logux connection, subscription, mutation, acknowledgement, and close events may be logged
+  Scenario: Scope debugging to the confirmed execute operation
+    Given DEBUG_LOGUX=true is sent with execute_migration
+    When the confirmed migration runs
+    Then rename, catalog durability, and secret Logux operations inside that execution may be traced
+    And interactive preflight catalog operations are not traced by this execute flag
     And ordinary CLI progress output is unchanged
     And protocol diagnostics do not alter mutation ordering or completion barriers
 
+  @transport
+  Scenario: Keep diagnostics separate from the migration result contract
+    Given DEBUG_LOGUX=true
+    When the plugin emits a diagnostic line
+    Then the line is written to the configured XYOps job diagnostic channel
+    And the migration result envelope contains no raw debug frames
+    And the CLI does not depend on debug output to determine migration success
+    And failure diagnostics remain available when DEBUG_LOGUX=false
+
+  @schema
+  Scenario: Emit one bounded structured diagnostic schema
+    Given DEBUG_LOGUX=true
+    When a Logux event is logged
+    Then the line is valid JSON with these required fields:
+      | field | requirement |
+      | component | logux |
+      | operationID | current operation identifier |
+      | stage | current migration stage |
+      | direction | in or out |
+      | frameType | connect, connected, sync, synced, or error |
+      | event | lifecycle event name |
+    And syncID is included when present
+    And actionType is included only when present and allowlisted
+    And workspaceID and projectID are included only when known and allowlisted
+    And each line is independently parseable
+
   @safe-redaction
-  Scenario: Redact sensitive Logux data
-    Given --debug-logux is enabled
+  Scenario: Log only allowlisted protocol fields
+    Given DEBUG_LOGUX=true
     When a Logux frame is logged
-    Then the diagnostic may include direction, frame type, sync ID, action type, project ID, workspace ID, and safe correlation IDs
-    And the JWT is represented only as [redacted]
-    And cookies are never logged
-    And secret values and defaultValue fields are never logged
-    And exported project payloads and raw frame payloads are never logged
+    Then the diagnostic may include direction, frame type, safe sync ID, action type, workspace ID, project ID, and operation correlation
+    And the complete frame payload is never logged
+    And JWTs, cookies, secret values, defaultValue fields, and exported project data are never logged
+    And raw origin values are never logged
+    And origin correlation uses a non-reversible redacted identifier or presence flag
+    And unknown fields are omitted rather than recursively logged
 
-  @rename
-  Scenario: Make rename protocol debugging sufficient for diagnosis
-    Given --debug-logux is enabled
+  @rename @state-machine
+  Scenario: Trace the rename state-machine lifecycle
+    Given DEBUG_LOGUX=true
     When a project rename runs
-    Then diagnostics identify the subscription sync ID
-    And diagnostics identify the mutation sync ID
-    And diagnostics identify the matching mutation synced acknowledgement
-    And diagnostics identify the project.CRUD:PATCH state broadcast
-    And diagnostics identify whether the rename completion barrier is satisfied
+    Then diagnostics identify the states CONNECTING, CONNECTED, SUBSCRIBING, SUBSCRIBED, MUTATION_SENT, MUTATION_ACKNOWLEDGED, and CATALOG_RECONCILING when reached
+    And diagnostics identify the subscription sync ID
+    And diagnostics identify the distinct mutation sync ID
+    And diagnostics identify mutationSent=true or false
+    And diagnostics identify mutationAck=true or false
+    And diagnostics identify patchObserved=true or false
+    And diagnostics identify catalogDurable=true or false
+    And a missing project.CRUD:PATCH is represented as patchObserved=false
+    And a matching mutation synced frame is identified separately from a project broadcast
 
-  @secret
-  Scenario: Make secret protocol debugging sufficient for diagnosis
-    Given --debug-logux is enabled
+  @secret @state-machine
+  Scenario: Trace the secret state-machine lifecycle safely
+    Given DEBUG_LOGUX=true
     When a secret creation runs
-    Then diagnostics identify the secret lifecycle action types
+    Then diagnostics identify CONNECTING, SUBSCRIBED, MUTATION_SENT, and COMPLETED when reached
+    And diagnostics identify the secret lifecycle action types
     And diagnostics identify the mutation sync ID
-    And diagnostics identify the matching completion action ID
-    And diagnostics never include the secret name together with its value
+    And diagnostics identify the matching completion action ID in redacted form
+    And secret names are omitted unless explicitly allowlisted
+    And secret values and defaultValue fields are never logged
 
   @errors
   Scenario: Preserve actionable failure diagnostics
-    Given --debug-logux is enabled
+    Given DEBUG_LOGUX=true
     When Logux sends an error frame, closes, or times out
     Then the diagnostic identifies the safe lifecycle stage
     And the diagnostic identifies observed action types
+    And the diagnostic identifies mutationAck, patchObserved, and catalogDurable when relevant
+    And an error frame may include a bounded safe server error code
     And the operation retains its existing retryability and unknown-outcome semantics
     And the diagnostic excludes credentials and sensitive payloads
 
-  @flag-validation
-  Scenario: Reject unsupported debug flag values
-    Given the CLI receives a malformed debug flag value
+  @protocol-error
+  Scenario: Diagnose a rejected frame without exposing it
+    Given DEBUG_LOGUX=true
+    When Logux returns an error frame with server code wrong-format
+    Then the diagnostic contains serverCode=wrong-format
+    And the diagnostic identifies the outbound frame kind and lifecycle stage
+    And the complete rejected frame is not logged
+
+  @validation
+  Scenario Outline: Reject unsupported debug flag forms
+    Given the CLI receives <invalid_flag>
     When CLI arguments are validated
     Then the CLI fails with a configuration error
     And no migration or WebSocket operation starts
+    And the CLI exits with code 2
+
+    Examples:
+      | invalid_flag |
+      | --debug-logux=true |
+      | --debug-logux maybe |
+
+  @limits
+  Scenario: Bound diagnostic output
+    Given DEBUG_LOGUX=true
+    When diagnostic output reaches the configured byte or line limit
+    Then further debug lines are suppressed or summarized
+    And migration execution continues without waiting indefinitely for logging
+    And the migration result is not changed by diagnostic backpressure
+
+  @logging-failure
+  Scenario: Continue safely when diagnostic emission fails
+    Given DEBUG_LOGUX=true
+    When the diagnostic channel rejects a log write
+    Then the logging failure is not treated as a Voiceflow mutation failure
+    And mutation ordering and completion barriers remain unchanged
+    And the migration result follows the underlying operation outcome
