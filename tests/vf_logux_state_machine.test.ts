@@ -10,6 +10,10 @@ import {
   createCatalogState,
   transitionCatalogState,
 } from "../xyops/voiceflow/logux/catalog-state-machine";
+import {
+  createFolderState,
+  transitionFolderState,
+} from "../xyops/voiceflow/logux/folder-state-machine";
 
 const renameContext = {
   workspaceID: "workspace-id",
@@ -20,6 +24,60 @@ const renameContext = {
 } as const;
 
 describe("Logux state machines", () => {
+  test("creates a folder only after subscription and matching completion correlation", () => {
+    let state = createFolderState({
+      workspaceID: "42",
+      channel: "workspace/42",
+      folderName: "Imports",
+      origin: "origin",
+      actionID: "action",
+    });
+    state = transitionFolderState(state, { kind: "socket-open" }).state;
+    state = transitionFolderState(state, { kind: "connected", subscriptionSyncID: 10 }).state;
+    expect(state.kind).toBe("SUBSCRIBING");
+    state = transitionFolderState(state, {
+      kind: "subscription-synced",
+      syncID: 10,
+      mutationSyncID: 11,
+    }).state;
+    expect(state.kind).toBe("SUBSCRIBED");
+    const sent = transitionFolderState(state, { kind: "mutation-sent", mutationSyncID: 11 });
+    expect(sent.state.kind).toBe("MUTATION_SENT");
+    state = sent.state;
+    expect(
+      transitionFolderState(state, { kind: "mutation-synced", syncID: 11 }).state.kind,
+    ).toBe("MUTATION_SENT");
+    const completed = transitionFolderState(state, {
+      kind: "folder-completed",
+      actionID: "action",
+      origin: "origin",
+      channel: "workspace/42",
+      workspaceID: "42",
+      folderID: "7",
+      folderName: "Imports",
+    });
+    expect(completed.state.kind).toBe("COMPLETED");
+    expect(completed.effects).toEqual([{ kind: "close-socket" }, { kind: "settle" }]);
+  });
+
+  test("classifies folder close and timeout outcomes by lifecycle state", () => {
+    const context = {
+      workspaceID: "42",
+      channel: "workspace/42",
+      folderName: "Imports",
+      origin: "origin",
+      actionID: "action",
+    } as const;
+    let state = createFolderState(context);
+    expect(transitionFolderState(state, { kind: "socket-close" }).state.kind).toBe("FAILED");
+    state = transitionFolderState(state, { kind: "socket-open" }).state;
+    state = transitionFolderState(state, { kind: "connected", subscriptionSyncID: 10 }).state;
+    state = transitionFolderState(state, { kind: "subscription-synced", syncID: 10, mutationSyncID: 11 }).state;
+    state = transitionFolderState(state, { kind: "mutation-sent", mutationSyncID: 11 }).state;
+    expect(transitionFolderState(state, { kind: "socket-close" }).state.kind).toBe("UNKNOWN_OUTCOME");
+    expect(transitionFolderState(state, { kind: "timeout" }).state.kind).toBe("UNKNOWN_OUTCOME");
+  });
+
   test("collects a scoped catalog snapshot through the matching subscription", () => {
     let state = createCatalogState("operation", "workspace/workspace-id", ["project"]);
     state = transitionCatalogState(state, { kind: "socket-open" }).state;
