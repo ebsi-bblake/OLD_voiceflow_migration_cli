@@ -135,7 +135,9 @@ const readSSEResponse: ReadSSEResponse = async (response, limits) => {
     return readChunk();
   };
   await readChunk();
-  const updates = events.filter((event) => event.type === "update");
+  const candidates = events.filter(
+    (event) => event.type === "start" || event.type === "update",
+  );
   const terminal = events
     .slice()
     .reverse()
@@ -143,7 +145,7 @@ const readSSEResponse: ReadSSEResponse = async (response, limits) => {
   // Some XYOps versions use end as an empty completion marker; retain the terminal update in that case.
   const latest = [
     terminal,
-    ...updates.map((event) => event.data).reverse(),
+    ...candidates.map((event) => event.data).reverse(),
   ].find(hasTerminalJobStatus);
   if (latest === undefined)
     return streamError("XYOps ended the stream without a terminal job status.");

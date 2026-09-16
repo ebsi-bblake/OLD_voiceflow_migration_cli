@@ -18,6 +18,10 @@ import {
   requireSuccessfulJob,
 } from "./job-response";
 import { normalizeVoiceflowResponse } from "../guards";
+import {
+  createJobObservationState,
+  transitionJobObservation,
+} from "./job-observation-state-machine";
 
 const RUN_PATH = "/api/app/run_event/v1";
 const JOB_PATH = "/api/app/get_job/v1";
@@ -165,6 +169,25 @@ export const createXYOpsClient = (
     });
   };
 
+  const startJobObservation = <T>(
+    id: string,
+    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ): Promise<VoiceflowEnvelope<T>> => {
+    const transition = transitionJobObservation(
+      createJobObservationState(id),
+      { kind: "execute-dispatched", jobID: id },
+    );
+    return transition.state.kind === "STREAMING"
+      ? readTerminalStream(id, guard)
+      : Promise.reject(
+          fail("execute-outcome-unknown", {
+            endpoint: RUN_PATH,
+            retryable: true,
+            nextAction: "The execute observation could not start; reconcile before retrying.",
+          }),
+        );
+  };
+
   const executeEvent = <T>(
     reference: XYOpsEventReference,
     params: EventParameters,
@@ -176,7 +199,7 @@ export const createXYOpsClient = (
       .then((id) =>
         typeof config.streamMaxBytes === "number" &&
         typeof config.streamMaxFrameBytes === "number"
-          ? readTerminalStream(id, guard)
+          ? startJobObservation(id, guard)
           : pollJob(id, request, sleeper, config, guard),
       )
       .catch((error) => Promise.reject(translateExecuteJobError(error)));

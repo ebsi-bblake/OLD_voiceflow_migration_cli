@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
 import { createXYOpsClient } from "../xyops/cli/client";
+import {
+  createJobObservationState,
+  transitionJobObservation,
+} from "../xyops/cli/client/job-observation-state-machine";
 import { isVoiceflowEnvelope } from "../xyops/cli/guards";
 import {
   DEFAULT_STREAM_MAX_BYTES,
@@ -41,6 +45,31 @@ const streamRequest = (source: string, boundaries?: readonly number[]) =>
     "job-1",
     1_000,
   );
+
+test("models dispatch, stream failure, reconciliation, and terminal idempotence", () => {
+  let state = createJobObservationState("job-1");
+  state = transitionJobObservation(state, {
+    kind: "execute-dispatched",
+    jobID: "job-1",
+  }).state;
+  expect(state.kind).toBe("STREAMING");
+  state = transitionJobObservation(state, { kind: "stream-failed" }).state;
+  expect(state.kind).toBe("STREAM_RECONCILING");
+  state = transitionJobObservation(state, { kind: "job-active", attempt: 1 }).state;
+  expect(state.kind).toBe("POLLING");
+  state = transitionJobObservation(state, { kind: "job-succeeded" }).state;
+  expect(state.kind).toBe("SUCCEEDED");
+  expect(
+    transitionJobObservation(state, { kind: "stream-failed" }).accepted,
+  ).toBe(false);
+});
+
+test("treats a terminal start event as a candidate until end", async () => {
+  const result = await streamRequest(
+    "event: start\ndata: {\"id\":\"job-1\",\"code\":0}\n\nevent: end\ndata: {}\n\n",
+  );
+  expect(result).toMatchObject({ kind: "success", jobID: "job-1", code: 0 });
+});
 
 const successfulEnvelope = (): Record<string, unknown> => ({
   ok: true,

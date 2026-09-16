@@ -20,6 +20,7 @@ import {
 const WAIT_PATH = "/api/app/run_event/v1/wait";
 const JOB_PATH = "/api/app/get_job/v1";
 const MAX_READ_ATTEMPTS = 3;
+export const MAX_POLL_ATTEMPTS = 100;
 
 type EventBody = (
   reference: XYOpsEventReference,
@@ -125,13 +126,16 @@ const pollUntilComplete = async <T>(
   intervalMs: number,
   deadline: number,
   guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  attempt: number,
 ): Promise<VoiceflowEnvelope<T>> => {
+  if (Date.now() >= deadline || attempt > MAX_POLL_ATTEMPTS)
+    return Promise.reject(pollingDeadlineError());
   const job = readJobResponse(
     await request(JOB_PATH, { id }, JOB_PATH),
     JOB_PATH,
   );
   if (isCompletedJob(job.completed)) return completeJob(job, guard);
-  return pollIncompleteJob(id, request, sleeper, intervalMs, deadline, guard);
+  return pollIncompleteJob(id, request, sleeper, intervalMs, deadline, guard, attempt);
 };
 const pollIncompleteJob = async <T>(
   id: string,
@@ -140,17 +144,20 @@ const pollIncompleteJob = async <T>(
   intervalMs: number,
   deadline: number,
   guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  attempt: number,
 ): Promise<VoiceflowEnvelope<T>> => {
+  if (attempt >= MAX_POLL_ATTEMPTS) return Promise.reject(pollingDeadlineError());
   await waitForNextPoll(sleeper, intervalMs, deadline);
-  if (Date.now() > deadline)
-    return Promise.reject(
-      fail("execute-outcome-unknown", {
-        endpoint: JOB_PATH,
-        nextAction: "The execute job timed out; reconcile before retrying.",
-      }),
-    );
-  return pollUntilComplete(id, request, sleeper, intervalMs, deadline, guard);
+  if (Date.now() >= deadline) return Promise.reject(pollingDeadlineError());
+  return pollUntilComplete(id, request, sleeper, intervalMs, deadline, guard, attempt + 1);
 };
+const pollingDeadlineError = (): CliError =>
+  fail("execute-outcome-unknown", {
+    endpoint: JOB_PATH,
+    retryable: true,
+    nextAction: "The execute job timed out; reconcile before retrying.",
+  });
+
 const waitForNextPoll = async (
   sleeper: Sleep,
   intervalMs: number,
@@ -165,12 +172,29 @@ export const pollJob = <T>(
   sleeper: Sleep,
   config: XYOpsConfig,
   guard: ResponseGuard<VoiceflowEnvelope<T>>,
-): Promise<VoiceflowEnvelope<T>> =>
-  pollUntilComplete(
+): Promise<VoiceflowEnvelope<T>> => {
+  if (!validPollingConfig(config.pollIntervalMs, config.pollTimeoutMs))
+    return Promise.reject(
+      fail("execute-outcome-unknown", {
+        endpoint: JOB_PATH,
+        nextAction: "Polling configuration is invalid; reconcile explicitly.",
+      }),
+    );
+  return pollUntilComplete(
     id,
     request,
     sleeper,
     config.pollIntervalMs,
     Date.now() + config.pollTimeoutMs,
     guard,
+    1,
   );
+};
+
+const validPollingConfig = (intervalMs: number, timeoutMs: number): boolean =>
+  [
+    Number.isFinite(intervalMs),
+    intervalMs > 0,
+    Number.isFinite(timeoutMs),
+    timeoutMs > 0,
+  ].every(Boolean);
