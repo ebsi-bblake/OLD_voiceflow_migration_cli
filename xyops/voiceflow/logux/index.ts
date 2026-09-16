@@ -1,7 +1,14 @@
 import type { AuthContext } from "../types";
 import { OperationFault } from "../contracts";
-import { VoiceflowRegex } from "../regex";
-import { handleFrame, handleIncomingMessage } from "./frames";
+import { handleIncomingMessage } from "./frames";
+import { normalizeCatalogFrame } from "./catalog-frames";
+import {
+  createCatalogState,
+  transitionCatalogState,
+  type CatalogEvent,
+  type CatalogState,
+  type CatalogEffect,
+} from "./catalog-state-machine";
 import { createSecret } from "./create-secret";
 import { createUUID } from "../uuid";
 import type { SecretEntry } from "../types";
@@ -18,10 +25,6 @@ const SUPPORTED_WANTED_TYPES: ReadonlySet<string> = new Set([
 const MAX_INCOMING_FRAME_BYTES = 1_048_576;
 const MAX_INCOMING_BYTES = 8_388_608;
 
-type Random8 = () => string;
-const random8: Random8 = () =>
-  createUUID().replace(VoiceflowRegex.base64UrlDash, "").slice(0, 8);
-
 type SendFrame = (ws: WebSocket, frame: readonly unknown[]) => void;
 const sendFrame: SendFrame = (ws, frame) => {
   ws.send(JSON.stringify(frame));
@@ -33,53 +36,72 @@ type SyncCatalog = (
   wanted: readonly string[],
 ) => Promise<readonly Row[]>;
 export const syncCatalog: SyncCatalog = (auth, channel, wanted) => {
-  if (!isSupportedRequest(wanted)) {
+  if (!isSupportedRequest(wanted))
     return Promise.reject(new OperationFault("INVALID_ARGUMENT"));
-  }
   return new Promise((resolve, reject) => {
+    const operationID = createUUID();
+    const subscriptionSyncID = positiveSyncID();
     const ws = new WebSocket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
-    const rows: Row[] = [];
-    const wantedSet = new Set(wanted);
-    const seen = new Set<string>();
-    const requestID = Math.floor(Math.random() * 1_000_000_000) + 1;
-    let done = false;
-    let actionID = -1;
-    let actionTime = 1;
+    let state: CatalogState = createCatalogState(operationID, channel, wanted);
     let incomingBytes = 0;
     let timer: ReturnType<typeof setTimeout>;
-    type Settle = (error?: OperationFault) => void;
-    const settle: Settle = (error) => {
-      if (done) return;
-      done = true;
+    let settled = false;
+
+    const settle = (error?: OperationFault): void => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       closeSocket(ws);
-      settlePromise(error, rows, resolve, reject);
       ws.onmessage = null;
+      if (error) reject(error);
+      else if (state.kind === "COMPLETED") resolve(state.rows);
+      else if (state.kind === "FAILED" || state.kind === "TIMED_OUT")
+        reject(new OperationFault(state.code, state.retryable, state.diagnostic));
+      else reject(new OperationFault("DEPENDENCY_FAILURE", true));
     };
-    type SafeSend = (frame: readonly unknown[]) => void;
-    const safeSend: SafeSend = (frame) => {
-      try {
-        sendFrame(ws, frame);
-      } catch {
-        settle(new OperationFault("DEPENDENCY_FAILURE", true));
+    const executeEffects = (effects: readonly CatalogEffect[]): void => {
+      for (const effect of effects) {
+        if (effect.kind === "send-subscription") {
+          try {
+            sendFrame(ws, [
+              "sync",
+              effect.syncID,
+              { channel, type: "logux/subscribe", since: { id: "0", time: 0 } },
+              { id: 1, time: 1 },
+            ]);
+          } catch {
+            dispatch({ kind: "socket-error", diagnostic: "catalog-subscription-send-failed" });
+          }
+        }
+        if (effect.kind === "close-socket") closeSocket(ws);
+        if (effect.kind === "settle") settle();
       }
     };
-    timer = setTimeout(
-      () => settle(new OperationFault("DEPENDENCY_TIMEOUT", true)),
-      15000,
-    );
-    ws.onerror = () => settle(new OperationFault("DEPENDENCY_FAILURE", true));
-    ws.onclose = () => {
-      if (!done) settle(new OperationFault("DEPENDENCY_FAILURE", true));
+    const dispatch = (event: CatalogEvent): void => {
+      const transition = transitionCatalogState(state, event);
+      state = transition.state;
+      executeEffects(transition.effects);
     };
-    ws.onopen = () =>
-      safeSend([
-        "connect",
-        4,
-        `${auth.creatorID}:${random8()}:${random8()}`,
-        0,
-        { token: auth.token, subprotocol: "1.9.0" },
-      ]);
+
+    timer = setTimeout(() => dispatch({ kind: "timeout" }), 15000);
+    ws.onopen = () => {
+      dispatch({ kind: "socket-open" });
+      try {
+        sendFrame(ws, [
+          "connect",
+          4,
+          `${auth.creatorID}:${createUUID()}:${createUUID()}`,
+          0,
+          { token: auth.token, subprotocol: "1.9.0" },
+        ]);
+      } catch {
+        dispatch({ kind: "socket-error", diagnostic: "catalog-connect-send-failed" });
+      }
+    };
+    ws.onerror = () => dispatch({ kind: "socket-error", diagnostic: "catalog-socket-error" });
+    ws.onclose = () => {
+      if (!settled) dispatch({ kind: "socket-close" });
+    };
     ws.onmessage = (event) =>
       handleIncomingMessage(event, {
         incomingBytes,
@@ -88,23 +110,24 @@ export const syncCatalog: SyncCatalog = (auth, channel, wanted) => {
         onBytes: (bytes) => {
           incomingBytes = bytes;
         },
-        settle,
-        handleFrame: (frame) =>
-          handleFrame(
-            frame,
-            channel,
-            requestID,
-            wantedSet,
-            seen,
-            rows,
-            () => actionID--,
-            () => actionTime++,
-            safeSend,
-            settle,
-          ),
+        settle: () => dispatch({ kind: "socket-error", diagnostic: "catalog-input-bound-exceeded" }),
+        handleFrame: (frame) => {
+          const normalized = normalizeCatalogFrame(frame, operationID, channel, incomingBytes, subscriptionSyncID);
+          if (normalized?.kind === "connected")
+            dispatch({ ...normalized, subscriptionSyncID });
+          else if (normalized) dispatch(normalized);
+        },
       });
+
+    try {
+      if (ws.readyState === 1) dispatch({ kind: "socket-open" });
+    } catch {
+      dispatch({ kind: "socket-error", diagnostic: "catalog-socket-initialization-failed" });
+    }
   });
 };
+
+const positiveSyncID = (): number => Math.floor(Math.random() * 1_000_000_000) + 1;
 
 const isSupportedRequest = (wanted: readonly string[]): boolean => {
   if (wanted.length === 0) return false;
@@ -133,13 +156,3 @@ export const createProjectSecrets: CreateProjectSecrets = (
       pending.then(() => createSecret(auth, assistantID, secret)),
     Promise.resolve(),
   );
-
-const settlePromise = (
-  error: OperationFault | undefined,
-  rows: readonly Row[],
-  resolve: (rows: readonly Row[]) => void,
-  reject: (error: OperationFault) => void,
-): void => {
-  if (error) reject(error);
-  else resolve(rows);
-};

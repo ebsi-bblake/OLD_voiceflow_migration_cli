@@ -14,7 +14,9 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
     And the maximum incoming frame is 1 MiB
     And the maximum incoming byte total is 8 MiB
     And the maximum catalog row count is 100000
-    And the operation timeout is 15 seconds
+    And the operation timeout is 15 seconds from operation start
+    And the catalog channel has the form workspace/<workspaceID>
+    And each operation owns exactly one socket and one local operation ID
 
   @state-contract
   Scenario: Use the authoritative catalog state variants
@@ -22,7 +24,8 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
     Then its state variants are:
       | state | required data |
       | CONNECTING | operationID, channel, requestedTypes |
-      | SUBSCRIBING | subscriptionSyncID and catalog context |
+      | CONNECTED | operationID, channel, requestedTypes |
+      | SUBSCRIBING | positive subscriptionSyncID and catalog context |
       | COLLECTING | subscriptionSyncID, seenTypes, rows, byteCount |
       | COMPLETED | immutable rows and seenTypes |
       | FAILED | stable error code and safe diagnostic |
@@ -30,9 +33,9 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
     And rows, seenTypes, and context are immutable transition results
 
   @events
-  Scenario: Normalize catalog socket events
+  Scenario: Normalize valid catalog socket events
     Given the effect shell receives catalog input
-    When it receives a WebSocket open, connected frame, matching synced frame, requested action, error frame, socket error, socket close, malformed frame, or timeout
+    When it receives a WebSocket open, connected frame, matching synced frame, requested action, error frame, socket error, socket close, or timeout
     Then it emits exactly one normalized event from:
       | socket-open |
       | connected |
@@ -41,16 +44,20 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
       | error-frame |
       | socket-error |
       | socket-close |
-      | malformed-frame |
       | timeout |
     And the reducer receives normalized events rather than raw JSON
 
   @lifecycle
   Scenario: Complete a catalog snapshot only after all requested types arrive
-    Given the state is SUBSCRIBING
+    Given the state is CONNECTING
+    When the WebSocket open event arrives
+    Then the state becomes CONNECTED
+    When the connected event arrives
+    Then the state becomes SUBSCRIBING
+    And the subscription effect sends one sync frame with a positive local subscriptionSyncID
     When the matching subscription synced event arrives
     Then the state becomes COLLECTING
-    And the workspace subscription effect is active
+    And the workspace subscription is confirmed and remains scoped to the requested channel
     When each requested action type arrives with valid rows
     Then its type is added to seenTypes
     And rows are accumulated without mutating prior state
@@ -70,11 +77,13 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
   @correlation
   Scenario: Ignore acknowledgements and actions from another request
     Given the state is SUBSCRIBING or COLLECTING
-    When a synced frame has another sync ID
+    And the subscription sync frame uses frame[1] as the positive local subscriptionSyncID
+    When a synced frame has another sync ID in frame[1]
     Then the state does not advance
-    When an action belongs to another channel, workspace, or operation
+    When a normalized catalog action has a different operation ID, channel, or workspace ID
     Then the action is ignored
-    And the catalog result remains scoped to the requested channel
+    And the catalog result remains scoped to the requested channel and workspace
+    And operation ID is local effect-shell context, not an inferred value from row labels
 
   @bounds
   Scenario Outline: Fail safely when an incoming bound is exceeded
@@ -96,7 +105,8 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
   Scenario: Ignore malformed catalog input without inventing rows
     Given the state is COLLECTING
     When JSON is invalid, the message is not text, the frame is not an array, or the action payload is malformed
-    Then the state does not advance from the malformed event
+    Then the effect shell emits no normalized event
+    And the state does not advance
     And no malformed row is accumulated
     And the malformed payload is not copied into diagnostics
     And the 15-second timeout remains active
@@ -113,9 +123,26 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
     Examples:
       | state | event | terminal_state | code | retryable |
       | CONNECTING | socket error | FAILED | DEPENDENCY_FAILURE | true |
-      | SUBSCRIBING | explicit Logux error frame | FAILED | DEPENDENCY_FAILURE | true |
+      | SUBSCRIBING | explicit Logux error frame with a non-authentication server code | FAILED | DEPENDENCY_FAILURE | true |
+      | SUBSCRIBING | explicit wrong-credentials error frame | FAILED | AUTHENTICATION_FAILED | false |
       | COLLECTING | socket close before completion | FAILED | DEPENDENCY_FAILURE | true |
       | COLLECTING | 15-second timeout | TIMED_OUT | DEPENDENCY_TIMEOUT | true |
+
+  @errors @diagnostics
+  Scenario: Bound catalog error diagnostics
+    Given the state is SUBSCRIBING or COLLECTING
+    When a structurally valid error frame is received
+    Then the normalized error-frame contains only a bounded allowlisted server code
+    And the diagnostic contains safe operation context without raw frame data, credentials, or catalog rows
+
+  @duplicates
+  Scenario: Ignore duplicate catalog actions after a type is seen
+    Given the state is COLLECTING
+    And a valid action type has already been added to seenTypes
+    When another valid action of the same type arrives
+    Then the state remains COLLECTING
+    And seenTypes and rows remain unchanged
+    And byteCount accounts for the received frame
 
   @terminal
   Scenario: Ignore duplicate catalog terminal events
@@ -132,3 +159,4 @@ Feature: Model Voiceflow Logux catalog synchronization as an explicit state mach
     And the reducer performs no I/O
     And a send or timer failure becomes a normalized event
     And the resulting terminal outcome is decided by the reducer
+    And the timeout deadline is created at operation start and is not reset by frames or malformed input
