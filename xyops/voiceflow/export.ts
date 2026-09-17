@@ -6,6 +6,7 @@ import { parseSchemaVersion, parseVersionID } from "./validation";
 import { VoiceflowRegex } from "./regex";
 import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
 import type { ExportArtifact } from "./types";
+import { ExportPayloadSchema } from "./schemas/export_payload";
 export type { ExportArtifact } from "./types";
 const EXPORT_URL = `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/export-json`;
 type RecordValue = Readonly<Record<string, unknown>>;
@@ -36,8 +37,9 @@ export const readExportedSchemaVersion: ReadExportedSchemaVersion = (
       "exported artifact must contain JSON version metadata with _version in the form major.minor",
     );
   }
-  const rawVersion = isRecord(payload)
-    ? exportedSchemaMetadata(payload)
+  const parsed = ExportPayloadSchema.safeParse(payload);
+  const rawVersion = parsed.success
+    ? exportedSchemaMetadata(parsed.data)
     : undefined;
   if (
     typeof rawVersion !== "string" ||

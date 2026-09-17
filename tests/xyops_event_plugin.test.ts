@@ -9,6 +9,7 @@ import { dispatchOperation } from "../xyops/plugin/operation_dispatch";
 import { formatPluginDiagnostic } from "../xyops/plugin/diagnostics";
 import { runNativePlugin } from "../xyops/plugin/process_entrypoint";
 import { mapVoiceflowEnvelope } from "../xyops/plugin/wire_protocol";
+import { XYOpsPluginResponseSchema } from "../xyops/plugin/schemas/plugin_response";
 import { resolveVoiceflowAuth } from "../xyops/voiceflow/auth";
 import { createUUID } from "../xyops/voiceflow/uuid";
 import { PLUGIN_VERSION } from "../xyops/plugin/version";
@@ -90,12 +91,64 @@ describe("native XYOps event plugin boundary", () => {
     expect(validatePluginJob({ ...eventJobFor({ operation: "check_session" }), event: "event-id" }).operation).toBe("check_session");
   });
 
-  test("rejects malformed jobs, accepts unrelated job fields, and hides input", () => {
-    expect(() => parsePluginJob("not-json-secret")).toThrow("valid JSON");
-    expect(() => validatePluginJob({ params: {} })).toThrow("XYOps event job");
+  test("rejects a missing xy discriminator", () => {
+    expect(() => validatePluginJob({ type: "event", params: { operation: "check_session" } })).toThrow(
+      "XYOps event job",
+    );
+  });
+
+  test("rejects a wrong xy discriminator", () => {
+    expect(() => validatePluginJob({ ...eventJobFor({ operation: "check_session" }), xy: 2 })).toThrow(
+      "XYOps event job",
+    );
+  });
+
+  test("rejects a wrong event type", () => {
+    expect(() => validatePluginJob({ ...eventJobFor({ operation: "check_session" }), type: "job" })).toThrow(
+      "XYOps event job",
+    );
+  });
+
+  test("rejects non-object params", () => {
+    expect(() => validatePluginJob(eventJobFor({ operation: "check_session" }))).not.toThrow();
+    expect(() => validatePluginJob({ xy: 1, type: "event", params: [] })).toThrow(
+      "XYOps event job",
+    );
+  });
+
+  test("accepts extra top-level fields without changing the operation", () => {
+    expect(
+      validatePluginJob({
+        ...eventJobFor({ operation: "check_session" }),
+        event: "event-id",
+        metadata: { source: "test" },
+      }).operation,
+    ).toBe("check_session");
+  });
+
+  test("rejects malformed JSON without exposing the raw input", () => {
+    const rawInput = "not-json-secret";
+    expect(() => parsePluginJob(rawInput)).toThrow("valid JSON");
+    expect(() => parsePluginJob(rawInput)).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining(rawInput) }),
+    );
+  });
+
+  test("rejects missing and unknown operations", () => {
     expect(() => validatePluginJob(eventJobFor({}))).toThrow("operation parameter");
-    expect(() => validatePluginJob(eventJobFor({ operation: "delete-everything" }))).toThrow("not supported");
-    expect(validatePluginJob({ ...eventJobFor({ operation: "check_session" }), secrets: "masked-secret" }).operation).toBe("check_session");
+    expect(() => validatePluginJob(eventJobFor({ operation: "delete-everything" }))).toThrow(
+      "not supported",
+    );
+  });
+
+  test("does not expose raw invalid job input in schema errors", () => {
+    const rawInput = "masked-plugin-secret";
+    expect(() => validatePluginJob({ xy: 2, type: "event", params: { operation: rawInput } })).toThrow(
+      "XYOps event job",
+    );
+    expect(() => validatePluginJob({ xy: 2, type: "event", params: { operation: rawInput } })).toThrowError(
+      expect.not.objectContaining({ message: expect.stringContaining(rawInput) }),
+    );
   });
 
   test("reads the JWT only from the environment", () => {
@@ -136,6 +189,26 @@ describe("native XYOps event plugin boundary", () => {
     const result = await dispatchOperation(jobFor(operation), "test-token", createFakeHandlers(calls));
     expect(result.ok).toBe(true);
     expect(calls[0]).toContain(`${operation}:test-token`);
+  });
+
+  test("validates string operation parameters through the schema adapter", async () => {
+    const calls: string[] = [];
+    const result = await dispatchOperation(
+      {
+        ...jobFor("list_projects"),
+        params: {
+          ...baseParameters,
+          operation: "list_projects",
+          SOURCE_WORKSPACE_ID: { secret: "do-not-expose" },
+        },
+      },
+      "test-token",
+      createFakeHandlers(calls),
+    );
+
+    expect(result).toMatchObject({ ok: false, error: { code: "INVALID_ARGUMENT" } });
+    expect(JSON.stringify(result)).not.toContain("do-not-expose");
+    expect(calls).toHaveLength(0);
   });
 
   test("passes secret input to the migration handler without normalizing it twice", async () => {
@@ -192,6 +265,27 @@ describe("native XYOps event plugin boundary", () => {
     );
     expect(result).toMatchObject({ ok: false, error: { code: "CONFIRMATION_REQUIRED" } });
     expect(calls).toHaveLength(0);
+  });
+
+  test("validates plugin responses while preserving extra protocol fields", () => {
+    const response = {
+      xy: 1,
+      complete: true,
+      code: 0,
+      data: {
+        voiceflow: success("check_session", "operation-1", { active: true }),
+      },
+      metadata: { requestID: "request-1" },
+    };
+
+    expect(XYOpsPluginResponseSchema.safeParse(response).success).toBe(true);
+    expect(
+      XYOpsPluginResponseSchema.safeParse({
+        ...response,
+        complete: false,
+        secret: "must-not-be-returned-in-issues",
+      }).success,
+    ).toBe(false);
   });
 
   test("maps Voiceflow success and failure envelopes to protocol responses", () => {

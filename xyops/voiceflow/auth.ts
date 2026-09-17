@@ -1,6 +1,7 @@
 import { OperationFault } from "./contracts";
 import { VoiceflowRegex } from "./regex";
-import { isClaims, isValidCreatorID } from "./guards";
+import { isValidCreatorID } from "./guards";
+import { VoiceflowAuthClaimsSchema } from "./schemas/auth_claims";
 import type { AuthContext } from "./types";
 
 type Claims = Readonly<Record<string, unknown>>;
@@ -43,8 +44,9 @@ const decodeClaims: DecodeClaims = (token) => {
   }
 };
 const requireClaims = (value: unknown): Claims => {
-  if (!isClaims(value)) throw new Error();
-  return value;
+  const parsed = VoiceflowAuthClaimsSchema.safeParse(value);
+  if (!parsed.success) throw new Error();
+  return parsed.data;
 };
 
 type ExtractCreatorID = (claims: Claims) => string;

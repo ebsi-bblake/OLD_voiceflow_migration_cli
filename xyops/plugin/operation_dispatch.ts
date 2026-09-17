@@ -12,6 +12,7 @@ import type { NativePluginJob, OperationHandlers } from "./types";
 import type { VoiceflowOperation } from "../voiceflow/types";
 import { configureDebug } from "../voiceflow/debug";
 import { MigrationParameterName } from "../migration-parameters";
+import { OperationParameterStringSchema } from "./schemas/operation_parameter";
 export type { OperationHandlers } from "./types";
 
 type PluginEnvelope = Envelope<unknown>;
@@ -27,14 +28,15 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   execute_migration: executeMigration,
 };
 
-const requireParameterString = (value: unknown): string => {
-  if (typeof value !== "string") throw new OperationFault("INVALID_ARGUMENT");
-  return value;
+const parseParameterString = (value: unknown): string => {
+  const parsed = OperationParameterStringSchema.safeParse(value);
+  if (!parsed.success) throw new OperationFault("INVALID_ARGUMENT");
+  return parsed.data;
 };
 
 type TrimParameter = (value: unknown) => string;
 const trimParameter: TrimParameter = (value) => {
-  const stringValue = requireParameterString(value);
+  const stringValue = parseParameterString(value);
   if (stringValue.trim() === "") throw new OperationFault("INVALID_ARGUMENT");
   return stringValue.trim();
 };

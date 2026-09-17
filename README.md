@@ -131,7 +131,7 @@ voiceflow-cli
 ```
 
 For non-interactive migration inputs, pass `--config=<path>` using the checked-in
-shape in `migration.json`. See [`docs/migration-config.md`](docs/migration-config.md)
+shape in `migration.json`. See [`docs/migration_config.md`](docs/migration_config.md)
 for the operator walkthrough and secret-file rollout policy. The file uses snake_case resource keys
 (`source_workspace`, `source_project`, `source_version`, `destination_workspace`, and
 `destination_folder`) that accept exact catalog names or canonical IDs. It may contain a

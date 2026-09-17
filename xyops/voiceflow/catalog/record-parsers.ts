@@ -1,4 +1,5 @@
 import { isNumericFolderID, isRawRow } from "../guards";
+import { CatalogRecordSchema } from "./schemas/catalog_record";
 import type {
   EnvironmentRecord,
   FolderRecord,
@@ -22,6 +23,9 @@ const invalidRow: CatalogParseResult<never> = {
 };
 
 const validRow = <T>(value: T): CatalogParseResult<T> => ({ ok: true, value });
+
+const isCatalogRecord = (value: unknown): value is RawCatalogRow =>
+  CatalogRecordSchema.safeParse(value).success;
 
 // Runtime validation intentionally handles multiple external representations.
 const isIDValue = (value: unknown): value is string | number =>
@@ -70,7 +74,7 @@ const readEnvironments = (value: unknown): readonly EnvironmentRecord[] =>
 type ParseWorkspace = (value: unknown) => CatalogParseResult<WorkspaceRecord>;
 // Runtime validation establishes the WorkspaceRecord contract before catalog options are built.
 export const parseWorkspace: ParseWorkspace = (value) =>
-  isRawRow(value) ? parseWorkspaceRow(value) : invalidRow;
+  isCatalogRecord(value) ? parseWorkspaceRow(value) : invalidRow;
 const parseWorkspaceRow = (value: RawCatalogRow): CatalogParseResult<WorkspaceRecord> => {
   const id = readID(value);
   return id === undefined ? invalidRow : validRow({ id, label: readLabel(value, id) });
@@ -79,7 +83,7 @@ const parseWorkspaceRow = (value: RawCatalogRow): CatalogParseResult<WorkspaceRe
 const parseProject: (value: unknown) => CatalogParseResult<ProjectRecord> = (
   value,
 ) => {
-  return isRawRow(value) ? parseProjectRow(value) : invalidRow;
+  return isCatalogRecord(value) ? parseProjectRow(value) : invalidRow;
 };
 const parseProjectRow = (value: RawCatalogRow): CatalogParseResult<ProjectRecord> => {
   const identity = projectIdentity(readID(value), normalizeOptionalID(value.workspaceID));
@@ -110,7 +114,7 @@ const withProjectWorkspace = (
 const parseFolder: (value: unknown) => CatalogParseResult<FolderRecord> = (
   value,
 ) => {
-  return isRawRow(value) ? parseFolderRow(value) : invalidRow;
+  return isCatalogRecord(value) ? parseFolderRow(value) : invalidRow;
 };
 const parseFolderRow = (value: RawCatalogRow): CatalogParseResult<FolderRecord> => {
   const id = readID(value);

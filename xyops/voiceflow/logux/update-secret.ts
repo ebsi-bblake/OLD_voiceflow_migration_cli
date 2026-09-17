@@ -3,6 +3,7 @@ import { OperationFault } from "../contracts";
 import { createUUID } from "../uuid";
 import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
 import { debugLog } from "../debug";
+import { LoguxFrameSchema } from "./schemas/frame";
 
 type UpdateSecret = (
   auth: AuthContext,
@@ -69,8 +70,12 @@ export const updateSecret: UpdateSecret = (auth, assistantID, existing, secret) 
 type Frame = readonly unknown[];
 const parseFrame = (value: unknown): Frame | undefined => {
   if (typeof value !== "string") return undefined;
-  try { const frame: unknown = JSON.parse(value); return Array.isArray(frame) ? frame : undefined; }
-  catch { return undefined; }
+  try {
+    const parsed = LoguxFrameSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 };
 const positiveID = (): number => Math.floor(Math.random() * 1_000_000_000) + 1;
 const traceFrame = (direction: "in" | "out", frame: Frame): void => {

@@ -1,6 +1,9 @@
 export type LoguxFrame = readonly unknown[];
 export type TraceFields = Readonly<Record<string, unknown>>;
 
+import { LoguxFrameSchema } from "./schemas/frame";
+import { LoguxActionSchema } from "./schemas/action";
+
 export type SecretFailureCause = Readonly<{
   kind: "dependency-failure";
   code: "dependency-failed";
@@ -12,7 +15,8 @@ type ParseLoguxFrame = (text: string) => LoguxFrame | undefined;
 export const parseLoguxFrame: ParseLoguxFrame = (text) => {
   try {
     const value: unknown = JSON.parse(text);
-    return Array.isArray(value) ? value : undefined;
+    const parsed = LoguxFrameSchema.safeParse(value);
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
@@ -20,8 +24,8 @@ export const parseLoguxFrame: ParseLoguxFrame = (text) => {
 
 type SummarizeLoguxAction = (frame: LoguxFrame) => TraceFields;
 export const summarizeLoguxAction: SummarizeLoguxAction = (frame) => {
-  const action = frame[2];
-  if (!isRecord(action)) return {};
+  const action = readAction(frame);
+  if (action === undefined) return {};
   const meta = isRecord(action.meta) ? action.meta : {};
   return {
     actionType: typeof action.type === "string" ? action.type : undefined,
@@ -75,8 +79,8 @@ const isSecretFailureAction = (frame: LoguxFrame): boolean => {
 };
 
 const readAction = (frame: LoguxFrame): Record<string, unknown> | undefined => {
-  const action = frame[2];
-  return isRecord(action) ? action : undefined;
+  const parsed = LoguxActionSchema.safeParse(frame[2]);
+  return parsed.success ? parsed.data : undefined;
 };
 
 const hasActionID = (action: Record<string, unknown>, actionID: string): boolean => {

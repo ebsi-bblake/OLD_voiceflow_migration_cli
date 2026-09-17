@@ -1,6 +1,7 @@
 /* oxlint-disable complexity -- protocol frame normalization is exhaustive. */
-import { isObject, isRowArray } from "../guards";
+import { isRowArray } from "../guards";
 import type { CatalogEvent } from "./catalog-state-machine";
+import { LoguxActionSchema } from "./schemas/action";
 
 type NormalizeCatalogFrame = (
   frame: readonly unknown[],
@@ -27,9 +28,10 @@ export const normalizeCatalogFrame: NormalizeCatalogFrame = (
     return syncID === undefined ? undefined : { kind: "subscription-synced", syncID };
   }
   if (frame[0] === "error") return errorEvent(frame);
-  const action = isObject(frame[2]) ? frame[2] : undefined;
-  const type = typeof action?.type === "string" ? action.type : undefined;
-  const payload = isObject(action?.payload) ? action.payload : undefined;
+  const action = LoguxActionSchema.safeParse(frame[2]);
+  if (!action.success) return undefined;
+  const type = action.data.type;
+  const payload = action.data.payload;
   const rows = payload === undefined ? undefined : payload.values ?? payload.data;
   if (type === undefined || !isRowArray(rows)) return undefined;
   const workspaceID = rows
