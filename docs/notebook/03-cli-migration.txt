@@ -1,0 +1,906 @@
+# Notebook bundle: 03-cli-migration.txt
+# Source snapshot: 5 TypeScript files
+# Split using the explicit path markers below.
+
+===== BEGIN xyops/cli/migration/execution.ts =====
+import { isExecuteResult, isVoiceflowEnvelope } from "../guards";
+import { requireEnvelopeResult } from "../validation";
+import { bounded } from "../prompt";
+import type {
+  ExecuteResult,
+  MigrationPlan,
+  MigrationSelection,
+  SecretEntries,
+  VoiceflowEnvelope,
+  VoiceflowWarning,
+} from "../types";
+import { executeParameters } from "../state";
+import type { MigrationContext } from "./selection";
+
+type DisplayPlan = (plan: MigrationPlan) => void;
+export const displayPlan: DisplayPlan = (plan) => {
+  [
+    "\nMigration plan:",
+    `Plan ID: ${bounded(plan.planID, 100)}`,
+    `Source workspace: ${bounded(plan.labels.sourceWorkspace)}`,
+    `Source project: ${bounded(plan.labels.sourceProject)}`,
+    `Source version: ${bounded(plan.labels.sourceVersion)}`,
+    `Destination workspace: ${bounded(plan.labels.destinationWorkspace)}`,
+    `Destination folder: ${bounded(plan.labels.destinationFolder)}`,
+    `Target schema: ${bounded(plan.selection.targetSchemaVersion, 40)}`,
+  ].forEach((msg) => console.log(msg));
+};
+
+type IsWarning = (value: VoiceflowWarning, code: string) => boolean;
+const isWarning: IsWarning = (value, code) => value.code === code;
+const hasAPIKeyRetrievalWarning = (
+  response: VoiceflowEnvelope<ExecuteResult>,
+): boolean =>
+  response.ok &&
+  response.warnings.some((warning) =>
+    isWarning(warning, "API_KEY_RETRIEVAL_FAILED"),
+  );
+const warnAPIKeyRetrieval = (
+  response: VoiceflowEnvelope<ExecuteResult>,
+): void => {
+  if (hasAPIKeyRetrievalWarning(response)) {
+    console.error(
+      "WARNING: migration completed, but API-key retrieval failed.",
+    );
+    process.exitCode = 2;
+  }
+};
+
+type RequestMigrationConfirmation = (
+  reader: MigrationContext["reader"],
+) => Promise<boolean>;
+export const requestMigrationConfirmation: RequestMigrationConfirmation = (
+  reader,
+) =>
+  reader.ask("Perform this real migration? (yes/no): ").then((answer) => {
+    const confirmation = answer.trim().toLowerCase();
+    if (["y", "yes"].includes(confirmation)) return true;
+    console.log("Aborted; no migration performed.");
+    return false;
+  });
+
+type ExecuteConfirmedMigration = (
+  context: MigrationContext,
+  selection: MigrationSelection,
+  planID: string,
+  secretFileContents?: SecretEntries,
+) => Promise<ExecuteResult>;
+export const executeConfirmedMigration: ExecuteConfirmedMigration = async (
+  { client, config },
+  selection,
+  planID,
+  secretFileContents,
+) => {
+  const executeResponse = await client.executeEvent(
+    config.events.executeMigration,
+    executeParameters(selection, planID, secretFileContents),
+    isVoiceflowEnvelope(isExecuteResult),
+  );
+  const execute = requireEnvelopeResult(
+    executeResponse,
+    "execute_migration",
+    isExecuteResult,
+  );
+  warnAPIKeyRetrieval(executeResponse);
+  return execute;
+};
+
+type ConfirmAndExecuteMigration = (
+  context: MigrationContext,
+  selection: MigrationSelection,
+  planID: string,
+  secretFileContents?: SecretEntries,
+) => Promise<void>;
+export const confirmAndExecuteMigration: ConfirmAndExecuteMigration = async (
+  context,
+  selection,
+  planID,
+  secretFileContents,
+) => {
+  if (await requestMigrationConfirmation(context.reader))
+    await executeConfirmedMigration(
+      context,
+      selection,
+      planID,
+      secretFileContents,
+    );
+};
+===== END xyops/cli/migration/execution.ts =====
+
+===== BEGIN xyops/cli/migration/index.ts =====
+#!/usr/bin/env bun
+import {
+  DEFAULT_XYOPS_BASE_URL,
+  readMigrationFileConfig,
+  readXYOpsConfig,
+  validateMigrationFileConfig,
+} from "../config";
+import { createXYOpsClient } from "../client";
+import { isCheckSessionResult, isVoiceflowEnvelope } from "../guards";
+import { requireEnvelopeResult } from "../validation";
+import { asCliError, cliErrorOutput, fail } from "../diagnostics";
+import {
+  eventParametersFor,
+  initialMigrationState,
+  stateSelection,
+  type MigrationState,
+} from "../state";
+import { CreatePromptReader } from "../prompt";
+import {
+  selectSourceSelection,
+  selectDestinationSelection,
+  type MigrationContext,
+} from "./selection";
+import { readMigrationPlan } from "./planning";
+import {
+  executeConfirmedMigration,
+  requestMigrationConfirmation,
+  displayPlan,
+} from "./execution";
+import { readSecretsForMigration } from "./secret-input";
+import { progress } from "../progress";
+
+type PrintHelp = () => void;
+const printHelp: PrintHelp = () => {
+  [
+    "Usage: voiceflow-cli [--config=<path>] [--debug[=<name[,name...]>]]",
+    "Interactively plan and execute a Voiceflow migration through XYOps.",
+    `Local configuration: XYOPS_API_KEY=<key> (required), XYOPS_BASE_URL=<url> (default: ${DEFAULT_XYOPS_BASE_URL}).`,
+    "Optional --config=<JSON-file> supplies migration resource names or IDs, schema version, and project secrets.",
+    'Config format: { "source_workspace": "...", "target_schema_version": "13.1", "secrets": "./secrets.json" }.',
+    "Configured IDs or exact catalog names are resolved before planning; missing values are selected interactively.",
+    "Optional XYOPS_EVENT_* overrides accept title:<event-title> or id:<event-id>.",
+    "Default event titles must match the configured XYOps Event titles.",
+    "Optional --debug enables stderr diagnostics; --debug=<name[,name...]> narrows them by logger name.",
+  ].forEach((msg) => console.log(msg));
+};
+
+const helpRequested = (): boolean =>
+  process.argv.includes("--help") || process.argv.includes("-h");
+const requireActiveSession = (active: boolean): void => {
+  if (!active)
+    throw fail("envelope", {
+      nextAction: "The configured Voiceflow session is not active.",
+    });
+};
+
+type PerformMigration = (context: MigrationContext) => Promise<void>;
+const performMigration: PerformMigration = async (context) => {
+  const { client, config } = context;
+  const sessionResponse = await progress.run("check_session", () =>
+    client.readEvent(
+      config.events.checkSession,
+      eventParametersFor("check_session"),
+      isVoiceflowEnvelope(isCheckSessionResult),
+    ),
+  );
+
+  requireActiveSession(
+    requireEnvelopeResult(
+      sessionResponse,
+      "check_session",
+      isCheckSessionResult,
+    ).active,
+  );
+
+  const state: MigrationState = {
+    ...initialMigrationState(),
+    ...(await progress.run("select_source", () =>
+      selectSourceSelection(context),
+    )),
+    ...(await progress.run("select_destination", () =>
+      selectDestinationSelection(context),
+    )),
+  };
+
+  const selection = stateSelection(state);
+
+  const secretFileContents = await progress.run("load_secrets", () =>
+    readSecretsForMigration(context.reader, context.migrationConfig),
+  );
+
+  const plan = await progress.run("plan_migration", () =>
+    readMigrationPlan(context, selection),
+  );
+
+  displayPlan(plan);
+
+  const confirmed = await requestMigrationConfirmation(context.reader);
+
+  if (!confirmed) return;
+
+  const execute = await progress.run("execute_migration", () =>
+    executeConfirmedMigration(
+      context,
+      selection,
+      plan.planID,
+      secretFileContents,
+    ),
+  );
+  console.log("\n" + JSON.stringify({
+    migrationCompleted: true,
+    planID: plan.planID,
+    exportStatus: execute.exportStatus,
+    exportBytes: execute.exportBytes,
+    importStatus: execute.importStatus,
+    importBytes: execute.importBytes,
+    apiKeyRetrieved: execute.apiKeyRetrieved,
+  }));
+};
+
+type Run = () => Promise<void>;
+export const run: Run = async () => {
+  if (helpRequested()) {
+    printHelp();
+    return;
+  }
+  console.warn(
+    "WARNING: this performs a REAL Voiceflow export and import through XYOps.",
+  );
+  console.warn(
+    "Use only the intended source version and destination workspace.",
+  );
+
+  const config = readXYOpsConfig();
+
+  const migrationConfig = await readMigrationFileConfig();
+
+  validateMigrationFileConfig(migrationConfig);
+
+  const client = createXYOpsClient(config);
+  const reader = CreatePromptReader({
+    beforeAsk: progress.pause,
+    afterAsk: progress.resume,
+  });
+  try {
+    await performMigration({ reader, client, config, migrationConfig });
+  } finally {
+    reader.close();
+  }
+};
+
+type HandleFailure = (error: unknown) => void;
+const handleFailure: HandleFailure = (error) => {
+  process.exitCode = 1;
+  console.error(
+    JSON.stringify({ migrationFailed: cliErrorOutput(asCliError(error)) }),
+  );
+};
+
+if (import.meta.main) {
+  run()
+    .then(() => undefined)
+    .catch(handleFailure);
+}
+===== END xyops/cli/migration/index.ts =====
+
+===== BEGIN xyops/cli/migration/planning.ts =====
+import { isMigrationPlan, isVoiceflowEnvelope } from "../guards";
+import { requireEnvelopeResult } from "../validation";
+import type { MigrationPlan, MigrationSelection } from "../types";
+import { planParameters } from "../state";
+import type { MigrationContext } from "./selection";
+
+type ReadMigrationPlan = (
+  context: MigrationContext,
+  selection: MigrationSelection,
+) => Promise<MigrationPlan>;
+export const readMigrationPlan: ReadMigrationPlan = ({ client, config }, selection) =>
+  client
+    .readEvent(
+      config.events.planMigration,
+      planParameters(selection),
+      isVoiceflowEnvelope(isMigrationPlan),
+    )
+    .then((response) =>
+      requireEnvelopeResult(response, "plan_migration", isMigrationPlan),
+    );
+===== END xyops/cli/migration/planning.ts =====
+
+===== BEGIN xyops/cli/migration/secret-input.ts =====
+import { readSecretFile } from "../secrets";
+import { fail } from "../diagnostics";
+import type { MigrationFileConfig } from "../config";
+import type { SecretEntries } from "../types";
+import type { PromptReader } from "../prompt";
+import { resolveConfiguredFilePath } from "../file-path";
+
+export const resolveSecretsPath = resolveConfiguredFilePath;
+
+type ReadSecretFileContents = (path: string) => Promise<SecretEntries>;
+const readSecretFileContents: ReadSecretFileContents = (path) =>
+  path === ""
+    ? Promise.resolve([])
+    : readSecretFile(resolveConfiguredFilePath(path, process.platform)).catch(() => {
+        throw fail("configuration", {
+          nextAction: "The configured secrets file is invalid or unreadable.",
+        });
+      });
+
+type ReadSecretsForMigration = (
+  reader: PromptReader,
+  migrationConfig?: MigrationFileConfig,
+) => Promise<SecretEntries>;
+export const readSecretsForMigration: ReadSecretsForMigration = async (
+  reader,
+  migrationConfig,
+) => {
+  if (migrationConfig?.secrets !== undefined)
+    return typeof migrationConfig.secrets === "string"
+      ? readSecretFileContents(migrationConfig.secrets)
+      : migrationConfig.secrets;
+  const path = (
+    await reader.ask(
+      "Path to secrets file (local or network; press Enter for no secrets): ",
+    )
+  ).trim();
+  return readSecretFileContents(path);
+};
+===== END xyops/cli/migration/secret-input.ts =====
+
+===== BEGIN xyops/cli/migration/selection.ts =====
+import { createXYOpsClient } from "../client";
+import {
+  isCreatedFolderResult,
+  isOptionResult,
+  isVoiceflowEnvelope,
+} from "../guards";
+import { requireEnvelopeResult } from "../validation";
+import { fail } from "../diagnostics";
+import type {
+  EventParameters,
+  MigrationSelection,
+  XYOpsEventReference,
+} from "../types";
+import { bounded, chooseOption, PromptReader } from "../prompt";
+import {
+  createFolderParameters,
+  listFoldersParameters,
+  listProjectsParameters,
+  listVersionsParameters,
+  listWorkspacesParameters,
+} from "../state";
+import type { MigrationFileConfig, readXYOpsConfig } from "../config";
+
+type MigrationContext = Readonly<{
+  reader: PromptReader;
+  client: ReturnType<typeof createXYOpsClient>;
+  config: ReturnType<typeof readXYOpsConfig>;
+  migrationConfig?: MigrationFileConfig;
+}>;
+export type { MigrationContext };
+
+type ValidateConfiguredOption = (
+  context: MigrationContext,
+  configuredValue: string | undefined,
+  eventReference: XYOpsEventReference,
+  parameters: EventParameters,
+  field: string,
+) => Promise<void>;
+const validateConfiguredOption: ValidateConfiguredOption = async (
+  context,
+  configuredValue,
+  eventReference,
+  parameters,
+  field,
+) => {
+  if (configuredValue === undefined) return;
+  const response = await context.client.readEvent(
+    eventReference,
+    parameters,
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  const options = readOptions(response, field);
+  if (!options.some((option) => option.value === configuredValue))
+    throw fail("configuration", {
+      nextAction: `${field} does not identify a value available in XYOps.`,
+    });
+};
+
+type ValidateConfiguredMigrationValues = (
+  context: MigrationContext,
+  selection: MigrationSelection,
+) => Promise<void>;
+const validateConfiguredSourceDetails: ValidateConfiguredMigrationValues =
+  async (context, selection) => {
+    const migrationConfig = context.migrationConfig;
+    if (migrationConfig === undefined) return;
+    const sourceWorkspaceID = selection.sourceWorkspaceID;
+    const sourceProjectID = selection.sourceProjectID;
+    const { config } = context;
+    if (sourceWorkspaceID !== undefined)
+      await validateConfiguredOption(
+        context,
+        migrationConfig.sourceProjectID,
+        config.events.listProjects,
+        listProjectsParameters(sourceWorkspaceID),
+        "source_project",
+      );
+    if (sourceWorkspaceID !== undefined && sourceProjectID !== undefined)
+      await validateConfiguredOption(
+        context,
+        migrationConfig.sourceVersionID,
+        config.events.listVersions,
+        listVersionsParameters(sourceWorkspaceID, sourceProjectID),
+        "source_version",
+      );
+  };
+const validateConfiguredSourceValues: ValidateConfiguredMigrationValues =
+  async (context, selection) => {
+    const migrationConfig = context.migrationConfig;
+    if (migrationConfig === undefined) return;
+    const { config } = context;
+    await validateConfiguredOption(
+      context,
+      migrationConfig.sourceWorkspaceID,
+      config.events.listWorkspaces,
+      listWorkspacesParameters(),
+      "source_workspace",
+    );
+    await validateConfiguredSourceDetails(context, selection);
+  };
+const validateConfiguredDestinationValues: ValidateConfiguredMigrationValues =
+  async (context, selection) => {
+    const migrationConfig = context.migrationConfig;
+    if (migrationConfig === undefined) return;
+    const { config } = context;
+    const destinationWorkspaceID = selection.destinationWorkspaceID;
+    await validateConfiguredOption(
+      context,
+      migrationConfig.destinationWorkspaceID,
+      config.events.listWorkspaces,
+      listWorkspacesParameters(),
+      "destination_workspace",
+    );
+    if (destinationWorkspaceID !== undefined)
+      await validateConfiguredOption(
+        context,
+        migrationConfig.destinationFolderID,
+        config.events.listFolders,
+        listFoldersParameters(destinationWorkspaceID),
+        "destination_folder",
+      );
+  };
+export const validateConfiguredMigrationValues: ValidateConfiguredMigrationValues =
+  (context, selection) =>
+    validateConfiguredSourceValues(context, selection).then(() =>
+      validateConfiguredDestinationValues(context, selection),
+    );
+
+type ResolveConfiguredOption = (
+  configuredValue: string,
+  options: readonly { value: string; label: string }[],
+  field: string,
+) => string;
+const normalizeCatalogName = (value: string): string =>
+  value.normalize("NFC").trim().toLowerCase();
+
+const pathSegments = (value: string, field: string): readonly string[] => {
+  const segments = value.split("/").map((segment) => segment.trim());
+  if (segments.some((segment) =>
+    [...segment].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127;
+    }),
+  ))
+    throw fail("configuration", {
+      nextAction: `${field} contains an invalid path segment.`,
+    });
+  return segments;
+};
+
+type ResolvePath = (
+  value: string,
+  field: string,
+  minimumSegments: number,
+) => readonly string[];
+const resolvePath: ResolvePath = (value, field, minimumSegments) => {
+  const segments = pathSegments(value, field);
+  if (segments.length < minimumSegments)
+    throw fail("configuration", {
+      nextAction: `${field} must contain at least ${minimumSegments} path segments.`,
+    });
+  return segments;
+};
+
+const pathName = (value: string): string => {
+  const suffix = value.lastIndexOf(" (");
+  return suffix === -1 ? value : value.slice(0, suffix);
+};
+
+const matchesCatalogName = (left: string, right: string): boolean =>
+  normalizeCatalogName(left) === normalizeCatalogName(right);
+
+const resolveConfiguredOption: ResolveConfiguredOption = (
+  configuredValue,
+  options,
+  field,
+) => {
+  const idMatch = options.find((option) => option.value === configuredValue);
+  if (idMatch !== undefined) return idMatch.value;
+
+  const nameMatches = options.filter((option) =>
+    matchesCatalogName(option.label, configuredValue) ||
+    matchesCatalogName(pathName(option.label), configuredValue),
+  );
+  if (nameMatches.length === 1) return nameMatches[0].value;
+  if (nameMatches.length > 1)
+    throw fail("configuration", {
+      nextAction: `${field} is ambiguous because its name matches multiple catalog items.`,
+    });
+  throw fail("configuration", {
+    nextAction: `${field} does not identify a value available in the Voiceflow catalog.`,
+  });
+};
+
+type SelectConfiguredOrCatalog = (
+  configuredValue: string | undefined,
+  reader: PromptReader,
+  client: ReturnType<typeof createXYOpsClient>,
+  eventReference: XYOpsEventReference,
+  parameters: EventParameters,
+  title: string,
+  field: string,
+) => Promise<string>;
+const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = async (
+  configuredValue,
+  reader,
+  client,
+  eventReference,
+  parameters,
+  title,
+  field,
+) => {
+  if (configuredValue === undefined)
+    return selectCatalog(reader, client, eventReference, parameters, title);
+  const response = await client.readEvent(
+    eventReference,
+    parameters,
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  return resolveConfiguredOption(
+    configuredValue,
+    readOptions(response, field),
+    field,
+  );
+};
+
+type SelectCatalog = (
+  reader: PromptReader,
+  client: ReturnType<typeof createXYOpsClient>,
+  eventReference: XYOpsEventReference,
+  parameters: EventParameters,
+  title: string,
+) => Promise<string>;
+const selectCatalog: SelectCatalog = async (
+  reader,
+  client,
+  eventReference,
+  parameters,
+  title,
+) => {
+  const response = await client.readEvent(
+    eventReference,
+    parameters,
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  return chooseOption(reader, title, readOptions(response, title));
+};
+
+const readOptions = (
+  value: unknown,
+  title: string,
+): readonly { value: string; label: string }[] => {
+  try {
+    return requireEnvelopeResult(value, title, isOptionResult).options;
+  } catch {
+    throw fail("envelope", {
+      nextAction: `${title} returned no usable options.`,
+    });
+  }
+};
+
+type SourceSelection = Pick<
+  MigrationSelection,
+  "sourceWorkspaceID" | "sourceProjectID" | "sourceVersionID"
+>;
+export type SelectSourceSelection = (
+  context: MigrationContext,
+) => Promise<SourceSelection>;
+
+type SelectDefaultSourceVersion = (
+  context: MigrationContext,
+  workspaceID: string,
+  projectID: string,
+) => Promise<string>;
+const selectDefaultSourceVersion: SelectDefaultSourceVersion = async ({
+  reader,
+  client,
+  config,
+}, workspaceID, projectID) => {
+  const response = await client.readEvent(
+    config.events.listVersions,
+    listVersionsParameters(workspaceID, projectID),
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  const options = readOptions(response, "source_version");
+  const draftDevelopment = options.find(
+    (option) =>
+      option.label.startsWith("[Draft] ") &&
+      option.label.endsWith(" — Development"),
+  );
+  return draftDevelopment === undefined
+    ? chooseOption(reader, "Source draft/published version", options)
+    : draftDevelopment.value;
+};
+
+type SelectSourceVersion = (
+  context: MigrationContext,
+  workspaceID: string,
+  projectID: string,
+) => Promise<string>;
+const selectSourceVersion: SelectSourceVersion = (
+  context,
+  workspaceID,
+  projectID,
+) =>
+  context.migrationConfig?.sourceVersionID === undefined
+    ? selectDefaultSourceVersion(context, workspaceID, projectID)
+    : selectConfiguredOrCatalog(
+        context.migrationConfig.sourceVersionID,
+        context.reader,
+        context.client,
+        context.config.events.listVersions,
+        listVersionsParameters(workspaceID, projectID),
+        "Source draft/published version",
+        "source_version",
+      );
+
+type ConfiguredSourceValues = Readonly<{
+  workspace?: string;
+  project?: string;
+}>;
+const configuredSourceValues = (
+  migrationConfig: MigrationFileConfig | undefined,
+): ConfiguredSourceValues => {
+  if (migrationConfig?.sourcePath !== undefined) {
+    const segments = resolvePath(migrationConfig.sourcePath, "source_path", 2);
+    return { workspace: segments[0], project: segments.slice(1).join("/") };
+  }
+  const project = migrationConfig?.sourceFolderID === undefined
+    ? migrationConfig?.sourceProjectID
+    : `${migrationConfig.sourceFolderID}/${migrationConfig.sourceProjectID}`;
+  return { workspace: migrationConfig?.sourceWorkspaceID, project };
+};
+
+export const selectSourceSelection: SelectSourceSelection = async (context) => {
+  const { reader, client, config } = context;
+  const configured = configuredSourceValues(context.migrationConfig);
+  const configuredSourceWorkspace = configured.workspace;
+  const sourceWorkspaceID = await selectConfiguredOrCatalog(
+    configuredSourceWorkspace,
+    reader,
+    client,
+    config.events.listWorkspaces,
+    listWorkspacesParameters(),
+    "Source workspace",
+    "source_workspace",
+  );
+  const sourceProjectID = await selectConfiguredOrCatalog(
+    configured.project,
+    reader,
+    client,
+    config.events.listProjects,
+    listProjectsParameters(sourceWorkspaceID),
+    "Source project",
+    "source_project",
+  );
+  const sourceVersionID = await selectSourceVersion(
+    context,
+    sourceWorkspaceID,
+    sourceProjectID,
+  );
+  return { sourceWorkspaceID, sourceProjectID, sourceVersionID };
+};
+
+type DestinationSelection = Pick<
+  MigrationSelection,
+  "destinationWorkspaceID" | "destinationFolderID" | "targetSchemaVersion"
+>;
+export type SelectDestinationSelection = (
+  context: MigrationContext,
+) => Promise<DestinationSelection>;
+type ConfirmFolderCreation = (
+  reader: PromptReader,
+  name: string,
+) => Promise<boolean>;
+const confirmFolderCreation: ConfirmFolderCreation = (reader, name) =>
+  reader
+    .ask(`Create destination folder '${name}'? (yes/no): `)
+    .then((answer) => ["y", "yes"].includes(answer.trim().toLowerCase()));
+
+type CreateDestinationFolder = (
+  context: MigrationContext,
+  workspaceID: string,
+  name: string,
+) => Promise<string | undefined>;
+const createDestinationFolder: CreateDestinationFolder = async (
+  { reader, client, config },
+  workspaceID,
+  name,
+) => {
+  console.log(`\nThe destination folder '${name}' does not exist.`);
+  console.log(" ~ Declining creation returns to folder selection. ~");
+  if (!(await confirmFolderCreation(reader, name))) return undefined;
+  const response = await client.executeEvent(
+    config.events.createFolder,
+    createFolderParameters(workspaceID, name),
+    isVoiceflowEnvelope(isCreatedFolderResult),
+  );
+  return requireEnvelopeResult(response, "create_folder", isCreatedFolderResult)
+    .folder.value;
+};
+
+type ContinueDestinationFolderSelection = (
+  createdFolderID: string | undefined,
+  context: MigrationContext,
+  workspaceID: string,
+) => Promise<string>;
+const continueDestinationFolderSelection: ContinueDestinationFolderSelection = (
+  createdFolderID,
+  context,
+  workspaceID,
+) =>
+  createdFolderID === undefined
+    ? selectInteractiveDestinationFolder(context, workspaceID)
+    : Promise.resolve(createdFolderID);
+
+type SelectInteractiveDestinationFolder = (
+  context: MigrationContext,
+  workspaceID: string,
+) => Promise<string>;
+const selectInteractiveDestinationFolder: SelectInteractiveDestinationFolder = async (
+  context,
+  workspaceID,
+) => {
+  const { reader, client, config } = context;
+  const response = await client.readEvent(
+    config.events.listFolders,
+    listFoldersParameters(workspaceID),
+    isVoiceflowEnvelope(isOptionResult),
+  );
+  const options = requireEnvelopeResult(
+    response,
+    "destination_folder",
+    isOptionResult,
+  ).options;
+  console.log("\nDestination folder:");
+  options.forEach((option, index) =>
+    console.log(
+      `${index + 1}. ${bounded(option.label)} (${bounded(option.value, 100)})`,
+    ),
+  );
+  const answer = (
+    await reader.ask("Select number or enter a new folder name: ")
+  ).trim();
+  if (answer === "")
+    throw fail("invalid-input", {
+      nextAction: "A destination folder name is required.",
+    });
+  const number = Number.parseInt(answer, 10);
+  if (Number.isInteger(number) && number >= 1 && number <= options.length)
+    return options[number - 1].value;
+  if (isOutOfRangeFolderNumber(answer, number, options.length)) {
+    console.log("\nPlease select one of the displayed folder numbers.");
+    return selectInteractiveDestinationFolder(context, workspaceID);
+  }
+  const exact = resolveFolderInput(answer, options);
+  if (exact !== undefined) return exact;
+  const created = await createDestinationFolder(context, workspaceID, answer);
+  return continueDestinationFolderSelection(created, context, workspaceID);
+};
+
+type IsOutOfRangeFolderNumber = (
+  answer: string,
+  number: number,
+  optionCount: number,
+) => boolean;
+const isOutOfRangeFolderNumber: IsOutOfRangeFolderNumber = (
+  answer,
+  number,
+  optionCount,
+) =>
+  /^\d+$/.test(answer) &&
+  (!Number.isInteger(number) || number < 1 || number > optionCount);
+
+const resolveFolderInput = (
+  value: string,
+  options: readonly { value: string; label: string }[],
+): string | undefined => {
+  const idMatch = options.find((option) => option.value === value);
+  if (idMatch) return idMatch.value;
+  const matches = options.filter((option) =>
+    matchesCatalogName(option.label, value),
+  );
+  if (matches.length > 1)
+    throw fail("configuration", {
+      nextAction:
+        "The folder name is ambiguous; provide a canonical folder ID.",
+    });
+  return matches[0]?.value;
+};
+
+type ConfiguredDestinationValues = Readonly<{
+  workspace?: string;
+  folder?: string;
+}>;
+const configuredDestinationValues = (
+  migrationConfig: MigrationFileConfig | undefined,
+): ConfiguredDestinationValues => {
+  if (migrationConfig?.destinationPath !== undefined) {
+    const segments = resolvePath(
+      migrationConfig.destinationPath,
+      "destination_path",
+      2,
+    );
+    return { workspace: segments[0], folder: segments.slice(1).join("/") };
+  }
+  return {
+    workspace: migrationConfig?.destinationWorkspaceID,
+    folder: migrationConfig?.destinationFolderID,
+  };
+};
+
+export const selectDestinationSelection: SelectDestinationSelection = async (
+  context,
+) => {
+  const { reader, client, config } = context;
+  const configured = configuredDestinationValues(context.migrationConfig);
+  const configuredDestinationWorkspace = configured.workspace;
+  const destinationWorkspaceID = await selectConfiguredOrCatalog(
+    configuredDestinationWorkspace,
+    reader,
+    client,
+    config.events.listWorkspaces,
+    listWorkspacesParameters(),
+    "Destination workspace",
+    "destination_workspace",
+  );
+  const configuredFolder = configured.folder;
+  const destinationFolderID =
+    configuredFolder === undefined
+      ? await selectInteractiveDestinationFolder(
+          context,
+          destinationWorkspaceID,
+        )
+      : await (async () => {
+          const response = await client.readEvent(
+            config.events.listFolders,
+            listFoldersParameters(destinationWorkspaceID),
+            isVoiceflowEnvelope(isOptionResult),
+          );
+          const options = readOptions(response, "destination_folder");
+          const resolved = resolveFolderInput(configuredFolder, options);
+          if (resolved !== undefined) return resolved;
+          const created = await createDestinationFolder(
+            context,
+            destinationWorkspaceID,
+            configuredFolder,
+          );
+          if (created !== undefined) return created;
+          throw fail("configuration", {
+            nextAction: "Destination folder creation was declined.",
+          });
+        })();
+  return {
+    destinationWorkspaceID,
+    destinationFolderID,
+    targetSchemaVersion: context.migrationConfig?.targetSchemaVersion,
+  };
+};
+===== END xyops/cli/migration/selection.ts =====

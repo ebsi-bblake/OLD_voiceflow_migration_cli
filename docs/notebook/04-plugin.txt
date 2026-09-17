@@ -1,0 +1,732 @@
+# Notebook bundle: 04-plugin.txt
+# Source snapshot: 13 TypeScript files
+# Split using the explicit path markers below.
+
+===== BEGIN xyops/plugin/contracts.ts =====
+export { supportedPluginOperations } from "./operations";
+export { PluginValidationFault } from "./validation_fault";
+export type {
+  NativePluginJob,
+  OperationHandlers,
+  PluginInput,
+  PluginInputChunk,
+  PluginOperation,
+  PluginParameters,
+  PluginStage,
+  PluginValidationCode,
+  VoiceflowEnvelope,
+  XYOpsPluginData,
+  XYOpsPluginResponse,
+} from "./types";
+===== END xyops/plugin/contracts.ts =====
+
+===== BEGIN xyops/plugin/diagnostics.ts =====
+import { PLUGIN_VERSION } from "./version";
+import { VoiceflowRegex } from "../voiceflow/regex";
+import { PluginStage } from "./types";
+export type { PluginStage } from "./types";
+
+export const pluginStages = Object.values(PluginStage);
+
+const maxDiagnosticLength = 320;
+const maxErrorClassLength = 80;
+
+const readErrorName = (error: unknown): string =>
+  error instanceof Error ? error.name : "UnknownError";
+
+const normalizeErrorName = (name: string): string =>
+  name.trim() === "" ? "UnknownError" : name;
+
+type ReadErrorClass = (error: unknown) => string;
+const readErrorClass: ReadErrorClass = (error) =>
+  normalizeErrorName(readErrorName(error));
+
+const readErrorText = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
+
+const normalizeErrorText = (message: string): string =>
+  message.trim() === "" ? "Unknown error" : message;
+
+type ReadErrorMessage = (error: unknown) => string;
+const readErrorMessage: ReadErrorMessage = (error) =>
+  normalizeErrorText(readErrorText(error));
+
+type RemoveStackLines = (message: string) => string;
+const removeStackLines: RemoveStackLines = (message) =>
+  message
+    .split(VoiceflowRegex.pluginLineBreak)
+    .filter((line) => !VoiceflowRegex.stackFrame.test(line))
+    .join(" ");
+
+type RedactSensitiveValues = (message: string) => string;
+const redactSensitiveValues: RedactSensitiveValues = (message) =>
+  message
+    .replace(VoiceflowRegex.bearerValue, "Bearer [REDACTED]")
+    .replace(VoiceflowRegex.pluginJWT, "[REDACTED_JWT]")
+    .replace(VoiceflowRegex.sensitiveAssignment, "$1[REDACTED]")
+    .replace(VoiceflowRegex.dataAssignment, "$1[REDACTED_DATA]")
+    .replace(VoiceflowRegex.structuredData, "[REDACTED_DATA]")
+    .replace(VoiceflowRegex.prefixedSecret, "[REDACTED]")
+    .replace(VoiceflowRegex.pluginLongToken, "[REDACTED]");
+
+const isControlCharacter = (character: string): boolean => {
+  const code = character.charCodeAt(0);
+  if (code <= 31) return true;
+  return code === 127;
+};
+
+type SanitizeDiagnosticText = (value: string, limit: number) => string;
+const sanitizeDiagnosticText: SanitizeDiagnosticText = (value, limit) =>
+  redactSensitiveValues(removeStackLines(value))
+    .split("")
+    .map((character) => (isControlCharacter(character) ? " " : character))
+    .join("")
+    .replace(VoiceflowRegex.whitespace, " ")
+    .trim()
+    .slice(0, limit);
+
+const fallbackDiagnosticValue = (value: string, fallback: string): string => {
+  if (value === "") return fallback;
+  return value;
+};
+
+type FormatPluginDiagnostic = (stage: PluginStage, error: unknown) => string;
+export const formatPluginDiagnostic: FormatPluginDiagnostic = (
+  stage,
+  error,
+) => {
+  const errorClass = sanitizeDiagnosticText(
+    readErrorClass(error),
+    maxErrorClassLength,
+  );
+
+  const message = sanitizeDiagnosticText(
+    readErrorMessage(error),
+    maxDiagnosticLength,
+  );
+
+  return `pluginVersion=${PLUGIN_VERSION} stage=${stage} error=${fallbackDiagnosticValue(errorClass, "UnknownError")} message=${fallbackDiagnosticValue(message, "Unknown error")}`.slice(
+    0,
+    maxDiagnosticLength,
+  );
+};
+===== END xyops/plugin/diagnostics.ts =====
+
+===== BEGIN xyops/plugin/entrypoint.ts =====
+import { runNativePlugin } from "./process_entrypoint";
+import { formatPluginDiagnostic } from "./diagnostics";
+
+type ReportProcessFailure = (error: unknown) => void;
+const reportProcessFailure: ReportProcessFailure = (error) => {
+  process.stderr.write(`${formatPluginDiagnostic("response", error)}\n`);
+  process.exitCode = 1;
+};
+
+runNativePlugin(
+  process.stdin,
+  process.stdout,
+  process.env,
+  undefined,
+  process.stderr,
+).catch(reportProcessFailure);
+===== END xyops/plugin/entrypoint.ts =====
+
+===== BEGIN xyops/plugin/guards.ts =====
+import { supportedPluginOperations } from "./operations";
+import type { PluginOperation } from "./types";
+
+type RecordValue = Readonly<Record<string, unknown>>;
+
+type IsRecord = (value: unknown) => value is RecordValue;
+const isObject = (value: unknown): value is object =>
+  typeof value === "object" && value !== null;
+
+const isArray = (value: unknown): value is readonly unknown[] =>
+  Array.isArray(value);
+
+export const isRecord: IsRecord = (value): value is RecordValue => {
+  if (!isObject(value)) return false;
+  return !isArray(value);
+};
+
+type IsNonEmptyString = (value: unknown) => value is string;
+export const isNonEmptyString: IsNonEmptyString = (value): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+
+type IsPluginOperation = (value: unknown) => value is PluginOperation;
+export const isPluginOperation: IsPluginOperation = (
+  value,
+): value is PluginOperation => {
+  if (typeof value !== "string") return false;
+  return supportedPluginOperations.some((operation) => operation === value);
+};
+===== END xyops/plugin/guards.ts =====
+
+===== BEGIN xyops/plugin/job_validation.ts =====
+import { PluginValidationFault } from "./validation_fault";
+import { isNonEmptyString, isPluginOperation, isRecord } from "./guards";
+import type {
+  NativePluginJob,
+  PluginOperation,
+  PluginParameters,
+} from "./types";
+export { isPluginOperation } from "./guards";
+
+const requireOperationName = (value: unknown): string => {
+  if (!isNonEmptyString(value))
+    throw new PluginValidationFault(
+      "INVALID_INPUT",
+      "An operation parameter is required.",
+    );
+  return value;
+};
+
+const requireSupportedOperation = (value: string): PluginOperation => {
+  if (!isPluginOperation(value))
+    throw new PluginValidationFault(
+      "UNKNOWN_OPERATION",
+      "The requested operation is not supported.",
+    );
+  return value;
+};
+
+type SelectOperation = (params: PluginParameters) => PluginOperation;
+const selectOperation: SelectOperation = (params) =>
+  requireSupportedOperation(requireOperationName(params.operation));
+
+const isPluginEventJob = (
+  value: unknown,
+): value is { readonly params: PluginParameters } => {
+  if (!isRecord(value)) return false;
+  return isEventRecord(value);
+};
+
+const isEventRecord = (
+  value: Record<string, unknown>,
+): value is { readonly params: PluginParameters } => {
+  if (value.xy !== 1) return false;
+  return isEventTypeRecord(value);
+};
+
+const isEventTypeRecord = (
+  value: Record<string, unknown>,
+): value is { readonly params: PluginParameters } => {
+  if (value.type !== "event") return false;
+  return isRecord(value.params);
+};
+
+type ValidatePluginJob = (value: unknown) => NativePluginJob;
+export const validatePluginJob: ValidatePluginJob = (value) => {
+  if (!isPluginEventJob(value))
+    throw new PluginValidationFault(
+      "INVALID_INPUT",
+      "The plugin input must be an XYOps event job with object-valued params.",
+    );
+  const params = value.params;
+  const operation = selectOperation(params);
+  return { params, operation };
+};
+
+type ParsePluginJob = (input: string) => NativePluginJob;
+export const parsePluginJob: ParsePluginJob = (input) => {
+  let value: unknown;
+  try {
+    value = JSON.parse(input) as unknown;
+  } catch {
+    throw new PluginValidationFault(
+      "INVALID_JSON",
+      "The event job is not valid JSON.",
+    );
+  }
+  return validatePluginJob(value);
+};
+
+type ReadVoiceflowJWT = (
+  environment: Readonly<Record<string, string | undefined>>,
+) => string;
+export const readVoiceflowJWT: ReadVoiceflowJWT = (environment) => {
+  const environmentSecret = environment.VOICEFLOW_JWT;
+  if (isNonEmptyString(environmentSecret)) return environmentSecret;
+  throw new PluginValidationFault(
+    "MISSING_SECRET",
+    "The Voiceflow JWT secret is not configured.",
+  );
+};
+===== END xyops/plugin/job_validation.ts =====
+
+===== BEGIN xyops/plugin/operation_dispatch.ts =====
+import { main as checkSession } from "../voiceflow/check_session";
+import { main as executeMigration } from "../voiceflow/execute_migration";
+import { main as listFolders } from "../voiceflow/list_folders";
+import { main as createFolder } from "../voiceflow/create_folder";
+import { main as listProjects } from "../voiceflow/list_projects";
+import { main as listVersions } from "../voiceflow/list_versions";
+import { main as listWorkspaces } from "../voiceflow/list_workspaces";
+import { main as planMigration } from "../voiceflow/plan_migration";
+import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
+import { createUUID } from "../voiceflow/uuid";
+import type { NativePluginJob, OperationHandlers } from "./types";
+import type { VoiceflowOperation } from "../voiceflow/types";
+import { configureDebug } from "../voiceflow/debug";
+export type { OperationHandlers } from "./types";
+
+type PluginEnvelope = Envelope<unknown>;
+type DefaultOperationHandlers = OperationHandlers;
+const defaultOperationHandlers: DefaultOperationHandlers = {
+  check_session: checkSession,
+  list_workspaces: listWorkspaces,
+  list_projects: listProjects,
+  list_versions: listVersions,
+  list_folders: listFolders,
+  create_folder: createFolder,
+  plan_migration: planMigration,
+  execute_migration: executeMigration,
+};
+
+const requireParameterString = (value: unknown): string => {
+  if (typeof value !== "string") throw new OperationFault("INVALID_ARGUMENT");
+  return value;
+};
+
+type TrimParameter = (value: unknown) => string;
+const trimParameter: TrimParameter = (value) => {
+  const stringValue = requireParameterString(value);
+  if (stringValue.trim() === "") throw new OperationFault("INVALID_ARGUMENT");
+  return stringValue.trim();
+};
+
+type RequiredParameter = (job: NativePluginJob, name: string) => string;
+const requiredParameter: RequiredParameter = (job, name) =>
+  trimParameter(job.params[name]);
+
+type OptionalParameter = (
+  job: NativePluginJob,
+  name: string,
+) => string | undefined;
+const optionalParameter: OptionalParameter = (job, name) => {
+  const value = job.params[name];
+  if (value === undefined) return undefined;
+  return trimParameter(value);
+};
+
+type OptionalSecretInput = (job: NativePluginJob, name: string) => unknown;
+const optionalSecretInput: OptionalSecretInput = (job, name) =>
+  job.params[name];
+
+type RequiredConfirmation = (job: NativePluginJob) => true;
+const requiredConfirmation: RequiredConfirmation = (job) => {
+  if (job.params.CONFIRMED !== true)
+    throw new OperationFault("CONFIRMATION_REQUIRED");
+  return true;
+};
+
+type OperationInvocation = (
+  job: NativePluginJob,
+  token: string,
+  handlers: OperationHandlers,
+) => Promise<PluginEnvelope>;
+
+type OperationInvocations = Readonly<
+  Record<NativePluginJob["operation"], OperationInvocation>
+>;
+const operationInvocations: OperationInvocations = {
+  check_session: (_job, token, handlers) => handlers["check_session"](token),
+  list_workspaces: (_job, token, handlers) =>
+    handlers["list_workspaces"](token),
+  list_projects: (job, token, handlers) =>
+    handlers["list_projects"](
+      token,
+      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
+    ),
+  list_versions: (job, token, handlers) =>
+    handlers["list_versions"](
+      token,
+      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
+      requiredParameter(job, "SOURCE_PROJECT_ID"),
+    ),
+  list_folders: (job, token, handlers) =>
+    handlers["list_folders"](
+      token,
+      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
+    ),
+  create_folder: (job, token, handlers) =>
+    handlers["create_folder"](
+      token,
+      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
+      requiredParameter(job, "DESTINATION_FOLDER_ID"),
+    ),
+  plan_migration: (job, token, handlers) =>
+    handlers["plan_migration"](
+      token,
+      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
+      requiredParameter(job, "SOURCE_PROJECT_ID"),
+      requiredParameter(job, "SOURCE_VERSION_ID"),
+      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
+      requiredParameter(job, "DESTINATION_FOLDER_ID"),
+      optionalParameter(job, "TARGET_SCHEMA_VERSION"),
+    ),
+  execute_migration: (job, token, handlers) =>
+    handlers["execute_migration"](
+      token,
+      requiredParameter(job, "PLAN_ID"),
+      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
+      requiredParameter(job, "SOURCE_PROJECT_ID"),
+      requiredParameter(job, "SOURCE_VERSION_ID"),
+      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
+      requiredParameter(job, "DESTINATION_FOLDER_ID"),
+      optionalParameter(job, "TARGET_SCHEMA_VERSION"),
+      requiredConfirmation(job),
+      optionalSecretInput(job, "SECRET_FILE_CONTENTS"),
+    ),
+};
+
+type InvokeOperation = (
+  operation: VoiceflowOperation,
+  invoke: () => Promise<PluginEnvelope>,
+) => Promise<PluginEnvelope>;
+const invokeOperation: InvokeOperation = (operation, invoke) =>
+  Promise.resolve()
+    .then(invoke)
+    .catch((error: unknown) => failure(operation, createUUID(), error));
+
+type DispatchOperation = (
+  job: NativePluginJob,
+  token: string,
+  handlers?: OperationHandlers,
+) => Promise<PluginEnvelope>;
+export const dispatchOperation: DispatchOperation = (
+  job,
+  token,
+  handlers = defaultOperationHandlers,
+) => {
+  configureDebug(job.params.DEBUG);
+  return invokeOperation(
+    job.operation,
+    () => operationInvocations[job.operation](job, token, handlers),
+  );
+};
+===== END xyops/plugin/operation_dispatch.ts =====
+
+===== BEGIN xyops/plugin/operations.ts =====
+export const PluginOperation = {
+  CheckSession: "check_session",
+  ListWorkspaces: "list_workspaces",
+  ListProjects: "list_projects",
+  ListVersions: "list_versions",
+  ListFolders: "list_folders",
+  CreateFolder: "create_folder",
+  PlanMigration: "plan_migration",
+  ExecuteMigration: "execute_migration",
+} as const;
+
+export const supportedPluginOperations = Object.values(PluginOperation);
+===== END xyops/plugin/operations.ts =====
+
+===== BEGIN xyops/plugin/process_entrypoint.ts =====
+import type { Writable } from "node:stream";
+import { dispatchOperation } from "./operation_dispatch";
+import type {
+  NativePluginJob,
+  OperationHandlers,
+  PluginInput,
+  PluginStage,
+  XYOpsPluginResponse,
+} from "./types";
+import { readVoiceflowJWT } from "./job_validation";
+import { readPluginJob } from "./stdin_job";
+import { mapVoiceflowEnvelope, mapPluginError } from "./wire_protocol";
+import { formatPluginDiagnostic } from "./diagnostics";
+
+type PluginEnvironment = Readonly<Record<string, string | undefined>>;
+type PluginOutput = Pick<Writable, "write">;
+type WriteDiagnostic = (
+  diagnostics: PluginOutput | undefined,
+  diagnostic: string,
+) => void;
+const writeDiagnostic: WriteDiagnostic = (diagnostics, diagnostic) => {
+  if (diagnostics === undefined) return;
+  diagnostics.write(`${diagnostic}\n`);
+};
+
+type BuildPluginResponse = (
+  input: PluginInput,
+  environment: PluginEnvironment,
+  handlers?: OperationHandlers,
+  diagnostics?: PluginOutput,
+) => Promise<XYOpsPluginResponse>;
+export const buildPluginResponse: BuildPluginResponse = async (
+  input,
+  environment,
+  handlers,
+  diagnostics,
+) => {
+  let stage: PluginStage = "input";
+  try {
+    const job: NativePluginJob = await readPluginJob(input);
+    stage = "secret";
+    const token = readVoiceflowJWT(environment);
+    stage = "dispatch";
+    const envelope = await dispatchOperation(job, token, handlers);
+    stage = "response";
+    return mapVoiceflowEnvelope(envelope);
+  } catch (error: unknown) {
+    const diagnostic = formatPluginDiagnostic(stage, error);
+    writeDiagnostic(diagnostics, diagnostic);
+    return mapPluginError(error, diagnostic);
+  }
+};
+
+type RunNativePlugin = (
+  input: PluginInput,
+  output: PluginOutput,
+  environment?: PluginEnvironment,
+  handlers?: OperationHandlers,
+  diagnostics?: PluginOutput,
+) => Promise<number>;
+export const runNativePlugin: RunNativePlugin = (
+  input,
+  output,
+  environment = process.env,
+  handlers,
+  diagnostics,
+) =>
+  buildPluginResponse(input, environment, handlers, diagnostics).then(
+    (response) => {
+      output.write(`${JSON.stringify(response)}\n`);
+      return 0;
+    },
+  );
+===== END xyops/plugin/process_entrypoint.ts =====
+
+===== BEGIN xyops/plugin/stdin_job.ts =====
+import { parsePluginJob } from "./job_validation";
+import type { NativePluginJob, PluginInput } from "./types";
+export type { PluginInput, PluginInputChunk } from "./types";
+
+type DecodePluginChunk = (
+  chunk: Uint8Array | string,
+  decoder: TextDecoder,
+) => string;
+const decodePluginChunk: DecodePluginChunk = (chunk, decoder) =>
+  typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+
+type ReadPluginInput = (input: PluginInput) => Promise<string>;
+export const readPluginInput: ReadPluginInput = async (input) => {
+  const decoder = new TextDecoder();
+  let value = "";
+  for await (const chunk of input) {
+    value += decodePluginChunk(chunk, decoder);
+  }
+  return value + decoder.decode();
+};
+
+type ReadPluginJob = (input: PluginInput) => Promise<NativePluginJob>;
+export const readPluginJob: ReadPluginJob = (input) =>
+  readPluginInput(input).then(parsePluginJob);
+===== END xyops/plugin/stdin_job.ts =====
+
+===== BEGIN xyops/plugin/types.ts =====
+import type { Envelope } from "../voiceflow/contracts";
+import type { supportedPluginOperations } from "./operations";
+
+export type PluginOperation = (typeof supportedPluginOperations)[number];
+
+export type PluginParameters = Readonly<Record<string, unknown>>;
+
+export type NativePluginJob = Readonly<{
+  readonly params: PluginParameters;
+  readonly operation: PluginOperation;
+}>;
+
+export type VoiceflowEnvelope = Envelope<unknown>;
+
+export type XYOpsPluginData = Readonly<{
+  readonly voiceflow: VoiceflowEnvelope;
+}>;
+
+export type XYOpsPluginResponse = Readonly<{
+  readonly xy: 1;
+  readonly complete: true;
+  readonly code: 0 | string;
+  readonly data?: XYOpsPluginData;
+  readonly description?: string;
+}>;
+
+export type PluginValidationCode =
+  "INVALID_JSON" | "INVALID_INPUT" | "MISSING_SECRET" | "UNKNOWN_OPERATION";
+type PluginEnvelope = Envelope<unknown>;
+
+type CheckSessionHandler = (token: string) => Promise<PluginEnvelope>;
+
+type ListWorkspacesHandler = (token: string) => Promise<PluginEnvelope>;
+
+type ListProjectsHandler = (
+  token: string,
+  sourceWorkspaceID: string,
+) => Promise<PluginEnvelope>;
+
+type ListVersionsHandler = (
+  token: string,
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+) => Promise<PluginEnvelope>;
+
+type ListFoldersHandler = (
+  token: string,
+  destinationWorkspaceID: string,
+) => Promise<PluginEnvelope>;
+
+type CreateFolderHandler = (
+  token: string,
+  destinationWorkspaceID: string,
+  folderName: string,
+) => Promise<PluginEnvelope>;
+
+type PlanMigrationHandler = (
+  token: string,
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+  sourceVersionID: string,
+  destinationWorkspaceID: string,
+  destinationFolderID: string,
+  targetSchemaVersion?: string,
+) => Promise<PluginEnvelope>;
+
+type ExecuteMigrationHandler = (
+  token: string,
+  planID: string,
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+  sourceVersionID: string,
+  destinationWorkspaceID: string,
+  destinationFolderID: string,
+  targetSchemaVersion?: string,
+  confirmed?: boolean,
+  secretFileContents?: unknown,
+) => Promise<PluginEnvelope>;
+
+export type OperationHandlers = Readonly<{
+  readonly check_session: CheckSessionHandler;
+  readonly list_workspaces: ListWorkspacesHandler;
+  readonly list_projects: ListProjectsHandler;
+  readonly list_versions: ListVersionsHandler;
+  readonly list_folders: ListFoldersHandler;
+  readonly create_folder: CreateFolderHandler;
+  readonly plan_migration: PlanMigrationHandler;
+  readonly execute_migration: ExecuteMigrationHandler;
+}>;
+
+export type PluginInputChunk = Uint8Array | string;
+export type PluginInput = AsyncIterable<PluginInputChunk>;
+
+export const PluginStage = {
+  Input: "input",
+  Secret: "secret",
+  Dispatch: "dispatch",
+  Response: "response",
+} as const;
+export type PluginStage = (typeof PluginStage)[keyof typeof PluginStage];
+===== END xyops/plugin/types.ts =====
+
+===== BEGIN xyops/plugin/validation_fault.ts =====
+import type { PluginValidationCode } from "./types";
+
+export class PluginValidationFault extends Error {
+  constructor(
+    public readonly code: PluginValidationCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginValidationFault";
+  }
+}
+===== END xyops/plugin/validation_fault.ts =====
+
+===== BEGIN xyops/plugin/version.ts =====
+import packageMetadata from "../../package.json";
+
+type PackageMetadata = Readonly<{
+  version: string;
+  pluginVersion: string;
+}>;
+
+const metadata: PackageMetadata = packageMetadata;
+
+/** The CLI/release version is package.json.version; the plugin has its own lifecycle. */
+export const CLI_VERSION = metadata.version;
+export const PLUGIN_VERSION = metadata.pluginVersion;
+===== END xyops/plugin/version.ts =====
+
+===== BEGIN xyops/plugin/wire_protocol.ts =====
+import { PLUGIN_VERSION } from "./version";
+import { PluginValidationFault } from "./validation_fault";
+import type { XYOpsPluginResponse, VoiceflowEnvelope } from "./types";
+
+type MapVoiceflowEnvelope = (
+  envelope: VoiceflowEnvelope,
+) => XYOpsPluginResponse;
+export const mapVoiceflowEnvelope: MapVoiceflowEnvelope = (envelope) => {
+  if (envelope.ok) {
+    return {
+      xy: 1,
+      data: { voiceflow: envelope },
+      complete: true,
+      code: 0,
+    };
+  }
+  return {
+    xy: 1,
+    data: { voiceflow: envelope },
+    complete: true,
+    code: envelope.error.code,
+    description: `[pluginVersion=${PLUGIN_VERSION}] ${envelope.error.message} (code=${envelope.error.code})`,
+  };
+};
+
+type CreateProtocolFailure = (
+  code: string,
+  description: string,
+  envelope?: VoiceflowEnvelope,
+) => XYOpsPluginResponse;
+export const createProtocolFailure: CreateProtocolFailure = (
+  code,
+  description,
+  envelope,
+) => ({
+  xy: 1,
+  ...(envelope === undefined ? {} : { data: { voiceflow: envelope } }),
+  complete: true,
+  code,
+  description,
+});
+
+type AppendPluginDiagnostic = (
+  description: string,
+  diagnostic?: string,
+) => string;
+const appendPluginDiagnostic: AppendPluginDiagnostic = (
+  description,
+  diagnostic,
+) =>
+  diagnostic === undefined ? description : `${description} [${diagnostic}]`;
+
+type MapPluginError = (
+  error: unknown,
+  diagnostic?: string,
+) => XYOpsPluginResponse;
+export const mapPluginError: MapPluginError = (error, diagnostic) => {
+  if (error instanceof PluginValidationFault) {
+    return createProtocolFailure(
+      error.code,
+      appendPluginDiagnostic(error.message, diagnostic),
+    );
+  }
+  return createProtocolFailure(
+    "PLUGIN_FAILURE",
+    appendPluginDiagnostic(
+      "The Voiceflow plugin could not complete the request.",
+      diagnostic,
+    ),
+  );
+};
+===== END xyops/plugin/wire_protocol.ts =====

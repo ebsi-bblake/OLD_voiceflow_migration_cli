@@ -22,8 +22,7 @@ Feature: Reconcile XYOps jobs when stream observation fails
       | state | meaning |
       | DISPATCHED | job ID exists; no terminal observation yet |
       | STREAMING | stream connection is active |
-      | STREAM_RECONCILING | stream failed; get_job is being queried |
-      | POLLING | get_job reports the job is active |
+      | POLLING | stream failed or get_job reports the job is active; read-only reconciliation is in progress |
       | SUCCEEDED | terminal job and valid Voiceflow success envelope |
       | FAILED | terminal job failure with bounded diagnostic |
       | UNKNOWN_OUTCOME | job outcome cannot be established |
@@ -50,14 +49,14 @@ Feature: Reconcile XYOps jobs when stream observation fails
   Scenario: Reconcile any stream failure through get_job
     Given the state is STREAMING
     When the stream is malformed, incomplete, disconnected, times out, or returns an HTTP/network error
-    Then the state becomes STREAM_RECONCILING
+    Then the state becomes POLLING
     And exactly one read-only get_job request is attempted immediately
     And that immediate request is the first request of this reconciliation
     And execute is not redispatched
 
   @reconciliation
   Scenario Outline: Interpret the reconciled job response
-    Given the state is STREAM_RECONCILING
+    Given the state is POLLING
     When get_job returns <response>
     Then the state becomes <state>
     And the CLI performs <action>
@@ -86,7 +85,7 @@ Feature: Reconcile XYOps jobs when stream observation fails
 
   @polling @validation
   Scenario Outline: Reject invalid polling configuration before observation
-    Given the state is STREAM_RECONCILING
+    Given the state is POLLING
     When <invalid configuration> is supplied
     Then no additional get_job request is started
     And the state becomes UNKNOWN_OUTCOME
@@ -128,10 +127,10 @@ Feature: Reconcile XYOps jobs when stream observation fails
     Then the status is retained as a candidate observation
     And the state remains STREAMING until a valid end event arrives
     When an end event has no terminal job status
-    Then the stream fails into STREAM_RECONCILING
+    Then the stream fails into POLLING
     And the read-only reconciliation policy is applied
     When the stream reaches EOF without an end event
-    Then the stream fails into STREAM_RECONCILING
+    Then the stream fails into POLLING
     And no execute request is redispatched
     When duplicate terminal events arrive before the end event
     Then the latest valid terminal candidate is used once

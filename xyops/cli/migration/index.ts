@@ -29,6 +29,7 @@ import {
 } from "./execution";
 import { readSecretsForMigration } from "./secret-input";
 import { progress } from "../progress";
+import { VoiceflowOperation } from "../../voiceflow/types";
 
 type PrintHelp = () => void;
 const printHelp: PrintHelp = () => {
@@ -60,7 +61,7 @@ const performMigration: PerformMigration = async (context) => {
   const sessionResponse = await progress.run("check_session", () =>
     client.readEvent(
       config.events.checkSession,
-      eventParametersFor("check_session"),
+      eventParametersFor(VoiceflowOperation.CheckSession),
       isVoiceflowEnvelope(isCheckSessionResult),
     ),
   );
