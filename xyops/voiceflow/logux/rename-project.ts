@@ -8,6 +8,7 @@ import {
   transitionRenameState,
   type RenameEvent,
   type RenameState,
+  type RenameEffect,
 } from "./state-machine";
 import { LoguxFrameSchema } from "./schemas/frame";
 
@@ -64,7 +65,10 @@ const actionSummary = (frame: Frame): Readonly<Record<string, unknown>> => {
     frameType: frame[0],
     syncID: frame[1],
     actionType: typeof action?.type === "string" ? action.type : undefined,
-    actionID: isRecord(action?.meta) && typeof action.meta.actionID === "string" ? action.meta.actionID : undefined,
+    actionID:
+      isRecord(action?.meta) && typeof action.meta.actionID === "string"
+        ? action.meta.actionID
+        : undefined,
   };
 };
 const traceFrame = (direction: "in" | "out", frame: Frame): void =>
@@ -101,9 +105,47 @@ export const renameProject: RenameProject = (
       "patchObserved" in state && state.patchObserved;
     const diagnostic = (event: string, detail?: string): string =>
       `rename-${state.kind}-${event}${detail ? ` ${detail}` : ""}; observed=${[...observedActionTypes].join(",") || "none"}; mutationAck=${state.kind === "MUTATION_ACKNOWLEDGED" || state.kind === "CATALOG_RECONCILING" || state.kind === "COMPLETED"}; patchObserved=${currentPatchObserved()}`;
+    const executeEffects = (effects: readonly RenameEffect[]): void => {
+      for (const effect of effects) {
+        try {
+          if (effect.kind === "send-subscription")
+            send(ws, [
+              "sync",
+              effect.syncID,
+              { channel: `workspace/${workspaceID}`, type: "logux/subscribe" },
+              { id: -1, time: time++ },
+            ]);
+          if (effect.kind === "send-mutation")
+            send(ws, [
+              "sync",
+              effect.syncID,
+              {
+                type: "assistant.PATCH_ONE",
+                payload: {
+                  id: projectID,
+                  patch: { name },
+                  context: { workspaceID },
+                },
+                meta: { origin, actionID: effect.actionID },
+              },
+              { id: -2, time: time++ },
+            ]);
+          if (effect.kind === "close-socket") ws.close();
+          if (effect.kind === "settle") settle();
+        } catch {
+          dispatch({
+            kind: "socket-error",
+            diagnostic: "rename-effect-failed",
+          });
+        }
+      }
+    };
     const dispatch = (event: RenameEvent): boolean => {
       const transition = transitionRenameState(state, event);
-      if (transition.accepted) state = transition.state;
+      if (transition.accepted) {
+        state = transition.state;
+        executeEffects(transition.effects);
+      }
       return transition.accepted;
     };
     const settle = (error?: OperationFault): void => {
@@ -120,16 +162,22 @@ export const renameProject: RenameProject = (
     };
     const timer = setTimeout(() => {
       dispatch({ kind: "timeout" });
-      settle(new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout")));
+      settle(
+        new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout")),
+      );
     }, 15_000);
     ws.onerror = () => {
       dispatch({ kind: "socket-error", diagnostic: "websocket-error" });
-      settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error")));
+      settle(
+        new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error")),
+      );
     };
     ws.onclose = () => {
       if (!settled) {
         dispatch({ kind: "socket-close" });
-        settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close")));
+        settle(
+          new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close")),
+        );
       }
     };
     ws.onopen = () => {
@@ -157,7 +205,10 @@ export const renameProject: RenameProject = (
           typeof frame[1] === "boolean"
             ? String(frame[1]).replace(/\s+/g, " ").slice(0, 80)
             : "unknown";
-        dispatch({ kind: "error-frame", diagnostic: `serverCode=${errorCode}` });
+        dispatch({
+          kind: "error-frame",
+          diagnostic: `serverCode=${errorCode}`,
+        });
         return settle(
           new OperationFault(
             "DEPENDENCY_FAILURE",
@@ -167,51 +218,21 @@ export const renameProject: RenameProject = (
         );
       }
       const action = actionOf(frame);
-      if (typeof action?.type === "string") observedActionTypes.add(action.type);
+      if (typeof action?.type === "string")
+        observedActionTypes.add(action.type);
       if (frame[0] === "connected") {
         dispatch({ kind: "connected", subscriptionSyncID: subscriptionID });
-        try {
-          send(ws, [
-            "sync",
-            subscriptionID,
-            {
-              channel: `workspace/${workspaceID}`,
-              type: "logux/subscribe",
-            },
-            { id: -1, time: time++ },
-          ]);
-        } catch {
-          settle(new OperationFault("DEPENDENCY_FAILURE", true));
-        }
         return;
       }
       if (frame[0] === "synced" && frame[1] === subscriptionID) {
-        if (!dispatch({ kind: "subscription-synced", syncID: subscriptionID })) return;
+        if (!dispatch({ kind: "subscription-synced", syncID: subscriptionID }))
+          return;
         mutationActionID = createUUID();
-        try {
-          send(ws, [
-            "sync",
-            mutationSyncID,
-            {
-              type: "assistant.PATCH_ONE",
-              payload: {
-                id: projectID,
-                patch: { name },
-                context: { workspaceID },
-              },
-              meta: { origin, actionID: mutationActionID },
-            },
-            { id: -2, time: time++ },
-          ]);
-          dispatch({
-            kind: "mutation-sent",
-            mutationSyncID,
-            actionID: mutationActionID,
-          });
-        } catch {
-          dispatch({ kind: "socket-error", diagnostic: "mutation-send" });
-          settle(new OperationFault("DEPENDENCY_FAILURE", true));
-        }
+        dispatch({
+          kind: "mutation-sent",
+          mutationSyncID,
+          actionID: mutationActionID,
+        });
         return;
       }
       if (state.kind !== "MUTATION_SENT") return;
@@ -219,10 +240,17 @@ export const renameProject: RenameProject = (
         // The matching `synced` frame acknowledges this mutation. Do not use a
         // generic `logux/processed` event: stale processed events can belong to
         // an earlier request and allow import to race the rename.
-        if (dispatch({ kind: "mutation-synced", syncID: mutationSyncID })) settle();
+        if (dispatch({ kind: "mutation-synced", syncID: mutationSyncID }))
+          settle();
         return;
       }
-      const patchMatches = patchCompleted(frame, workspaceID, projectID, name, origin);
+      const patchMatches = patchCompleted(
+        frame,
+        workspaceID,
+        projectID,
+        name,
+        origin,
+      );
       if (frame[0] === "sync" && isRecord(actionOf(frame)))
         dispatch({ kind: "project-patch", matches: patchMatches });
     };

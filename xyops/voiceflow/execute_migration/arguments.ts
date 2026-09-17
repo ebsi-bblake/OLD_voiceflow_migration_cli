@@ -6,7 +6,7 @@ type MigrationSelectionForArguments = (
   sourceVersionID: string,
   destinationWorkspaceID: string,
   destinationFolderID: string,
-  targetSchemaVersion: string,
+  targetSchemaVersion?: string,
 ) => MigrationSelection;
 export const migrationSelection: MigrationSelectionForArguments = (
   sourceWorkspaceID,
@@ -15,13 +15,11 @@ export const migrationSelection: MigrationSelectionForArguments = (
   destinationWorkspaceID,
   destinationFolderID,
   targetSchemaVersion,
-) => {
-  return {
-    sourceWorkspaceID,
-    sourceProjectID,
-    sourceVersionID,
-    destinationWorkspaceID,
-    destinationFolderID,
-    targetSchemaVersion,
-  };
-};
+) => ({
+  sourceWorkspaceID,
+  sourceProjectID,
+  sourceVersionID,
+  destinationWorkspaceID,
+  destinationFolderID,
+  ...(targetSchemaVersion === undefined ? {} : { targetSchemaVersion }),
+});

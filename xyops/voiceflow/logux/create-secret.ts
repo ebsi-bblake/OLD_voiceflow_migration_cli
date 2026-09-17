@@ -6,7 +6,8 @@ import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
 import { debugLog } from "../debug";
 import {
   createSecretState,
-  transitionSecretState,
+  transitionSecretStateWithEffects,
+  type SecretEffect,
   type SecretEvent,
   type SecretState,
 } from "./state-machine";
@@ -51,8 +52,32 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
     let actionTime = 1;
     let state: SecretState = createSecretState(assistantID, actionID);
     let settled = false;
+    const executeEffects = (effects: readonly SecretEffect[]): void => {
+      for (const effect of effects) {
+        try {
+          if (effect.kind === "send-subscription")
+            sendSubscription(ws, assistantID, subscriptionID, actionTime++);
+          if (effect.kind === "send-mutation")
+            sendCreateAction(
+              ws,
+              assistantID,
+              secret,
+              origin,
+              actionID,
+              effect.mutationSyncID,
+              actionTime++,
+            );
+          if (effect.kind === "close-socket") ws.close();
+          if (effect.kind === "settle") settle();
+        } catch {
+          dispatch({ kind: "socket-error" });
+        }
+      }
+    };
     const dispatch = (event: SecretEvent): void => {
-      state = transitionSecretState(state, event);
+      const transition = transitionSecretStateWithEffects(state, event);
+      state = transition.state;
+      executeEffects(transition.effects);
     };
     const settle = (error?: OperationFault): void => {
       if (settled) return;
@@ -66,19 +91,16 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       /* oxlint-disable complexity, no-unused-expressions */
       error ? reject(error) : resolve();
     };
-    const timer = setTimeout(
-      () => {
-        dispatch({ kind: "timeout" });
-        settle(
-          new OperationFault(
-            "DEPENDENCY_TIMEOUT",
-            true,
-            `logux-${state.kind.toLowerCase()}-timeout`,
-          ),
-        );
-      },
-      15_000,
-    );
+    const timer = setTimeout(() => {
+      dispatch({ kind: "timeout" });
+      settle(
+        new OperationFault(
+          "DEPENDENCY_TIMEOUT",
+          true,
+          `logux-${state.kind.toLowerCase()}-timeout`,
+        ),
+      );
+    }, 15_000);
     ws.onerror = () => {
       dispatch({ kind: "socket-error" });
       settle(
@@ -139,31 +161,11 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
       }
       if (frame[0] === "connected") {
         dispatch({ kind: "connected" });
-        try {
-          sendSubscription(ws, assistantID, subscriptionID, actionTime++);
-        } catch {
-          dispatch({ kind: "socket-error" });
-          settle(new OperationFault("DEPENDENCY_FAILURE", true));
-        }
         return;
       }
       if (isSubscriptionComplete(frame, subscriptionID)) {
         dispatch({ kind: "subscription-synced" });
-        try {
-          sendCreateAction(
-            ws,
-            assistantID,
-            secret,
-            origin,
-            actionID,
-            mutationSyncID,
-            actionTime++,
-          );
-          dispatch({ kind: "mutation-sent", mutationSyncID });
-        } catch {
-          dispatch({ kind: "socket-error" });
-          settle(new OperationFault("DEPENDENCY_FAILURE", true));
-        }
+        dispatch({ kind: "mutation-sent", mutationSyncID });
         return;
       }
       if (isSecretFailure(frame, actionID)) {
