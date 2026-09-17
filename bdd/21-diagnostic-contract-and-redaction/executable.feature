@@ -26,3 +26,17 @@ Feature: Execute BDD21 diagnostic contract slices
     Then the Result contains a value and no error
     When a boundary returns a failed Result
     Then the Result contains an error and no value
+
+  Scenario: Create a canonical diagnostic without flattening identity
+    When a core dependency fault is converted at the import stage
+    Then the diagnostic preserves code, domain, stage, retryability, and nextAction
+    And the diagnostic contains a structured cause
+
+  Scenario: Append translation causes without changing the root code
+    When a diagnostic crosses a plugin boundary
+    Then the root diagnostic code is preserved
+    And the translation cause is appended in order
+
+  Scenario: Normalize unexpected failures as safe structured causes
+    When an unexpected failure crosses the transport boundary
+    Then the diagnostic uses INTERNAL_ERROR without raw exception text

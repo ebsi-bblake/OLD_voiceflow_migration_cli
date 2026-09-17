@@ -3,6 +3,11 @@ import { defineStep, setWorldConstructor } from "@cucumber/cucumber";
 
 const { redactDiagnosticValue } = await import("../../xyops/diagnostics/redact.ts");
 const { nextAction } = await import("../../xyops/diagnostics/next_action.ts");
+const {
+  createDiagnostic,
+  createUnexpectedDiagnostic,
+  appendDiagnosticCause,
+} = await import("../../xyops/diagnostics/create.ts");
 const { ok, error } = await import("../../xyops/diagnostics/result.ts");
 
 class DiagnosticWorld {
@@ -89,4 +94,79 @@ defineStep("a boundary returns a failed Result", function () {
 defineStep("the Result contains an error and no value", function () {
   assert.deepEqual(this.value, { ok: false, error: { code: "INVALID_INPUT" } });
   assert.equal(Object.hasOwn(this.value, "value"), false);
+});
+
+defineStep("a core dependency fault is converted at the import stage", function () {
+  this.value = createDiagnostic(
+    { code: "IMPORT_OUTCOME_UNKNOWN", retryable: true },
+    "core",
+    "import",
+    { projectID: "project-1" },
+  );
+});
+
+defineStep("the diagnostic preserves code, domain, stage, retryability, and nextAction", function () {
+  assert.deepEqual(
+    {
+      code: this.value.code,
+      domain: this.value.domain,
+      stage: this.value.stage,
+      retryable: this.value.retryable,
+      nextAction: this.value.nextAction,
+    },
+    {
+      code: "IMPORT_OUTCOME_UNKNOWN",
+      domain: "core",
+      stage: "import",
+      retryable: true,
+      nextAction: "Reconcile the destination project before retrying",
+    },
+  );
+});
+
+defineStep("the diagnostic contains a structured cause", function () {
+  assert.deepEqual(this.value.causes[0], {
+    domain: "core",
+    code: "IMPORT_OUTCOME_UNKNOWN",
+    stage: "import",
+    retryable: true,
+    context: { projectID: "project-1" },
+  });
+});
+
+defineStep("a diagnostic crosses a plugin boundary", function () {
+  const cause = {
+    domain: "plugin",
+    code: "EXECUTE_OUTCOME_UNKNOWN",
+    stage: "response",
+    retryable: true,
+    context: { operationID: "operation-1" },
+  };
+  this.value = appendDiagnosticCause(
+    createDiagnostic({ code: "IMPORT_OUTCOME_UNKNOWN", retryable: true }, "core", "import"),
+    cause,
+  );
+});
+
+defineStep("the root diagnostic code is preserved", function () {
+  assert.equal(this.value.code, "IMPORT_OUTCOME_UNKNOWN");
+});
+
+defineStep("the translation cause is appended in order", function () {
+  assert.equal(this.value.causes.at(-1).domain, "plugin");
+  assert.equal(this.value.causes.at(-1).code, "EXECUTE_OUTCOME_UNKNOWN");
+});
+
+defineStep("an unexpected failure crosses the transport boundary", function () {
+  this.value = createUnexpectedDiagnostic(
+    new Error("raw response body secret-token"),
+    "transport",
+    "http",
+  );
+});
+
+defineStep("the diagnostic uses INTERNAL_ERROR without raw exception text", function () {
+  assert.equal(this.value.code, "INTERNAL_ERROR");
+  assert.equal(JSON.stringify(this.value).includes("raw response body"), false);
+  assert.equal(this.value.domain, "transport");
 });
