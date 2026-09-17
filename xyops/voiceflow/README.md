@@ -107,7 +107,7 @@ by the CLI contract, including `SOURCE_WORKSPACE_ID`, `SOURCE_PROJECT_ID`,
 `SOURCE_VERSION_ID`, `DESTINATION_WORKSPACE_ID`, `DESTINATION_FOLDER_ID`,
 `TARGET_SCHEMA_VERSION`, `PLAN_ID`, and the literal boolean `CONFIRMED` for
 execution. The local CLI can source these values and project secrets from the
-single `--config=<path>` object described in [`../../docs/migration-config.md`](../../docs/migration-config.md).
+single `--config=<path>` object described in [`../../docs/migration_config.md`](../../docs/migration_config.md).
 Run the CLI with `--debug` to enable all named stderr diagnostics, or
 `--debug=logux-secret,logux-rename` to select specific logger names. Selectors
 also match child names and logger prefixes. The debug selector is passed through

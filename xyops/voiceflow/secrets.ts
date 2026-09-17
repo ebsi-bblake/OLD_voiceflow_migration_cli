@@ -11,6 +11,8 @@ import { loadFolders, loadProjects, loadWorkspaces } from "./catalog";
 import { requestBytes } from "./http";
 import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
 import { OperationFault } from "./contracts";
+import { SecretEntrySchema } from "./schemas/secret_entry";
+import { ExistingSecretSchema } from "./schemas/existing_secret";
 
 export type { ExistingSecret } from "./types";
 
@@ -44,26 +46,10 @@ const parseExistingSecrets = (bytes: ArrayBuffer): readonly ExistingSecret[] => 
 };
 
 const parseExistingSecret = (value: unknown): ExistingSecret => {
-  if (!isRecord(value)) throw new Error();
-  const identity = parseSecretIdentity(value);
-  const visibility = parseSecretVisibility(value.visibility);
-  if (typeof value.hasValue !== "boolean") throw new Error();
-  return { ...identity, visibility, hasValue: value.hasValue };
+  const parsed = ExistingSecretSchema.safeParse(value);
+  if (!parsed.success) throw new Error();
+  return parsed.data;
 };
-const parseSecretIdentity = (value: Record<string, unknown>): Pick<ExistingSecret, "id" | "assistantID" | "name"> => {
-  const id = primitiveString(value.id);
-  const assistantID = primitiveString(value.assistantID);
-  const name = primitiveString(value.name);
-  if (id === undefined || assistantID === undefined || name === undefined)
-    throw new Error();
-  return { id, assistantID, name };
-};
-const parseSecretVisibility = (value: unknown): ExistingSecret["visibility"] => {
-  if (value === "masked" || value === "restricted") return value;
-  throw new Error();
-};
-const primitiveString = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim() !== "" ? value : undefined;
 
 type ParseSecretsFile = (contents: string) => readonly ConfigSecret[];
 export const parseSecretsFile: ParseSecretsFile = (contents) =>
@@ -90,23 +76,11 @@ const parseSecretEntryArray = (value: unknown): readonly ConfigSecret[] => {
   });
 };
 
-const isSecretType = (value: unknown): value is ConfigSecret["type"] =>
-  value === "projectId" || value === "" || value === "url";
-
 const parseSecretEntry = (value: unknown): ConfigSecret => {
-  if (!isRecord(value) || Object.keys(value).length !== 3)
-    throw new Error(
-      "ConfigSecret entries must contain only key, value, and type fields.",
-    );
-  if (typeof value.key !== "string" || !value.key.trim())
-    throw new Error("Secret entries must contain a non-empty string key.");
-  if (typeof value.value !== "string")
-    throw new Error("Secret entries must contain a string value.");
-  if (!isSecretType(value.type))
-    throw new Error(
-      "Secret entries must contain type projectId, empty string, or url.",
-    );
-  return { key: value.key, value: value.value, type: value.type };
+  const parsed = SecretEntrySchema.safeParse(value);
+  if (!parsed.success)
+    throw new Error("Secret entry failed structural validation.");
+  return parsed.data;
 };
 type ParseSecretEntriesJSON = (contents: string) => readonly ConfigSecret[];
 export const parseSecretEntriesJSON: ParseSecretEntriesJSON = (contents) =>

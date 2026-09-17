@@ -1,26 +1,34 @@
 import { PLUGIN_VERSION } from "./version";
 import { PluginValidationFault } from "./validation_fault";
 import type { XYOpsPluginResponse, VoiceflowEnvelope } from "./types";
+import { XYOpsPluginResponseSchema } from "./schemas/plugin_response";
+
+type ValidatePluginResponse = (value: XYOpsPluginResponse) => XYOpsPluginResponse;
+const validatePluginResponse: ValidatePluginResponse = (value) => {
+  const parsed = XYOpsPluginResponseSchema.safeParse(value);
+  if (!parsed.success)
+    throw new Error("The plugin produced an invalid response.");
+  return value;
+};
 
 type MapVoiceflowEnvelope = (
   envelope: VoiceflowEnvelope,
 ) => XYOpsPluginResponse;
 export const mapVoiceflowEnvelope: MapVoiceflowEnvelope = (envelope) => {
-  if (envelope.ok) {
-    return {
+  if (envelope.ok)
+    return validatePluginResponse({
       xy: 1,
       data: { voiceflow: envelope },
       complete: true,
       code: 0,
-    };
-  }
-  return {
+    });
+  return validatePluginResponse({
     xy: 1,
     data: { voiceflow: envelope },
     complete: true,
     code: envelope.error.code,
     description: `[pluginVersion=${PLUGIN_VERSION}] ${envelope.error.message} (code=${envelope.error.code})`,
-  };
+  });
 };
 
 type CreateProtocolFailure = (
@@ -32,13 +40,14 @@ export const createProtocolFailure: CreateProtocolFailure = (
   code,
   description,
   envelope,
-) => ({
-  xy: 1,
-  ...(envelope === undefined ? {} : { data: { voiceflow: envelope } }),
-  complete: true,
-  code,
-  description,
-});
+) =>
+  validatePluginResponse({
+    xy: 1,
+    ...(envelope === undefined ? {} : { data: { voiceflow: envelope } }),
+    complete: true,
+    code,
+    description,
+  });
 
 type AppendPluginDiagnostic = (
   description: string,

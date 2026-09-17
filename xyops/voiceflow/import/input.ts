@@ -2,6 +2,7 @@ import { OperationFault } from "../contracts";
 import { VoiceflowRegex } from "../regex";
 import { parseFolderID } from "../validation";
 import { isRecord } from "../guards";
+import { ImportedReceiptSchema } from "./schemas/receipt";
 import type { ImportedReceipt } from "../types";
 
 type RecordValue = Readonly<Record<string, unknown>>;
@@ -49,6 +50,8 @@ type Receipt = (
 ) => ImportedReceipt;
 export const receipt: Receipt = (value, status, bytes) => {
   if (!isRecord(value)) throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
+  if (!ImportedReceiptSchema.safeParse(value).success)
+    throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
   return receiptFromRecord(value, status, bytes);
 };
 

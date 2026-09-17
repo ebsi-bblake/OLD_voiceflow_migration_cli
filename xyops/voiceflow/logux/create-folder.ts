@@ -9,6 +9,7 @@ import {
   type FolderEffect,
   type FolderState,
 } from "./folder-state-machine";
+import { LoguxFrameSchema } from "./schemas/frame";
 
 export type CreatedFolder = Readonly<{ id: string; name: string }>;
 type RecordValue = Readonly<Record<string, unknown>>;
@@ -18,8 +19,8 @@ const isRecord = (value: unknown): value is RecordValue =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const parseFrame = (value: string): Frame | undefined => {
   try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : undefined;
+    const parsed = LoguxFrameSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }

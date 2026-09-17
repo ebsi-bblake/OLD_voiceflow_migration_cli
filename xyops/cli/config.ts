@@ -4,6 +4,7 @@ import { fail } from "./diagnostics";
 import { isInvalidDuration } from "./guards";
 import { parseXYOpsURL } from "../voiceflow/urls";
 import { parseSecretEntries } from "../voiceflow/secrets";
+import { MigrationFileConfigSchema } from "./schemas/migration-config";
 import {
   parseResourceSelection,
   parseSchemaVersion,
@@ -377,6 +378,11 @@ const parseMigrationFileConfig: ParseMigrationFileConfig = (value) => {
   if (!isRecord(value))
     throw fail("configuration", {
       nextAction: "The migration config must contain one JSON object.",
+    });
+  const shape = MigrationFileConfigSchema.safeParse(value);
+  if (!shape.success)
+    throw fail("configuration", {
+      nextAction: "The migration config contains invalid field values.",
     });
   const unknownKey = Object.keys(value).find((key) => !CONFIG_KEYS.has(key));
   if (unknownKey)

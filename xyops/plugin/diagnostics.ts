@@ -1,4 +1,5 @@
 import { PLUGIN_VERSION } from "./version";
+import { z } from "zod";
 import { VoiceflowRegex } from "../voiceflow/regex";
 import { PluginStage } from "./types";
 export type { PluginStage } from "./types";
@@ -18,8 +19,25 @@ type ReadErrorClass = (error: unknown) => string;
 const readErrorClass: ReadErrorClass = (error) =>
   normalizeErrorName(readErrorName(error));
 
+const isZodError = (error: unknown): error is z.ZodError =>
+  error instanceof z.ZodError ||
+  (error instanceof Error && error.name === "ZodError");
+const readZodIssue = (issue: z.core.$ZodIssue): string => {
+  const path = issue.path.map(String).join(".").slice(0, 60) || "root";
+  const code = issue.code.slice(0, 40);
+  if (issue.code === "invalid_type")
+    return `issuePath=${path};code=${code};expected=${issue.expected}`;
+  return `issuePath=${path};code=${code}`;
+};
+const readZodErrorText = (error: z.ZodError): string =>
+  error.issues.slice(0, 3).map(readZodIssue).join(", ").slice(0, 240);
+
 const readErrorText = (error: unknown): string =>
-  error instanceof Error ? error.message : "Unknown error";
+  isZodError(error)
+    ? readZodErrorText(error)
+    : error instanceof Error
+      ? error.message
+      : "Unknown error";
 
 const normalizeErrorText = (message: string): string =>
   message.trim() === "" ? "Unknown error" : message;

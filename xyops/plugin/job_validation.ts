@@ -1,6 +1,10 @@
 import { PluginValidationFault } from "./validation_fault";
-import { isNonEmptyString, isPluginOperation, isRecord } from "./guards";
+import { isNonEmptyString, isPluginOperation } from "./guards";
 import { MigrationParameterName } from "../migration-parameters";
+import {
+  NativePluginJobSchema,
+  type ParsedNativePluginJob,
+} from "./schemas/native_plugin_job";
 import type {
   NativePluginJob,
   PluginOperation,
@@ -32,35 +36,21 @@ const selectOperation: SelectOperation = (params) =>
     requireOperationName(params[MigrationParameterName.operation]),
   );
 
-const isPluginEventJob = (
-  value: unknown,
-): value is { readonly params: PluginParameters } => {
-  if (!isRecord(value)) return false;
-  return isEventRecord(value);
-};
-
-const isEventRecord = (
-  value: Record<string, unknown>,
-): value is { readonly params: PluginParameters } => {
-  if (value.xy !== 1) return false;
-  return isEventTypeRecord(value);
-};
-
-const isEventTypeRecord = (
-  value: Record<string, unknown>,
-): value is { readonly params: PluginParameters } => {
-  if (value.type !== "event") return false;
-  return isRecord(value.params);
-};
-
-type ValidatePluginJob = (value: unknown) => NativePluginJob;
-export const validatePluginJob: ValidatePluginJob = (value) => {
-  if (!isPluginEventJob(value))
+type ParseNativePluginJob = (value: unknown) => ParsedNativePluginJob;
+const parseNativePluginJob: ParseNativePluginJob = (value) => {
+  const parsed = NativePluginJobSchema.safeParse(value);
+  if (!parsed.success)
     throw new PluginValidationFault(
       "INVALID_INPUT",
       "The plugin input must be an XYOps event job with object-valued params.",
     );
-  const params = value.params;
+  return parsed.data;
+};
+
+type ValidatePluginJob = (value: unknown) => NativePluginJob;
+export const validatePluginJob: ValidatePluginJob = (value) => {
+  const parsed = parseNativePluginJob(value);
+  const params: PluginParameters = parsed.params;
   const operation = selectOperation(params);
   return { params, operation };
 };
