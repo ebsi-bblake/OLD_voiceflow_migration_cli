@@ -35,24 +35,6 @@ type CreateClientDependencies = Readonly<{
   streamer?: StreamJob;
 }>;
 
-const readDiagnostic = (error: unknown): CliError["diagnostic"] =>
-  error instanceof CliError
-    ? error.diagnostic
-    : fail("execute-outcome-unknown").diagnostic;
-
-const translateExecuteDispatchError = (error: unknown): CliError => {
-  const diagnostic = readDiagnostic(error);
-  const code = ["timeout", "network"].includes(diagnostic.code)
-    ? "execute-outcome-unknown"
-    : diagnostic.code;
-  return fail(code, {
-    endpoint: RUN_PATH,
-    status: diagnostic.status,
-    nextAction:
-      "The execute dispatch outcome is unknown; reconcile before retrying.",
-  });
-};
-
 // The translation must distinguish transport errors from already-classified CLI failures.
 const readCliDiagnostic = (error: unknown): CliDiagnostic | undefined =>
   error instanceof CliError ? error.diagnostic : undefined;
@@ -73,6 +55,39 @@ const translateExecuteJobError = (error: unknown): CliError => {
 };
 const toCliError = (error: unknown): CliError =>
   error instanceof CliError ? error : fail("execute-outcome-unknown");
+
+type DispatchObservation = (
+  event: JobObservationEvent,
+) => readonly JobObservationEffect[];
+type PollObservation = <T>(
+  pollJobResult: () => Promise<VoiceflowEnvelope<T>>,
+  dispatch: DispatchObservation,
+  useStreaming: boolean,
+) => Promise<VoiceflowEnvelope<T>>;
+/* oxlint-disable complexity -- polling translates terminal outcomes through the reducer. */
+const pollObservation: PollObservation = async <T>(
+  pollJobResult: () => Promise<VoiceflowEnvelope<T>>,
+  dispatch: DispatchObservation,
+  useStreaming: boolean,
+): Promise<VoiceflowEnvelope<T>> => {
+  try {
+    const result = await pollJobResult();
+    dispatch({ kind: "job-succeeded" });
+    return result;
+  } catch (error) {
+    const diagnostic = error instanceof CliError ? error.diagnostic : undefined;
+    dispatch(diagnostic?.code === "job" ? { kind: "job-failed" } : { kind: "poll-timeout" });
+    if (useStreaming && diagnostic?.code === "job" && diagnostic.nextAction !== "The migration execute job failed.")
+      throw fail("execute-outcome-unknown", { endpoint: JOB_PATH, nextAction: "The execute job outcome is unknown; reconcile before retrying." });
+    throw error;
+  }
+};
+
+const shouldReconcileStreamFailure = (error: unknown): boolean => {
+  const diagnostic = error instanceof CliError ? error.diagnostic : undefined;
+  return (diagnostic !== undefined && diagnostic.code !== "job") ||
+    (error instanceof Error && ["stream-result-invalid", "stream-transport-unknown"].includes(error.message));
+};
 
 // Client construction binds optional infrastructure dependencies once at the boundary.
 export const createXYOpsClient = (
@@ -106,44 +121,44 @@ export const createXYOpsClient = (
       guard,
     );
 
-  const readTerminalStream = <T>(
+  const readTerminalStream = async <T>(
     id: string,
     guard: ResponseGuard<VoiceflowEnvelope<T>>,
-  ) => {
-    const streamOrJob = streamer(
-      fetcher,
-      config.baseURL,
-      config.apiKey,
-      id,
-      config.httpTimeoutMs,
-      {
-        maxBytes: config.streamMaxBytes,
-        maxFrameBytes: config.streamMaxFrameBytes,
-      },
-    ).catch((error) =>
-      readCliDiagnostic(error) === undefined
-        ? Promise.reject(new Error("stream-transport-unknown"))
-        : Promise.reject(error),
-    );
-    return streamOrJob.then((streamOrJobResult) => {
-      if (!("kind" in streamOrJobResult)) return streamOrJobResult;
-      if (streamOrJobResult.kind === "failure")
-        return Promise.reject(
-          requireSuccessfulJob(
-            streamOrJobResult.data,
-            "/api/app/stream_job/v1",
-            "The migration execute job failed.",
-          ),
-        );
-      try {
-        const output = normalizeVoiceflowResponse(
-          readJobOutput(streamOrJobResult.data, "/api/app/stream_job/v1"),
-        );
-        return requireEnvelope(output, guard, "/api/app/stream_job/v1");
-      } catch {
-        return Promise.reject(new Error("stream-result-invalid"));
-      }
-    });
+  ): Promise<VoiceflowEnvelope<T>> => {
+    let streamOrJob: Awaited<ReturnType<typeof streamer>>;
+    try {
+      streamOrJob = await streamer(
+        fetcher,
+        config.baseURL,
+        config.apiKey,
+        id,
+        config.httpTimeoutMs,
+        {
+          maxBytes: config.streamMaxBytes,
+          maxFrameBytes: config.streamMaxFrameBytes,
+        },
+      );
+    } catch (error) {
+      if (readCliDiagnostic(error) === undefined)
+        throw new Error("stream-transport-unknown");
+      throw error;
+    }
+    if ("kind" in streamOrJob && streamOrJob.kind === "failure")
+      throw requireSuccessfulJob(
+        streamOrJob.data,
+        "/api/app/stream_job/v1",
+        "The migration execute job failed.",
+      );
+    try {
+      const output = normalizeVoiceflowResponse(
+        "kind" in streamOrJob
+          ? readJobOutput(streamOrJob.data, "/api/app/stream_job/v1")
+          : streamOrJob,
+      );
+      return requireEnvelope(output, guard, "/api/app/stream_job/v1");
+    } catch {
+      throw new Error("stream-result-invalid");
+    }
   };
 
   const startJobObservation = <T>(
@@ -158,24 +173,22 @@ export const createXYOpsClient = (
       return transition.effects;
     };
     const poll = (): Promise<VoiceflowEnvelope<T>> =>
-      pollJob(id, request, sleeper, config, guard)
-        .then((result) => { dispatch({ kind: "job-succeeded" }); return result; })
-        .catch((error) => {
-          const diagnostic = readCliDiagnostic(error);
-          dispatch(diagnostic?.code === "job" ? { kind: "job-failed" } : { kind: "poll-timeout" });
-          if (useStreaming && diagnostic?.code === "job" && diagnostic.nextAction !== "The migration execute job failed.")
-            return Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH, nextAction: "The execute job outcome is unknown; reconcile before retrying." }));
-          return Promise.reject(error);
-        });
-    const stream = (): Promise<VoiceflowEnvelope<T>> =>
-      readTerminalStream(id, guard)
-        .then((result) => { dispatch({ kind: "stream-succeeded" }); return result; })
-        .catch((error) => {
-          const effects = dispatch({ kind: "stream-failed" });
-          const diagnostic = readCliDiagnostic(error);
-          const shouldPoll = (diagnostic !== undefined && diagnostic.code !== "job") || (error instanceof Error && ["stream-result-invalid", "stream-transport-unknown"].includes(error.message));
-          return shouldPoll && effects.some((effect) => effect.kind === "start-polling") ? poll() : Promise.reject(error);
-        });
+      pollObservation(
+        () => pollJob(id, request, sleeper, config, guard),
+        dispatch,
+        useStreaming,
+      );
+    const stream = async (): Promise<VoiceflowEnvelope<T>> => {
+      try {
+        const result = await readTerminalStream(id, guard);
+        dispatch({ kind: "stream-succeeded" });
+        return result;
+      } catch (error) {
+        const effects = dispatch({ kind: "stream-failed" });
+        if (shouldReconcileStreamFailure(error) && effects.some((effect) => effect.kind === "start-polling")) return poll();
+        throw error;
+      }
+    };
     const effects = dispatch({ kind: "execute-dispatched", jobID: id });
     if (!useStreaming) {
       dispatch({ kind: "polling-started" });
@@ -184,21 +197,22 @@ export const createXYOpsClient = (
     return effects.some((effect) => effect.kind === "start-stream") ? stream() : poll();
   };
 
-  const executeEvent = <T>(
+  const executeEvent = async <T>(
     reference: XYOpsEventReference,
     params: EventParameters,
     guard: ResponseGuard<VoiceflowEnvelope<T>>,
-  ): Promise<VoiceflowEnvelope<T>> =>
-    request(RUN_PATH, eventBody(reference, params), RUN_PATH)
-      .catch((error) => Promise.reject(translateExecuteDispatchError(error)))
-      .then((launch) => readLaunchID(launch, RUN_PATH))
-      .then((id) =>
+  ): Promise<VoiceflowEnvelope<T>> => {
+    try {
+      const launch = await request(RUN_PATH, eventBody(reference, params), RUN_PATH);
+      const id = readLaunchID(launch, RUN_PATH);
+      const useStreaming =
         typeof config.streamMaxBytes === "number" &&
-        typeof config.streamMaxFrameBytes === "number"
-          ? startJobObservation(id, guard, true)
-          : startJobObservation(id, guard, false),
-      )
-      .catch((error) => Promise.reject(translateExecuteJobError(error)));
+        typeof config.streamMaxFrameBytes === "number";
+      return await startJobObservation(id, guard, useStreaming);
+    } catch (error) {
+      throw translateExecuteJobError(error);
+    }
+  };
 
   return { readEvent, executeEvent };
 };

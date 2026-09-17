@@ -79,6 +79,7 @@ export type CatalogEffect =
 
 export type CatalogTransition = Readonly<{
   readonly state: CatalogState;
+  readonly accepted: boolean;
   readonly effects: readonly CatalogEffect[];
 }>;
 
@@ -98,12 +99,13 @@ export const createCatalogState: CreateCatalogState = (
 
 const ignored = (state: CatalogState): CatalogTransition => ({
   state,
+  accepted: false,
   effects: [],
 });
 const accepted = (
   state: CatalogState,
   effects: readonly CatalogEffect[] = [],
-): CatalogTransition => ({ state, effects });
+): CatalogTransition => ({ state, accepted: true, effects });
 const isTerminal = (state: CatalogState): boolean =>
   ["COMPLETED", "FAILED", "TIMED_OUT"].includes(state.kind);
 const requestedTypeSet = (state: CatalogState): ReadonlySet<string> =>

@@ -49,13 +49,13 @@ export type FolderEffect =
   | { readonly kind: "close-socket" }
   | { readonly kind: "settle" };
 
-export type FolderTransition = Readonly<{ readonly state: FolderState; readonly effects: readonly FolderEffect[] }>;
+export type FolderTransition = Readonly<{ readonly state: FolderState; readonly accepted: boolean; readonly effects: readonly FolderEffect[] }>;
 
 type CreateFolderState = (context: FolderContext) => FolderState;
 export const createFolderState: CreateFolderState = (context) => ({ kind: "CONNECTING", context });
 
-const ignored = (state: FolderState): FolderTransition => ({ state, effects: [] });
-const accepted = (state: FolderState, effects: readonly FolderEffect[] = []): FolderTransition => ({ state, effects });
+const ignored = (state: FolderState): FolderTransition => ({ state, accepted: false, effects: [] });
+const accepted = (state: FolderState, effects: readonly FolderEffect[] = []): FolderTransition => ({ state, accepted: true, effects });
 const terminal = (state: FolderState): boolean => ["COMPLETED", "FAILED", "UNKNOWN_OUTCOME"].includes(state.kind);
 const isMutationState = (state: FolderState): state is Extract<FolderState, { readonly kind: "MUTATION_SENT" }> => state.kind === "MUTATION_SENT";
 const isScopedCompletion = (

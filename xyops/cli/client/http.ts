@@ -44,14 +44,18 @@ const fetchRequest: FetchRequest = async (
 ) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  return fetcher(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", "X-API-Key": apiKey },
-    body: JSON.stringify(body),
-    signal: controller.signal,
-  })
-    .catch((error) => Promise.reject(toFetchError(error, endpoint)))
-    .finally(() => clearTimeout(timeout));
+  try {
+    return await fetcher(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw toFetchError(error, endpoint);
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 type RequireHTTPResponse = (response: Response, endpoint: string) => Response;
@@ -69,15 +73,16 @@ type ParseJSONResponse = (
   response: Response,
   endpoint: string,
 ) => Promise<unknown>;
-const parseJSONResponse: ParseJSONResponse = (response, endpoint) =>
-  response.json().catch(() =>
-    Promise.reject(
-      fail("api", {
-        endpoint,
-        nextAction: "XYOps returned an invalid JSON response.",
-      }),
-    ),
-  );
+const parseJSONResponse: ParseJSONResponse = async (response, endpoint) => {
+  try {
+    return await response.json();
+  } catch {
+    throw fail("api", {
+      endpoint,
+      nextAction: "XYOps returned an invalid JSON response.",
+    });
+  }
+};
 
 type RequireXYOpsResponse = (value: unknown, endpoint: string) => XYOpsResponse;
 const requireXYOpsResponse: RequireXYOpsResponse = (value, endpoint) => {
@@ -129,10 +134,8 @@ export const fetchJSON: FetchJSON = async (
     await fetchRequest(fetcher, url, apiKey, body, timeoutMs, endpoint),
     endpoint,
   );
-  return validateAPIResponse(
-    await parseJSONResponse(response, endpoint),
-    endpoint,
-  );
+  const parsed = await parseJSONResponse(response, endpoint);
+  return validateAPIResponse(parsed, endpoint);
 };
 
 type FetchSSE = <T>(
@@ -153,27 +156,25 @@ export const fetchSSE: FetchSSE = async (
 ) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  return fetcher(url, {
-    method: "GET",
-    headers: { Accept: "text/event-stream", "X-API-Key": apiKey },
-    signal: controller.signal,
-  })
-    .catch((error) => Promise.reject(toFetchError(error, endpoint)))
-    .then((response) => {
-      if (!response.ok)
-        throw fail("http", {
-          endpoint,
-          status: response.status,
-          retryable: isRetryableStatus(response.status),
-        });
-      return readResponse(response);
-    })
-    .catch((error) =>
-      error instanceof CliError
-        ? Promise.reject(error)
-        : Promise.reject(toFetchError(error, endpoint)),
-    )
-    .finally(() => clearTimeout(timeout));
+  try {
+    const response = await fetcher(url, {
+      method: "GET",
+      headers: { Accept: "text/event-stream", "X-API-Key": apiKey },
+      signal: controller.signal,
+    });
+    if (!response.ok)
+      throw fail("http", {
+        endpoint,
+        status: response.status,
+        retryable: isRetryableStatus(response.status),
+      });
+    return await readResponse(response);
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw toFetchError(error, endpoint);
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 export const defaultSleep: Sleep = (milliseconds) =>

@@ -148,16 +148,14 @@ type CreateProjectSecrets = (
   assistantID: string,
   secrets: readonly SecretEntry[],
 ) => Promise<void>;
-export const createProjectSecrets: CreateProjectSecrets = (
+export const createProjectSecrets: CreateProjectSecrets = async (
   auth,
   assistantID,
   secrets,
-) =>
-  secrets.reduce(
-    (pending, secret) =>
-      pending.then(() => createSecret(auth, assistantID, secret)),
-    Promise.resolve(),
-  );
+) => {
+  for (const secret of secrets)
+    await createSecret(auth, assistantID, secret);
+};
 
 type ReconcileProjectSecrets = (
   auth: AuthContext,
@@ -165,18 +163,16 @@ type ReconcileProjectSecrets = (
   versionID: string,
   secrets: readonly SecretEntry[],
 ) => Promise<void>;
-export const reconcileProjectSecrets: ReconcileProjectSecrets = (
+export const reconcileProjectSecrets: ReconcileProjectSecrets = async (
   auth,
   assistantID,
   versionID,
   secrets,
-) =>
-  loadExistingSecrets(auth, versionID).then((existing) =>
-    secrets.reduce(
-      (pending, secret) => pending.then(() => reconcileSecret(auth, assistantID, existing, secret)),
-      Promise.resolve(),
-    ),
-  );
+) => {
+  const existing = await loadExistingSecrets(auth, versionID);
+  for (const secret of secrets)
+    await reconcileSecret(auth, assistantID, existing, secret);
+};
 
 const reconcileSecret = (
   auth: AuthContext,

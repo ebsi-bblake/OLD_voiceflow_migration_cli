@@ -22,10 +22,15 @@ import {
   type TraceFields,
 } from "./frame-contract";
 
+type CreateSecretDependencies = Readonly<{
+  readonly webSocket?: typeof WebSocket;
+}>;
+
 type CreateSecret = (
   auth: AuthContext,
   assistantID: string,
   secret: SecretEntry,
+  dependencies?: CreateSecretDependencies,
 ) => Promise<void>;
 
 const trace = (event: string, fields: TraceFields = {}): void =>
@@ -39,9 +44,15 @@ const traceFrame = (direction: "in" | "out", frame: LoguxFrame): void =>
     ...summarizeSecretFailureFrame(frame),
   });
 
-export const createSecret: CreateSecret = (auth, assistantID, secret) =>
+export const createSecret: CreateSecret = (
+  auth,
+  assistantID,
+  secret,
+  dependencies = {},
+) =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
+    const Socket = dependencies.webSocket ?? WebSocket;
+    const ws = new Socket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
     const clientID = createUUID()
       .replace(VoiceflowRegex.base64UrlDash, "")
       .slice(0, 8);
