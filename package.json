@@ -24,7 +24,8 @@
     "bdd:18": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/18-logux-wire-frame-fixtures/feature.feature' --import 'bdd/18-logux-wire-frame-fixtures/steps.js'",
     "bdd:19": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/19-migration-parameter-constants/feature.feature' --import 'bdd/19-migration-parameter-constants/steps.js'",
     "bdd:20": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/20-zod-boundary-validation/plugin-boundary.feature' --import 'bdd/20-zod-boundary-validation/steps.js'",
-    "bdd": "bun run bdd:18 && bun run bdd:19 && bun run bdd:20",
+    "bdd:21": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/21-diagnostic-contract-and-redaction/executable.feature' --import 'bdd/21-diagnostic-contract-and-redaction/steps.js'",
+    "bdd": "bun run bdd:18 && bun run bdd:19 && bun run bdd:20 && bun run bdd:21",
     "verify:cli": "bun scripts/validate-cli-artifacts.ts",
     "probe:network-secrets": "bun scripts/probe-network-secrets.ts",
     "check": "bun run lint && bun run typecheck && bun run test"
