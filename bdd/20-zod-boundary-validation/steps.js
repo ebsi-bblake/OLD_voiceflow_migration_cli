@@ -443,7 +443,8 @@ defineStep("its plugin diagnostic omits the secret value", function () {
 });
 
 defineStep("its plugin diagnostic contains only bounded issue metadata", function () {
-  assert.match(this.diagnostic, /invalid_type/);
+  assert.match(this.diagnostic, /code=INTERNAL_ERROR/);
+  assert.match(this.diagnostic, /domain=plugin/);
   assert.ok(this.diagnostic.length <= 320);
 });
 

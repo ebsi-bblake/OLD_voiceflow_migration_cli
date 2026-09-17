@@ -11,6 +11,10 @@ export type {
   WarningCode,
 } from "./types";
 import { VoiceflowRegex } from "./regex";
+import {
+  createDiagnostic,
+  createUnexpectedDiagnostic,
+} from "../diagnostics/create";
 import type {
   ErrorCode,
   Failure,
@@ -72,19 +76,21 @@ const containsSensitiveWord = (value: string): boolean =>
 type ToOperationError = (error: unknown) => OperationError;
 export const toOperationError: ToOperationError = (error) => {
   if (error instanceof OperationFault) {
+    const diagnostic = createDiagnostic(error, "core", "operation");
     return {
       code: error.code,
       message:
         error.diagnostic === undefined
           ? messages[error.code]
           : `${messages[error.code]} (stage=${error.diagnostic})`,
-      retryable: error.retryable,
+      retryable: diagnostic.retryable,
     };
   }
+  const diagnostic = createUnexpectedDiagnostic(error, "core", "operation");
   return {
     code: "INTERNAL_ERROR",
     message: safeUnexpectedErrorMessage(error),
-    retryable: false,
+    retryable: diagnostic.retryable,
   };
 };
 
