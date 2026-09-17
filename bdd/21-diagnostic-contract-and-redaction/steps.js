@@ -204,3 +204,36 @@ defineStep("its diagnostic stage is {string}", function (stage) {
 defineStep("its diagnostic code is {string}", function (code) {
   assert.equal(this.value.code, code);
 });
+
+defineStep("a failure with code {string} is converted at the core boundary", function (code) {
+  this.value = createDiagnostic({ code, retryable: false }, "core", "operation");
+});
+
+defineStep("a failure with code {string} is converted at the CLI boundary", function (code) {
+  this.value = createDiagnostic({ code, retryable: true }, "cli", "observation");
+});
+
+defineStep("its diagnostic nextAction is {string}", function (action) {
+  assert.equal(this.value.nextAction, action);
+});
+
+defineStep("a core diagnostic is translated by the plugin boundary", function () {
+  this.value = appendDiagnosticCause(
+    createDiagnostic({ code: "PLAN_MISMATCH", retryable: false }, "core", "planning"),
+    {
+      domain: "plugin",
+      code: "PLAN_MISMATCH",
+      stage: "response",
+      retryable: false,
+      context: {},
+    },
+  );
+});
+
+defineStep("the translated diagnostic keeps its original code", function () {
+  assert.equal(this.value.code, "PLAN_MISMATCH");
+});
+
+defineStep("the translated diagnostic has a plugin cause", function () {
+  assert.equal(this.value.causes.at(-1).domain, "plugin");
+});

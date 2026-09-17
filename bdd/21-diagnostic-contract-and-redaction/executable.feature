@@ -54,3 +54,22 @@ Feature: Execute BDD21 diagnostic contract slices
     Then its diagnostic domain is "plugin"
     And its diagnostic stage is "response"
     And its diagnostic code is "INVALID_INPUT"
+
+  Scenario: Preserve compatibility identifiers in canonical diagnostics
+    When a failure with code "PLAN_MISMATCH" is converted at the core boundary
+    Then its diagnostic code is "PLAN_MISMATCH"
+    When a failure with code "AUTHENTICATION_FAILED" is converted at the core boundary
+    Then its diagnostic code is "AUTHENTICATION_FAILED"
+
+  Scenario: Preserve unknown execute guidance
+    When a failure with code "EXECUTE_OUTCOME_UNKNOWN" is converted at the CLI boundary
+    Then its diagnostic nextAction is "Reconcile the execute job before retrying"
+
+  Scenario: Preserve unknown import guidance
+    When a failure with code "IMPORT_OUTCOME_UNKNOWN" is converted at the core boundary
+    Then its diagnostic nextAction is "Reconcile the destination project before retrying"
+
+  Scenario: Translate a diagnostic without replacing its identity
+    When a core diagnostic is translated by the plugin boundary
+    Then the translated diagnostic keeps its original code
+    And the translated diagnostic has a plugin cause

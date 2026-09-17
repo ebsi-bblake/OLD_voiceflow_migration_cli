@@ -52,6 +52,8 @@ const actionFor = (code: string): string => {
     return "Check configuration and migration inputs";
   if (code === "IMPORT_OUTCOME_UNKNOWN")
     return "Reconcile the destination project before retrying";
+  if (code === "EXECUTE_OUTCOME_UNKNOWN")
+    return "Reconcile the execute job before retrying";
   if (code === "PLAN_MISMATCH")
     return "Re-run planning and confirm the plan ID";
   return "Retry only when the diagnostic policy permits it";
