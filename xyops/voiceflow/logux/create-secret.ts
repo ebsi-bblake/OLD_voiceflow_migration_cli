@@ -10,6 +10,16 @@ import {
   type SecretEvent,
   type SecretState,
 } from "./state-machine";
+import {
+  isSecretCompletion,
+  isSecretFailure,
+  isSubscriptionComplete,
+  parseLoguxFrame,
+  summarizeLoguxAction,
+  summarizeSecretFailureFrame,
+  type LoguxFrame,
+  type TraceFields,
+} from "./frame-contract";
 
 type CreateSecret = (
   auth: AuthContext,
@@ -17,26 +27,14 @@ type CreateSecret = (
   secret: SecretEntry,
 ) => Promise<void>;
 
-type TraceFields = Readonly<Record<string, unknown>>;
 const trace = (event: string, fields: TraceFields = {}): void =>
   debugLog("logux-secret", event, fields);
 
-const actionSummary = (frame: Frame): TraceFields => {
-  const action = frame[2];
-  if (!isRecord(action)) return {};
-  const meta = isRecord(action.meta) ? action.meta : {};
-  return {
-    actionType: typeof action.type === "string" ? action.type : undefined,
-    actionID: typeof meta.actionID === "string" ? meta.actionID : undefined,
-    processedID: typeof action.id === "string" ? action.id : undefined,
-  };
-};
-
-const traceFrame = (direction: "in" | "out", frame: Frame): void =>
+const traceFrame = (direction: "in" | "out", frame: LoguxFrame): void =>
   trace(`${direction} frame`, {
     frameType: frame[0],
     syncID: frame[1],
-    ...actionSummary(frame),
+    ...summarizeLoguxAction(frame),
     ...summarizeSecretFailureFrame(frame),
   });
 
@@ -105,7 +103,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
     };
     ws.onopen = () => {
       dispatch({ kind: "socket-open" });
-      const frame: Frame = [
+      const frame: LoguxFrame = [
         "connect",
         4,
         origin,
@@ -125,7 +123,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
     };
     ws.onmessage = (event) => {
       if (typeof event.data !== "string") return;
-      const frame = parseFrame(event.data);
+      const frame = parseLoguxFrame(event.data);
       if (!frame) return;
       traceFrame("in", frame);
       if (frame[0] === "error") {
@@ -168,7 +166,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
         }
         return;
       }
-      if (isFailedFrame(frame, actionID)) {
+      if (isSecretFailure(frame, actionID)) {
         const lifecycle = state.kind.toLowerCase();
         dispatch({ kind: "error-frame" });
         return settle(
@@ -179,7 +177,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret) =>
           ),
         );
       }
-      if (isDoneFrame(frame, actionID, assistantID)) {
+      if (isSecretCompletion(frame, actionID, assistantID)) {
         dispatch({ kind: "secret-done", actionID });
         settle();
       }
@@ -192,7 +190,7 @@ const sendSubscription = (
   subscriptionID: number,
   time: number,
 ): void => {
-  const frame: Frame = [
+  const frame: LoguxFrame = [
     "sync",
     subscriptionID,
     {
@@ -205,11 +203,6 @@ const sendSubscription = (
   traceFrame("out", frame);
   ws.send(JSON.stringify(frame));
 };
-const isSubscriptionComplete = (
-  frame: Frame,
-  subscriptionID: number,
-): boolean => frame[0] === "synced" && frame[1] === subscriptionID;
-
 const sendCreateAction = (
   ws: WebSocket,
   assistantID: string,
@@ -219,7 +212,7 @@ const sendCreateAction = (
   mutationSyncID: number,
   time: number,
 ): void => {
-  const frame: Frame = [
+  const frame: LoguxFrame = [
     "sync",
     mutationSyncID,
     {
@@ -241,63 +234,3 @@ const sendCreateAction = (
 };
 const randomActionNumber = (): number =>
   Math.floor(Math.random() * 1_000_000_000) + 1;
-
-type Frame = readonly unknown[];
-const parseFrame = (text: string): Frame | undefined => {
-  try {
-    const value: unknown = JSON.parse(text);
-    return Array.isArray(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-};
-type SummarizeSecretFailureFrame = (frame: Frame) => TraceFields;
-export const summarizeSecretFailureFrame: SummarizeSecretFailureFrame = (frame) => {
-  const action = frame[2];
-  if (!isRecord(action) || action.type !== "secret.CREATE_ONE_FAILED") return {};
-  const payload = isRecord(action.payload) ? action.payload : undefined;
-  const error = payload && isRecord(payload.error) ? payload.error : undefined;
-  return {
-    failureCode: safeFailureText(error?.code),
-    failureMessage: safeFailureText(error?.message),
-    failureDetails: error === undefined ? "missing" : "opaque",
-  };
-};
-const safeFailureText = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined;
-  const sanitized = value
-    .replace(VoiceflowRegex.redactedBearer, "Bearer [redacted]")
-    .replace(VoiceflowRegex.voiceflowAPIKey, "VF.DM.[redacted]")
-    .replace(VoiceflowRegex.redactedURL, "[redacted-url]")
-    .replace(VoiceflowRegex.longSecretToken, "[redacted-token]")
-    .replace(VoiceflowRegex.controlCharacter, " ")
-    .replace(VoiceflowRegex.whitespace, " ")
-    .trim();
-  return sanitized.length <= 480
-    ? sanitized
-    : `${sanitized.slice(0, 240)} … ${sanitized.slice(-240)}`;
-};
-const isFailedFrame = (frame: Frame, actionID: string): boolean => {
-  const action = frame[2];
-  if (!isRecord(action) || action.type !== "secret.CREATE_ONE_FAILED")
-    return false;
-  const meta = action.meta;
-  return isRecord(meta) && meta.actionID === actionID;
-};
-const isDoneFrame = (
-  frame: Frame,
-  actionID: string,
-  assistantID: string,
-): boolean => {
-  const action = frame[2];
-  if (!isRecord(action) || action.type !== "secret.CREATE_ONE_DONE")
-    return false;
-  const meta = action.meta;
-  if (!isRecord(meta) || meta.actionID !== actionID) return false;
-  const payload = isRecord(action.payload) ? action.payload : undefined;
-  const result = payload && isRecord(payload.result) ? payload.result : undefined;
-  const context = result && isRecord(result.context) ? result.context : undefined;
-  return context?.assistantID === assistantID;
-};
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);

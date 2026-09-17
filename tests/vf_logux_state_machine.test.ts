@@ -10,7 +10,13 @@ import {
   createCatalogState,
   transitionCatalogState,
 } from "../xyops/voiceflow/logux/catalog-state-machine";
-import { summarizeSecretFailureFrame } from "../xyops/voiceflow/logux/create-secret";
+import {
+  isSecretCompletion,
+  isSecretFailure,
+  isSubscriptionComplete,
+  parseLoguxFrame,
+  summarizeSecretFailureFrame,
+} from "../xyops/voiceflow/logux/frame-contract";
 import {
   createFolderState,
   transitionFolderState,
@@ -244,6 +250,31 @@ describe("Logux state machines", () => {
     expect(bypassRename(renameContext).kind).toBe("BYPASSED_NO_COLLISION");
   });
 
+  test("exports the wire-frame contract for BDD adapters", () => {
+    expect(parseLoguxFrame("not-json")).toBeUndefined();
+    expect(parseLoguxFrame("{}")).toBeUndefined();
+    expect(isSubscriptionComplete(["synced", 101], 101)).toBe(true);
+    expect(isSubscriptionComplete(["synced", 102], 101)).toBe(false);
+    expect(
+      isSecretFailure([
+        "sync",
+        0,
+        { type: "secret.CREATE_ONE_FAILED", meta: { actionID: "action-1" } },
+      ], "action-1"),
+    ).toBe(true);
+    expect(
+      isSecretCompletion([
+        "sync",
+        0,
+        {
+          type: "secret.CREATE_ONE_DONE",
+          payload: { result: { context: { assistantID: "assistant-id" } } },
+          meta: { actionID: "action-1" },
+        },
+      ], "action-1", "assistant-id"),
+    ).toBe(true);
+  });
+
   test("summarizes secret failures without exposing sensitive detail", () => {
     const summary = summarizeSecretFailureFrame([
       "sync",
@@ -261,23 +292,30 @@ describe("Logux state machines", () => {
     ]);
 
     expect(summary).toEqual({
-      failureCode: "secret.invalid-value",
-      failureMessage: "Bearer [redacted] VF.DM.[redacted] [redacted-url]",
-      failureDetails: "opaque",
+      failureCause: {
+        kind: "dependency-failure",
+        code: "dependency-failed",
+      },
     });
     expect(JSON.stringify(summary)).not.toContain("eyJheader.payload.signature");
     expect(JSON.stringify(summary)).not.toContain("fake-value");
+    expect(JSON.stringify(summary)).not.toContain("secret.invalid-value");
+    expect(JSON.stringify(summary)).not.toContain("private");
 
-    const longMessage = summarizeSecretFailureFrame([
+    const payloadWithSensitiveFields = summarizeSecretFailureFrame([
       "sync",
       20,
       {
         type: "secret.CREATE_ONE_FAILED",
-        payload: { error: { message: `${"head ".repeat(100)}tail-reason` } },
+        payload: {
+          error: {
+            code: "Bearer eyJheader.payload.signature",
+            message: "secret details",
+          },
+        },
       },
     ]);
-    expect(longMessage.failureMessage).toContain("tail-reason");
-    expect(longMessage.failureMessage?.length).toBeLessThanOrEqual(484);
+    expect(payloadWithSensitiveFields).toEqual(summary);
   });
 
   test("requires the matching secret action ID", () => {
