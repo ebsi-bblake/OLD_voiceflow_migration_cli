@@ -21,6 +21,9 @@ import { normalizeVoiceflowResponse } from "../guards";
 import {
   createJobObservationState,
   transitionJobObservation,
+  type JobObservationEffect,
+  type JobObservationEvent,
+  type JobObservationState,
 } from "./job-observation-state-machine";
 
 const RUN_PATH = "/api/app/run_event/v1";
@@ -103,26 +106,6 @@ export const createXYOpsClient = (
       guard,
     );
 
-  const reconcileAfterStreamFailure = <T>(
-    id: string,
-    guard: ResponseGuard<VoiceflowEnvelope<T>>,
-  ): Promise<VoiceflowEnvelope<T>> =>
-    pollJob(id, request, sleeper, config, guard).catch((error) => {
-      const diagnostic = readCliDiagnostic(error);
-      if (
-        diagnostic?.code === "job" &&
-        diagnostic.nextAction !== "The migration execute job failed."
-      )
-        return Promise.reject(
-          fail("execute-outcome-unknown", {
-            endpoint: JOB_PATH,
-            nextAction:
-              "The execute job outcome is unknown; reconcile before retrying.",
-          }),
-        );
-      return Promise.reject(error);
-    });
-
   const readTerminalStream = <T>(
     id: string,
     guard: ResponseGuard<VoiceflowEnvelope<T>>,
@@ -139,14 +122,8 @@ export const createXYOpsClient = (
       },
     ).catch((error) =>
       readCliDiagnostic(error) === undefined
-        ? Promise.reject(
-            fail("execute-outcome-unknown", {
-              endpoint: "/api/app/stream_job/v1",
-              nextAction:
-                "The execute stream outcome is unknown; reconcile before retrying.",
-            }),
-          )
-        : reconcileAfterStreamFailure(id, guard),
+        ? Promise.reject(new Error("stream-transport-unknown"))
+        : Promise.reject(error),
     );
     return streamOrJob.then((streamOrJobResult) => {
       if (!("kind" in streamOrJobResult)) return streamOrJobResult;
@@ -164,7 +141,7 @@ export const createXYOpsClient = (
         );
         return requireEnvelope(output, guard, "/api/app/stream_job/v1");
       } catch {
-        return reconcileAfterStreamFailure(id, guard);
+        return Promise.reject(new Error("stream-result-invalid"));
       }
     });
   };
@@ -172,20 +149,39 @@ export const createXYOpsClient = (
   const startJobObservation = <T>(
     id: string,
     guard: ResponseGuard<VoiceflowEnvelope<T>>,
+    useStreaming: boolean,
   ): Promise<VoiceflowEnvelope<T>> => {
-    const transition = transitionJobObservation(
-      createJobObservationState(id),
-      { kind: "execute-dispatched", jobID: id },
-    );
-    return transition.state.kind === "STREAMING"
-      ? readTerminalStream(id, guard)
-      : Promise.reject(
-          fail("execute-outcome-unknown", {
-            endpoint: RUN_PATH,
-            retryable: true,
-            nextAction: "The execute observation could not start; reconcile before retrying.",
-          }),
-        );
+    let state: JobObservationState = createJobObservationState(id);
+    const dispatch = (event: JobObservationEvent): readonly JobObservationEffect[] => {
+      const transition = transitionJobObservation(state, event);
+      if (transition.accepted) state = transition.state;
+      return transition.effects;
+    };
+    const poll = (): Promise<VoiceflowEnvelope<T>> =>
+      pollJob(id, request, sleeper, config, guard)
+        .then((result) => { dispatch({ kind: "job-succeeded" }); return result; })
+        .catch((error) => {
+          const diagnostic = readCliDiagnostic(error);
+          dispatch(diagnostic?.code === "job" ? { kind: "job-failed" } : { kind: "poll-timeout" });
+          if (useStreaming && diagnostic?.code === "job" && diagnostic.nextAction !== "The migration execute job failed.")
+            return Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH, nextAction: "The execute job outcome is unknown; reconcile before retrying." }));
+          return Promise.reject(error);
+        });
+    const stream = (): Promise<VoiceflowEnvelope<T>> =>
+      readTerminalStream(id, guard)
+        .then((result) => { dispatch({ kind: "stream-succeeded" }); return result; })
+        .catch((error) => {
+          const effects = dispatch({ kind: "stream-failed" });
+          const diagnostic = readCliDiagnostic(error);
+          const shouldPoll = (diagnostic !== undefined && diagnostic.code !== "job") || (error instanceof Error && ["stream-result-invalid", "stream-transport-unknown"].includes(error.message));
+          return shouldPoll && effects.some((effect) => effect.kind === "start-polling") ? poll() : Promise.reject(error);
+        });
+    const effects = dispatch({ kind: "execute-dispatched", jobID: id });
+    if (!useStreaming) {
+      dispatch({ kind: "polling-started" });
+      return poll();
+    }
+    return effects.some((effect) => effect.kind === "start-stream") ? stream() : poll();
   };
 
   const executeEvent = <T>(
@@ -199,8 +195,8 @@ export const createXYOpsClient = (
       .then((id) =>
         typeof config.streamMaxBytes === "number" &&
         typeof config.streamMaxFrameBytes === "number"
-          ? startJobObservation(id, guard)
-          : pollJob(id, request, sleeper, config, guard),
+          ? startJobObservation(id, guard, true)
+          : startJobObservation(id, guard, false),
       )
       .catch((error) => Promise.reject(translateExecuteJobError(error)));
 

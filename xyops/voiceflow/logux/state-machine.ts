@@ -86,8 +86,16 @@ export type RenameEvent =
 
 export type RenameEffect =
   | { readonly kind: "send-subscription"; readonly syncID: number }
-  | { readonly kind: "send-mutation"; readonly syncID: number; readonly actionID: string }
-  | { readonly kind: "start-catalog-retry"; readonly retryCount: number; readonly deadline: number }
+  | {
+      readonly kind: "send-mutation";
+      readonly syncID: number;
+      readonly actionID: string;
+    }
+  | {
+      readonly kind: "start-catalog-retry";
+      readonly retryCount: number;
+      readonly deadline: number;
+    }
   | { readonly kind: "close-socket" }
   | { readonly kind: "settle" };
 
@@ -97,9 +105,7 @@ export type RenameTransition = Readonly<{
   readonly effects: readonly RenameEffect[];
 }>;
 
-type CreateRenameState = (
-  context: RenameStateContext,
-) => RenameState;
+type CreateRenameState = (context: RenameStateContext) => RenameState;
 export const createRenameState: CreateRenameState = (context) => ({
   kind: "CONNECTING",
   context,
@@ -136,7 +142,10 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
     return ignored(state);
 
   if (event.kind === "project-patch") {
-    if (state.kind !== "MUTATION_SENT" && state.kind !== "MUTATION_ACKNOWLEDGED")
+    if (
+      state.kind !== "MUTATION_SENT" &&
+      state.kind !== "MUTATION_ACKNOWLEDGED"
+    )
       return ignored(state);
     return event.matches
       ? accepted({ ...state, patchObserved: true })
@@ -148,7 +157,11 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
 
   if (event.kind === "connected" && state.kind === "CONNECTED")
     return accepted(
-      { ...state, kind: "SUBSCRIBING", subscriptionSyncID: event.subscriptionSyncID },
+      {
+        ...state,
+        kind: "SUBSCRIBING",
+        subscriptionSyncID: event.subscriptionSyncID,
+      },
       [{ kind: "send-subscription", syncID: event.subscriptionSyncID }],
     );
 
@@ -159,10 +172,7 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
   )
     return accepted({ ...state, kind: "SUBSCRIBED" });
 
-  if (
-    event.kind === "mutation-sent" &&
-    state.kind === "SUBSCRIBED"
-  )
+  if (event.kind === "mutation-sent" && state.kind === "SUBSCRIBED")
     return accepted(
       {
         kind: "MUTATION_SENT",
@@ -172,7 +182,13 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
         actionID: event.actionID,
         patchObserved: false,
       },
-      [{ kind: "send-mutation", syncID: event.mutationSyncID, actionID: event.actionID }],
+      [
+        {
+          kind: "send-mutation",
+          syncID: event.mutationSyncID,
+          actionID: event.actionID,
+        },
+      ],
     );
 
   if (
@@ -194,7 +210,11 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
   if (event.kind === "catalog-result" && state.kind === "MUTATION_ACKNOWLEDGED")
     return accepted(
       event.matches
-        ? { kind: "COMPLETED", context: state.context, patchObserved: state.patchObserved }
+        ? {
+            kind: "COMPLETED",
+            context: state.context,
+            patchObserved: state.patchObserved,
+          }
         : {
             kind: "CATALOG_RECONCILING",
             context: state.context,
@@ -205,13 +225,23 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
           },
       event.matches
         ? [{ kind: "settle" }]
-        : [{ kind: "start-catalog-retry", retryCount: event.retryCount, deadline: event.deadline }],
+        : [
+            {
+              kind: "start-catalog-retry",
+              retryCount: event.retryCount,
+              deadline: event.deadline,
+            },
+          ],
     );
 
   if (event.kind === "catalog-result" && state.kind === "CATALOG_RECONCILING")
     return accepted(
       event.matches
-        ? { kind: "COMPLETED", context: state.context, patchObserved: state.patchObserved }
+        ? {
+            kind: "COMPLETED",
+            context: state.context,
+            patchObserved: state.patchObserved,
+          }
         : {
             ...state,
             retryCount: event.retryCount,
@@ -220,7 +250,13 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
           },
       event.matches
         ? [{ kind: "settle" }]
-        : [{ kind: "start-catalog-retry", retryCount: event.retryCount, deadline: event.deadline }],
+        : [
+            {
+              kind: "start-catalog-retry",
+              retryCount: event.retryCount,
+              deadline: event.deadline,
+            },
+          ],
     );
 
   if (event.kind === "error-frame" || event.kind === "socket-error")
@@ -246,11 +282,20 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
     );
 
   if (event.kind === "catalog-retry" && state.kind === "CATALOG_RECONCILING")
-    return accepted({
-      ...state,
-      retryCount: event.retryCount,
-      deadline: event.deadline,
-    }, [{ kind: "start-catalog-retry", retryCount: event.retryCount, deadline: event.deadline }]);
+    return accepted(
+      {
+        ...state,
+        retryCount: event.retryCount,
+        deadline: event.deadline,
+      },
+      [
+        {
+          kind: "start-catalog-retry",
+          retryCount: event.retryCount,
+          deadline: event.deadline,
+        },
+      ],
+    );
 
   if (event.kind === "socket-close")
     return accepted(
@@ -270,10 +315,39 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
 };
 
 export type SecretState =
-  | { readonly kind: "CONNECTING" | "CONNECTED" | "SUBSCRIBING" | "SUBSCRIBED"; readonly assistantID: string; readonly actionID: string }
-  | { readonly kind: "MUTATION_SENT"; readonly assistantID: string; readonly actionID: string; readonly mutationSyncID: number }
-  | { readonly kind: "COMPLETED"; readonly assistantID: string; readonly actionID: string }
-  | { readonly kind: "FAILED" | "UNKNOWN_OUTCOME"; readonly assistantID: string; readonly actionID: string; readonly code: "DEPENDENCY_FAILURE" | "DEPENDENCY_TIMEOUT" };
+  | {
+      readonly kind: "CONNECTING" | "CONNECTED" | "SUBSCRIBING" | "SUBSCRIBED";
+      readonly assistantID: string;
+      readonly actionID: string;
+    }
+  | {
+      readonly kind: "MUTATION_SENT";
+      readonly assistantID: string;
+      readonly actionID: string;
+      readonly mutationSyncID: number;
+    }
+  | {
+      readonly kind: "COMPLETED";
+      readonly assistantID: string;
+      readonly actionID: string;
+    }
+  | {
+      readonly kind: "FAILED" | "UNKNOWN_OUTCOME";
+      readonly assistantID: string;
+      readonly actionID: string;
+      readonly code: "DEPENDENCY_FAILURE" | "DEPENDENCY_TIMEOUT";
+    };
+
+export type SecretEffect =
+  | { readonly kind: "send-subscription" }
+  | { readonly kind: "send-mutation"; readonly mutationSyncID: number }
+  | { readonly kind: "close-socket" }
+  | { readonly kind: "settle" };
+
+export type SecretTransition = Readonly<{
+  readonly state: SecretState;
+  readonly effects: readonly SecretEffect[];
+}>;
 
 export type SecretEvent =
   | { readonly kind: "socket-open" }
@@ -290,26 +364,81 @@ type TransitionSecretState = (
   state: SecretState,
   event: SecretEvent,
 ) => SecretState;
-export const transitionSecretState: TransitionSecretState = (state, event) => {
-  if (state.kind === "COMPLETED" || state.kind === "FAILED" || state.kind === "UNKNOWN_OUTCOME") return state;
-  if (event.kind === "socket-open" && state.kind === "CONNECTING") return { ...state, kind: "CONNECTED" };
-  if (event.kind === "connected" && state.kind === "CONNECTED") return { ...state, kind: "SUBSCRIBING" };
-  if (event.kind === "subscription-synced" && state.kind === "SUBSCRIBING") return { ...state, kind: "SUBSCRIBED" };
-  if (event.kind === "mutation-sent" && state.kind === "SUBSCRIBED") return { ...state, kind: "MUTATION_SENT", mutationSyncID: event.mutationSyncID };
-  if (event.kind === "secret-done" && state.kind === "MUTATION_SENT" && event.actionID === state.actionID) return { kind: "COMPLETED", assistantID: state.assistantID, actionID: state.actionID };
-  if (event.kind === "error-frame" || event.kind === "socket-error") return { ...state, kind: "FAILED", code: "DEPENDENCY_FAILURE" };
+export const transitionSecretStateWithEffects = (
+  state: SecretState,
+  event: SecretEvent,
+): SecretTransition => {
+  if (
+    state.kind === "COMPLETED" ||
+    state.kind === "FAILED" ||
+    state.kind === "UNKNOWN_OUTCOME"
+  )
+    return { state, effects: [] };
+  if (event.kind === "socket-open" && state.kind === "CONNECTING")
+    return { state: { ...state, kind: "CONNECTED" }, effects: [] };
+  if (event.kind === "connected" && state.kind === "CONNECTED")
+    return {
+      state: { ...state, kind: "SUBSCRIBING" },
+      effects: [{ kind: "send-subscription" }],
+    };
+  if (event.kind === "subscription-synced" && state.kind === "SUBSCRIBING")
+    return { state: { ...state, kind: "SUBSCRIBED" }, effects: [] };
+  if (event.kind === "mutation-sent" && state.kind === "SUBSCRIBED")
+    return {
+      state: {
+        ...state,
+        kind: "MUTATION_SENT",
+        mutationSyncID: event.mutationSyncID,
+      },
+      effects: [
+        { kind: "send-mutation", mutationSyncID: event.mutationSyncID },
+      ],
+    };
+  if (
+    event.kind === "secret-done" &&
+    state.kind === "MUTATION_SENT" &&
+    event.actionID === state.actionID
+  )
+    return {
+      state: {
+        kind: "COMPLETED",
+        assistantID: state.assistantID,
+        actionID: state.actionID,
+      },
+      effects: [{ kind: "close-socket" }, { kind: "settle" }],
+    };
+  if (event.kind === "error-frame" || event.kind === "socket-error")
+    return {
+      state: { ...state, kind: "FAILED", code: "DEPENDENCY_FAILURE" },
+      effects: [{ kind: "close-socket" }, { kind: "settle" }],
+    };
   if (event.kind === "socket-close")
     return {
-      ...state,
-      kind: state.kind === "MUTATION_SENT" ? "UNKNOWN_OUTCOME" : "FAILED",
-      code: "DEPENDENCY_FAILURE",
+      state: {
+        ...state,
+        kind: state.kind === "MUTATION_SENT" ? "UNKNOWN_OUTCOME" : "FAILED",
+        code: "DEPENDENCY_FAILURE",
+      },
+      effects: [{ kind: "settle" }],
     };
-  if (event.kind === "timeout") return { ...state, kind: "UNKNOWN_OUTCOME", code: "DEPENDENCY_TIMEOUT" };
-  return state;
+  if (event.kind === "timeout")
+    return {
+      state: { ...state, kind: "UNKNOWN_OUTCOME", code: "DEPENDENCY_TIMEOUT" },
+      effects: [{ kind: "close-socket" }, { kind: "settle" }],
+    };
+  return { state, effects: [] };
 };
+export const transitionSecretState: TransitionSecretState = (state, event) =>
+  transitionSecretStateWithEffects(state, event).state;
 
-export type CreateSecretState = (assistantID: string, actionID: string) => SecretState;
-export const createSecretState: CreateSecretState = (assistantID, actionID) => ({
+export type CreateSecretState = (
+  assistantID: string,
+  actionID: string,
+) => SecretState;
+export const createSecretState: CreateSecretState = (
+  assistantID,
+  actionID,
+) => ({
   kind: "CONNECTING",
   assistantID,
   actionID,
