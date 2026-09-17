@@ -1,0 +1,1467 @@
+# Notebook bundle: 05-voiceflow-core.txt
+# Source snapshot: 20 TypeScript files
+# Split using the explicit path markers below.
+
+===== BEGIN xyops/voiceflow/api_key.ts =====
+import type { AuthContext } from "./types";
+import { requestBytes } from "./http";
+import { VoiceflowRegex } from "./regex";
+import { isRecord } from "./guards";
+import type { ApiKeyDiagnostic, ApiKeyStatus } from "./types";
+import { VOICEFLOW_IDENTITY_ORIGIN, encodePathSegment } from "./urls";
+import { OperationFault } from "./contracts";
+
+export type { ApiKeyDiagnostic, ApiKeyStatus } from "./types";
+
+const API_KEY_RETRIEVAL_FAILED: ApiKeyDiagnostic = {
+  code: "API_KEY_RETRIEVAL_FAILED",
+  message: "Project API key could not be retrieved.",
+};
+const PROJECT_ID_UNAVAILABLE: ApiKeyDiagnostic = {
+  code: "PROJECT_ID_UNAVAILABLE",
+  message: "Imported project ID was unavailable.",
+};
+
+type SuccessfulApiKeyOutcome = () => ApiKeyStatus;
+const successfulApiKeyOutcome: SuccessfulApiKeyOutcome = () => {
+  return { apiKeyRetrieved: true };
+};
+
+type FailedApiKeyOutcome = (diagnostic: ApiKeyDiagnostic) => ApiKeyStatus;
+const failedApiKeyOutcome: FailedApiKeyOutcome = (diagnostic) => {
+  return {
+    apiKeyRetrieved: false,
+    postImport: {
+      apiKeyRetrieved: false,
+      diagnostic,
+    },
+  };
+};
+
+type MissingProjectApiKeyOutcome = () => ApiKeyStatus;
+const missingProjectApiKeyOutcome: MissingProjectApiKeyOutcome = () => {
+  return failedApiKeyOutcome(PROJECT_ID_UNAVAILABLE);
+};
+
+type FailedApiKeyRetrievalOutcome = () => ApiKeyStatus;
+const failedApiKeyRetrievalOutcome: FailedApiKeyRetrievalOutcome = () => {
+  return failedApiKeyOutcome(API_KEY_RETRIEVAL_FAILED);
+};
+
+type KeyCandidates = (value: unknown) => string[];
+const keyCandidates: KeyCandidates = (value) => {
+  if (typeof value === "string") return [value.trim()];
+  if (Array.isArray(value)) return value.flatMap((entry) => keyCandidates(entry));
+  return recordKeyCandidates(value);
+};
+const recordKeyCandidates = (value: unknown): string[] => {
+  if (!isRecord(value)) return [];
+  return keyFields.flatMap((field) => stringValue(value[field]));
+};
+const keyFields = ["apiKey", "api_key", "key", "token"] as const;
+const stringValue = (value: unknown): string[] =>
+  typeof value === "string" ? [value.trim()] : [];
+
+type ParseKeys = (bytes: ArrayBuffer) => string[];
+const parseKeys: ParseKeys = (bytes) => {
+  const text = new TextDecoder().decode(bytes).trim();
+  try {
+    const value: unknown = JSON.parse(text);
+    return keyCandidates(value);
+  } catch {
+    return keyCandidates(text);
+  }
+};
+
+type SelectVoiceflowApiKeys = (keys: readonly string[]) => string[];
+const selectVoiceflowApiKeys: SelectVoiceflowApiKeys = (keys) =>
+  keys.filter((key) => VoiceflowRegex.projectAPIKey.test(key));
+
+type DeduplicateStrings = (values: readonly string[]) => string[];
+const deduplicateStrings: DeduplicateStrings = (values) => [...new Set(values)];
+
+type RetrieveProjectApiKey = (
+  auth: AuthContext,
+  projectID: string,
+) => Promise<string>;
+export const retrieveProjectApiKey: RetrieveProjectApiKey = async (
+  auth,
+  projectID,
+) => {
+  const id = normalizeProjectID(projectID);
+  if (!id) throw new OperationFault("DEPENDENCY_FAILURE", true);
+  return retrieveValidatedApiKey(auth, id).catch((error: unknown) => {
+    if (error instanceof OperationFault) throw error;
+    throw new OperationFault("DEPENDENCY_FAILURE", true);
+  });
+};
+
+type RetrieveApiKeyStatus = (
+  auth: AuthContext,
+  projectID?: string,
+) => Promise<ApiKeyStatus>;
+export const retrieveApiKeyStatus: RetrieveApiKeyStatus = async (
+  auth,
+  projectID,
+) => {
+  const id = normalizeProjectID(projectID);
+  if (!id) return missingProjectApiKeyOutcome();
+  return retrieveApiKeyStatusForProject(auth, id);
+};
+const retrieveApiKeyStatusForProject = async (
+  auth: AuthContext,
+  id: string,
+): Promise<ApiKeyStatus> =>
+  retrieveValidatedApiKey(auth, id)
+    .then(() => successfulApiKeyOutcome())
+    .catch(() => failedApiKeyRetrievalOutcome());
+const retrieveValidatedApiKey = async (
+  auth: AuthContext,
+  id: string,
+): Promise<string> => {
+  const response = await requestBytes({
+    url: `${VOICEFLOW_IDENTITY_ORIGIN}/v1alpha1/api-key/legacy/project/${encodePathSegment(id)}`,
+    init: {
+      method: "GET",
+      headers: {
+        Accept: "*/*",
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: null,
+    },
+    maxBytes: 1_048_576,
+    timeoutMs: 30_000,
+  });
+  const keys = deduplicateStrings(
+    selectVoiceflowApiKeys(parseKeys(response.bytes)),
+  );
+  if (!isSuccessfulStatus(response.status))
+    throw new OperationFault(
+      "DEPENDENCY_FAILURE",
+      true,
+      `api-key-http-${response.status}-project-${id}`,
+    );
+  if (!hasApiKey(keys))
+    throw new OperationFault(
+      "DEPENDENCY_FAILURE",
+      true,
+      `api-key-response-project-${id}`,
+    );
+  return keys[0];
+};
+const normalizeProjectID = (
+  projectID: string | undefined,
+): string | undefined =>
+  projectID === undefined ? undefined : projectID.trim();
+
+const isSuccessfulStatus = (status: number): boolean =>
+  status >= 200 && status < 300;
+const hasApiKey = (keys: readonly string[]): boolean => keys.length > 0;
+===== END xyops/voiceflow/api_key.ts =====
+
+===== BEGIN xyops/voiceflow/archive.ts =====
+import { Temporal } from "@js-temporal/polyfill";
+import { OperationFault } from "./contracts";
+import type { ProjectRecord } from "./types";
+
+export type ArchiveClock = Readonly<{ now: () => Date }>;
+export type ArchiveCandidate = Readonly<{
+  project: ProjectRecord;
+  name: string;
+}>;
+
+const archiveTimestamp = (date: Date): string => {
+  const localDateTime = Temporal.Instant.fromEpochMilliseconds(
+    date.getTime(),
+  ).toZonedDateTimeISO(Temporal.Now.timeZoneId());
+  const part = (value: number): string => String(value).padStart(2, "0");
+  return `${localDateTime.year}${part(localDateTime.month)}${part(localDateTime.day)}_${part(localDateTime.hour)}${part(localDateTime.minute)}`;
+};
+
+export const archiveName = (sourceName: string, date: Date): string =>
+  `${sourceName}_${archiveTimestamp(date)}`;
+
+const nextAvailableName = (
+  baseName: string,
+  existingNames: ReadonlySet<string>,
+  suffix: number,
+): string | undefined => {
+  const candidate = suffix === 0 ? baseName : `${baseName}_${suffix}`;
+  return existingNames.has(candidate)
+    ? suffix >= 100
+      ? undefined
+      : nextAvailableName(baseName, existingNames, suffix + 1)
+    : candidate;
+};
+
+type FindArchiveCandidate = (
+  projects: readonly ProjectRecord[],
+  workspaceID: string,
+  folderID: string,
+  sourceName: string,
+  clock: ArchiveClock,
+) => ArchiveCandidate | undefined;
+export const findArchiveCandidate: FindArchiveCandidate = (
+  projects,
+  workspaceID,
+  folderID,
+  sourceName,
+  clock,
+) => {
+  const inDestination = projects.filter(
+    (project) =>
+      project.workspaceID === workspaceID &&
+      project.folderID === folderID,
+  );
+  const collision = inDestination.find((project) => project.label === sourceName);
+  if (collision === undefined) return undefined;
+  const existingNames = new Set(inDestination.map((project) => project.label));
+  const baseName = archiveName(sourceName, clock.now());
+  const name = nextAvailableName(baseName, existingNames, 0);
+  if (name === undefined)
+    throw new OperationFault(
+      "INVALID_ARGUMENT",
+      false,
+      "unable to obtain a unique archive name",
+    );
+  return { project: collision, name };
+};
+===== END xyops/voiceflow/archive.ts =====
+
+===== BEGIN xyops/voiceflow/auth.ts =====
+import { OperationFault } from "./contracts";
+import { VoiceflowRegex } from "./regex";
+import { isClaims, isValidCreatorID } from "./guards";
+import type { AuthContext } from "./types";
+
+type Claims = Readonly<Record<string, unknown>>;
+export type { AuthContext } from "./types";
+
+type NormalizeVoiceflowToken = (input: unknown) => string;
+const isJWT = (token: string): boolean => token.split(".").length === 3;
+const normalizeVoiceflowToken: NormalizeVoiceflowToken = (input) => {
+  if (typeof input !== "string")
+    throw new OperationFault("AUTHENTICATION_FAILED");
+  const token = input.trim().replace(VoiceflowRegex.bearerPrefix, "").trim();
+  validateTokenShape(token);
+  return token;
+};
+const validateTokenShape = (token: string): void => {
+  if (!token) throw new OperationFault("AUTHENTICATION_FAILED");
+  validateJWT(token);
+};
+const validateJWT = (token: string): void => {
+  if (!isJWT(token)) throw new OperationFault("AUTHENTICATION_FAILED");
+};
+
+type DecodeClaims = (token: string) => Claims;
+const decodeClaims: DecodeClaims = (token) => {
+  try {
+    const part = token.split(".")[1];
+    const normalizedPart = part
+      .replace(VoiceflowRegex.base64UrlDash, "+")
+      .replace(VoiceflowRegex.base64UrlUnderscore, "/");
+    const padded = normalizedPart.padEnd(
+      Math.ceil(normalizedPart.length / 4) * 4,
+      "=",
+    );
+    const value: unknown = JSON.parse(
+      Buffer.from(padded, "base64").toString("utf8"),
+    );
+    return requireClaims(value);
+  } catch {
+    throw new OperationFault("AUTHENTICATION_FAILED");
+  }
+};
+const requireClaims = (value: unknown): Claims => {
+  if (!isClaims(value)) throw new Error();
+  return value;
+};
+
+type ExtractCreatorID = (claims: Claims) => string;
+const extractCreatorID: ExtractCreatorID = (claims) => {
+  const value = [
+    claims.creatorID,
+    claims.userID,
+    claims.user_id,
+    claims.sub,
+  ].find((candidate) => candidate !== undefined);
+  return validatedCreatorID(value);
+};
+const validatedCreatorID = (value: unknown): string => {
+  if (!isCreatorIDValue(value))
+    throw new OperationFault("AUTHENTICATION_FAILED");
+  const rawCreatorID = String(value);
+  validateCreatorID(rawCreatorID);
+  return rawCreatorID.trim();
+};
+const isCreatorIDValue = (value: unknown): value is string | number =>
+  typeof value === "string" || typeof value === "number";
+const validateCreatorID = (value: string): void => {
+  if (!isValidCreatorID(value))
+    throw new OperationFault("AUTHENTICATION_FAILED");
+};
+
+type AuthContextFromToken = (token: string) => AuthContext;
+const authContextFromToken: AuthContextFromToken = (token) => ({
+  token,
+  creatorID: extractCreatorID(decodeClaims(token)),
+});
+
+type AcquireVoiceflowToken = (input: unknown) => Promise<string>;
+const acquireVoiceflowToken: AcquireVoiceflowToken = (input) =>
+  Promise.resolve().then(() => normalizeVoiceflowToken(input));
+
+type ResolveVoiceflowAuth = (input: unknown) => Promise<AuthContext>;
+export const resolveVoiceflowAuth: ResolveVoiceflowAuth = (input) =>
+  acquireVoiceflowToken(input).then(authContextFromToken);
+===== END xyops/voiceflow/auth.ts =====
+
+===== BEGIN xyops/voiceflow/check_session.ts =====
+import { resolveVoiceflowAuth } from "./auth";
+import { failure, success, OperationFault } from "./contracts";
+import { requestBytes } from "./http";
+import { isRetryableHttpStatus } from "./guards";
+import type { Envelope, HttpBytes } from "./types";
+import { createUUID } from "./uuid";
+import { VOICEFLOW_CREATOR_ORIGIN, VOICEFLOW_IDENTITY_ORIGIN } from "./urls";
+
+type CheckSessionResult = {
+  active: boolean;
+  loginRequired?: boolean;
+  loginUrl?: string;
+};
+
+type SessionResult = (response: HttpBytes) => CheckSessionResult;
+const sessionResult: SessionResult = (response) => {
+  if (loginRequiredStatus.has(response.status)) {
+    return {
+      active: false,
+      loginRequired: true,
+      loginUrl: `${VOICEFLOW_CREATOR_ORIGIN}/`,
+    };
+  }
+  return successfulSessionResult(response.status);
+};
+const successfulSessionResult = (status: number): CheckSessionResult => {
+  if (!isSuccessfulStatus(status)) throw dependencyFault(status);
+  return { active: true };
+};
+const loginRequiredStatus = new Set([401, 403]);
+const isSuccessfulStatus = (status: number): boolean =>
+  status >= 200 && status < 300;
+const dependencyFault = (status: number): OperationFault =>
+  new OperationFault("DEPENDENCY_FAILURE", isRetryableHttpStatus(status));
+
+type Main = (token: string) => Promise<Envelope<CheckSessionResult>>;
+export const main: Main = async (token) => {
+  const operation = "check_session";
+  const id = createUUID();
+  try {
+    const auth = await resolveVoiceflowAuth(token);
+    const response = await requestBytes({
+      url: `${VOICEFLOW_IDENTITY_ORIGIN}/v1alpha1/user`,
+      init: { headers: { Authorization: `Bearer ${auth.token}` } },
+      maxBytes: 65536,
+      timeoutMs: 15000,
+    });
+    return success(operation, id, sessionResult(response));
+  } catch (error) {
+    return failure(operation, id, error);
+  }
+};
+===== END xyops/voiceflow/check_session.ts =====
+
+===== BEGIN xyops/voiceflow/contracts.ts =====
+export type {
+  Envelope,
+  ErrorCode,
+  Failure,
+  ImportedReceipt,
+  MigrationPlan,
+  MigrationSelection,
+  OperationError,
+  Success,
+  Warning,
+  WarningCode,
+} from "./types";
+import { VoiceflowRegex } from "./regex";
+import type {
+  ErrorCode,
+  Failure,
+  OperationError,
+  Success,
+  Warning,
+  VoiceflowOperation,
+} from "./types";
+
+const messages: Readonly<Record<ErrorCode, string>> = {
+  INVALID_ARGUMENT: "The supplied arguments are invalid.",
+  CONFIGURATION: "The migration configuration is invalid.",
+  AUTHENTICATION_FAILED: "Authentication failed.",
+  VOICEFLOW_LOGIN_REQUIRED: "Voiceflow login is required.",
+  NOT_FOUND: "The requested Voiceflow resource was not found.",
+  DEPENDENCY_TIMEOUT: "The Voiceflow dependency timed out.",
+  DEPENDENCY_FAILURE: "The Voiceflow dependency failed.",
+  PLAN_MISMATCH: "The migration plan does not match the requested operation.",
+  CONFIRMATION_REQUIRED: "User confirmation is required before migration.",
+  IMPORT_OUTCOME_UNKNOWN:
+    "Import outcome is unknown; reconcile before retrying.",
+  INTERNAL_ERROR: "The operation could not be completed.",
+};
+
+export class OperationFault extends Error {
+  constructor(
+    public readonly code: ErrorCode,
+    public readonly retryable = false,
+    public readonly diagnostic?: string,
+  ) {
+    super(messages[code]);
+  }
+}
+
+const maxDiagnosticLength = 240;
+const errorDetail = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+const safeUnexpectedErrorMessage = (error: unknown): string => {
+  const sanitized = errorDetail(error)
+    .replace(VoiceflowRegex.redactedBearer, "Bearer [redacted]")
+    .replace(VoiceflowRegex.voiceflowAPIKey, "VF.DM.[redacted]")
+    .replace(VoiceflowRegex.redactedURL, "[redacted-url]")
+    .replace(VoiceflowRegex.whitespace, " ")
+    .trim()
+    .slice(0, maxDiagnosticLength);
+  if ([sanitized === "", containsSensitiveWord(sanitized)].some(Boolean)) {
+    return `${messages.INTERNAL_ERROR} (${readFailureStage(sanitized)})`;
+  }
+  return `${messages.INTERNAL_ERROR} (${sanitized})`;
+};
+const readFailureStage = (value: string): string => {
+  const match = value.match(VoiceflowRegex.diagnosticStage);
+  return match?.[0] ?? "stage=unknown";
+};
+
+const containsSensitiveWord = (value: string): boolean =>
+  VoiceflowRegex.sensitiveWord.test(value);
+
+type ToOperationError = (error: unknown) => OperationError;
+export const toOperationError: ToOperationError = (error) => {
+  if (error instanceof OperationFault) {
+    return {
+      code: error.code,
+      message:
+        error.diagnostic === undefined
+          ? messages[error.code]
+          : `${messages[error.code]} (stage=${error.diagnostic})`,
+      retryable: error.retryable,
+    };
+  }
+  return {
+    code: "INTERNAL_ERROR",
+    message: safeUnexpectedErrorMessage(error),
+    retryable: false,
+  };
+};
+
+type SuccessEnvelope = <T>(
+  operation: VoiceflowOperation,
+  operationID: string,
+  result: T,
+  warnings?: readonly Warning[],
+) => Success<T>;
+export const success: SuccessEnvelope = (
+  operation,
+  operationID,
+  result,
+  warnings = [],
+) => {
+  return { ok: true, operation, operationID, result, warnings };
+};
+
+type FailureEnvelope = (
+  operation: VoiceflowOperation,
+  operationID: string,
+  error: unknown,
+) => Failure;
+export const failure: FailureEnvelope = (operation, operationID, error) => {
+  return { ok: false, operation, operationID, error: toOperationError(error) };
+};
+===== END xyops/voiceflow/contracts.ts =====
+
+===== BEGIN xyops/voiceflow/create_folder.ts =====
+import { resolveVoiceflowAuth } from "./auth";
+import { failure, success } from "./contracts";
+import { createFolder } from "./logux/create-folder";
+import type { Envelope } from "./types";
+import { createUUID } from "./uuid";
+
+type CreateFolderResult = Readonly<{
+  folder: Readonly<{ value: string; label: string }>;
+}>;
+type Main = (
+  token: string,
+  workspaceID: string,
+  folderName: string,
+) => Promise<Envelope<CreateFolderResult>>;
+export const main: Main = async (token, workspaceID, folderName) => {
+  const id = createUUID();
+  return resolveVoiceflowAuth(token)
+    .then((auth) => createFolder(auth, workspaceID, folderName))
+    .then((folder) =>
+      success("create_folder", id, {
+        folder: { value: folder.id, label: folder.name },
+      }),
+    )
+    .catch((error) => failure("create_folder", id, error));
+};
+===== END xyops/voiceflow/create_folder.ts =====
+
+===== BEGIN xyops/voiceflow/debug.ts =====
+export type DebugWriter = (line: string) => void;
+
+type DebugConfiguration = Readonly<{
+  readonly all: boolean;
+  readonly names: ReadonlySet<string>;
+  readonly writer: DebugWriter;
+}>;
+
+const defaultConfiguration: DebugConfiguration = {
+  all: false,
+  names: new Set(),
+  writer: (line) => console.error(line),
+};
+let configuration: DebugConfiguration = defaultConfiguration;
+
+type ConfigureDebug = (spec: unknown, writer?: DebugWriter) => void;
+export const configureDebug: ConfigureDebug = (spec, writer = defaultConfiguration.writer) => {
+  const names = typeof spec === "string"
+    ? new Set(spec.split(",").map((name) => name.trim()).filter(Boolean))
+    : new Set<string>();
+  configuration = {
+    all: spec === true || spec === "*" || names.has("*"),
+    names,
+    writer,
+  };
+};
+
+type IsDebugEnabled = (name: string) => boolean;
+const isDebugEnabled: IsDebugEnabled = (name) =>
+  configuration.all || [...configuration.names].some(
+    (selected) =>
+      name === selected ||
+      name.startsWith(`${selected}.`) ||
+      name.startsWith(`${selected}-`),
+  );
+
+type DebugLog = (name: string, event: string, fields?: Readonly<Record<string, unknown>>) => void;
+export const debugLog: DebugLog = (name, event, fields = {}) => {
+  if (!isDebugEnabled(name)) return;
+  configuration.writer(`[debug:${name}] ${JSON.stringify({ event, ...fields })}`);
+};
+
+export const isDebugSelector = (value: unknown): value is string | true =>
+  value === true || typeof value === "string";
+===== END xyops/voiceflow/debug.ts =====
+
+===== BEGIN xyops/voiceflow/export.ts =====
+import type { AuthContext } from "./types";
+import { isRetryableHttpStatus } from "./guards";
+import { requestBytes } from "./http";
+import { OperationFault } from "./contracts";
+import { parseSchemaVersion, parseVersionID } from "./validation";
+import { VoiceflowRegex } from "./regex";
+import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
+import type { ExportArtifact } from "./types";
+export type { ExportArtifact } from "./types";
+const EXPORT_URL = `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/export-json`;
+type RecordValue = Readonly<Record<string, unknown>>;
+const isRecord = (value: unknown): value is RecordValue =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const exportedSchemaMetadata = (value: RecordValue): unknown => {
+  if (value._version !== undefined) return value._version;
+  if (isRecord(value.version) && value.version._version !== undefined)
+    return value.version._version;
+  if (isRecord(value.project) && value.project._version !== undefined)
+    return value.project._version;
+  return undefined;
+};
+
+type ReadExportedSchemaVersion = (artifact: ExportArtifact) => string;
+/** Reads only version metadata; export content is never included in diagnostics. */
+export const readExportedSchemaVersion: ReadExportedSchemaVersion = (
+  artifact,
+) => {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(artifact.bytes));
+  } catch {
+    throw new OperationFault(
+      "CONFIGURATION",
+      false,
+      "exported artifact must contain JSON version metadata with _version in the form major.minor",
+    );
+  }
+  const rawVersion = isRecord(payload)
+    ? exportedSchemaMetadata(payload)
+    : undefined;
+  if (
+    typeof rawVersion !== "string" ||
+    !VoiceflowRegex.schemaVersion.test(rawVersion.trim())
+  )
+    throw new OperationFault(
+      "CONFIGURATION",
+      false,
+      "exported artifact must contain JSON version metadata with _version in the form major.minor",
+    );
+  return parseSchemaVersion(rawVersion);
+};
+
+type ResolveTargetSchemaVersion = (
+  artifact: ExportArtifact,
+  configuredVersion?: string,
+) => string;
+export const resolveTargetSchemaVersion: ResolveTargetSchemaVersion = (
+  artifact,
+  configuredVersion,
+) => configuredVersion ?? readExportedSchemaVersion(artifact);
+
+type ExportVersion = (
+  auth: AuthContext,
+  sourceVersionID: string,
+) => Promise<ExportArtifact>;
+export const exportVersion: ExportVersion = async (auth, sourceVersionID) => {
+  const id = parseVersionID(sourceVersionID);
+  const response = await requestBytes({
+    url: `${EXPORT_URL}/${encodePathSegment(id)}`,
+    init: { headers: { Authorization: `Bearer ${auth.token}` } },
+    maxBytes: 50_000_000,
+    timeoutMs: 30_000,
+  });
+  validateExportStatus(response.status);
+  return {
+    status: response.status,
+    bytes: response.bytes,
+    filename: `voiceflow-${id}.vf`,
+    contentType: "application/octet-stream",
+  };
+};
+const validateExportStatus = (status: number): void => {
+  if (!isSuccessfulExportStatus(status))
+    throw new OperationFault(
+      "DEPENDENCY_FAILURE",
+      isRetryableHttpStatus(status),
+    );
+};
+const isSuccessfulExportStatus = (status: number): boolean =>
+  status >= 200 && status < 300;
+===== END xyops/voiceflow/export.ts =====
+
+===== BEGIN xyops/voiceflow/guards.ts =====
+/** Pure Voiceflow boundary guards shared by the active runtime modules. */
+import { VoiceflowRegex } from "./regex";
+
+export type RecordValue = Readonly<Record<string, unknown>>;
+
+const isNonNullObject = (value: unknown): value is object =>
+  typeof value === "object" && value !== null;
+export const isRecord = (value: unknown): value is RecordValue =>
+  isNonNullObject(value) && !Array.isArray(value);
+export const isObject = isRecord;
+export const isClaims = isRecord;
+export const isRawRow = isRecord;
+const isRecordArray = (value: unknown[]): value is RecordValue[] =>
+  value.every(isRecord);
+export const isRowArray = (value: unknown): value is readonly RecordValue[] =>
+  Array.isArray(value) && isRecordArray(value);
+export const isNumericFolderID = (id: string): boolean =>
+  VoiceflowRegex.numericID.test(id);
+const isServerErrorStatus = (status: number): boolean =>
+  status >= 500 && status < 600;
+const isRetryableStatusCode = (status: number): boolean =>
+  status === 408 || status === 429;
+export const isRetryableHttpStatus = (status: number): boolean =>
+  isRetryableStatusCode(status) || isServerErrorStatus(status);
+const isUnrecognizedStatus = (status: number): boolean => status >= 600;
+export const isImportOutcomeUnknownStatus = (status: number): boolean =>
+  [isRetryableHttpStatus(status), isUnrecognizedStatus(status)].some(Boolean);
+export const isConfirmationGranted = (confirmed: unknown): confirmed is true =>
+  confirmed === true;
+
+const isControlCode = (code: number): boolean =>
+  code <= 31 || isC1ControlCode(code);
+const isC1ControlCode = (code: number): boolean => code >= 127 && code <= 159;
+const hasControlCharacter = (value: string): boolean =>
+  Array.from(value).some((character) => isControlCode(character.charCodeAt(0)));
+const hasPathSeparator = (value: string): boolean =>
+  VoiceflowRegex.pathSeparator.test(value);
+export const isValidCreatorID = (value: string): boolean => {
+  const creatorID = value.trim();
+  return [
+    creatorID.length > 0,
+    Array.from(creatorID).length <= 128,
+    !hasControlCharacter(value),
+    !hasPathSeparator(value),
+  ].every(Boolean);
+};
+===== END xyops/voiceflow/guards.ts =====
+
+===== BEGIN xyops/voiceflow/list_folders.ts =====
+import { resolveVoiceflowAuth } from "./auth";
+import { listFolders } from "./catalog";
+import { failure, success } from "./contracts";
+import type { Envelope } from "./types";
+import { createUUID } from "./uuid";
+
+type ListFoldersResult = {
+  options: Awaited<ReturnType<typeof listFolders>>;
+};
+
+type ListFoldersForWorkspace = (
+  destinationWorkspaceID: string,
+) => (
+  auth: Parameters<typeof listFolders>[0],
+) => ReturnType<typeof listFolders>;
+const listFoldersForWorkspace: ListFoldersForWorkspace =
+  (destinationWorkspaceID) => (auth) =>
+    listFolders(auth, destinationWorkspaceID);
+
+type Main = (
+  token: string,
+  destinationWorkspaceID: string,
+) => Promise<Envelope<ListFoldersResult>>;
+export const main: Main = (token, destinationWorkspaceID) => {
+  const id = createUUID();
+  return resolveVoiceflowAuth(token)
+    .then(listFoldersForWorkspace(destinationWorkspaceID))
+    .then((options) => success("list_folders", id, { options }))
+    .catch((error) => failure("list_folders", id, error));
+};
+===== END xyops/voiceflow/list_folders.ts =====
+
+===== BEGIN xyops/voiceflow/list_projects.ts =====
+import { resolveVoiceflowAuth } from "./auth";
+import { listProjects } from "./catalog";
+import { failure, success } from "./contracts";
+import type { Envelope } from "./types";
+import { createUUID } from "./uuid";
+
+type ListProjectsResult = {
+  options: Awaited<ReturnType<typeof listProjects>>;
+};
+
+type ListProjectsForWorkspace = (
+  sourceWorkspaceID: string,
+) => (
+  auth: Parameters<typeof listProjects>[0],
+) => ReturnType<typeof listProjects>;
+const listProjectsForWorkspace: ListProjectsForWorkspace =
+  (sourceWorkspaceID) => (auth) =>
+    listProjects(auth, sourceWorkspaceID);
+
+type Main = (
+  token: string,
+  sourceWorkspaceID: string,
+) => Promise<Envelope<ListProjectsResult>>;
+export const main: Main = (token, sourceWorkspaceID) => {
+  const id = createUUID();
+  return resolveVoiceflowAuth(token)
+    .then(listProjectsForWorkspace(sourceWorkspaceID))
+    .then((options) => success("list_projects", id, { options }))
+    .catch((error) => failure("list_projects", id, error));
+};
+===== END xyops/voiceflow/list_projects.ts =====
+
+===== BEGIN xyops/voiceflow/list_versions.ts =====
+import { resolveVoiceflowAuth } from "./auth";
+import { listVersions } from "./catalog";
+import { failure, success } from "./contracts";
+import type { Envelope } from "./types";
+import { createUUID } from "./uuid";
+
+type ListVersionsResult = {
+  options: Awaited<ReturnType<typeof listVersions>>;
+};
+
+type ListVersionsForSelection = (
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+) => (
+  auth: Parameters<typeof listVersions>[0],
+) => ReturnType<typeof listVersions>;
+const listVersionsForSelection: ListVersionsForSelection =
+  (sourceWorkspaceID, sourceProjectID) => (auth) =>
+    listVersions(auth, sourceWorkspaceID, sourceProjectID);
+
+type Main = (
+  token: string,
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+) => Promise<Envelope<ListVersionsResult>>;
+export const main: Main = (token, sourceWorkspaceID, sourceProjectID) => {
+  const id = createUUID();
+  return resolveVoiceflowAuth(token)
+    .then(listVersionsForSelection(sourceWorkspaceID, sourceProjectID))
+    .then((options) => success("list_versions", id, { options }))
+    .catch((error) => failure("list_versions", id, error));
+};
+===== END xyops/voiceflow/list_versions.ts =====
+
+===== BEGIN xyops/voiceflow/list_workspaces.ts =====
+import { listWorkspaces } from "./catalog";
+import { resolveVoiceflowAuth } from "./auth";
+import { success, failure } from "./contracts";
+import type { Envelope } from "./types";
+import { createUUID } from "./uuid";
+
+type ListWorkspacesResult = {
+  options: Awaited<ReturnType<typeof listWorkspaces>>;
+};
+
+type Main = (token: string) => Promise<Envelope<ListWorkspacesResult>>;
+export const main: Main = async (token) => {
+  const id = createUUID();
+  return resolveVoiceflowAuth(token)
+    .then(listWorkspaces)
+    .then((options) => success("list_workspaces", id, { options }))
+    .catch((error) => failure("list_workspaces", id, error));
+};
+===== END xyops/voiceflow/list_workspaces.ts =====
+
+===== BEGIN xyops/voiceflow/plan_migration.ts =====
+import { buildMigrationPlan } from "./planning";
+import { resolveVoiceflowAuth } from "./auth";
+import { success, failure } from "./contracts";
+import type { Envelope, MigrationPlan, MigrationSelection } from "./types";
+import { createUUID } from "./uuid";
+
+type BuildPlanForSelection = (
+  selection: MigrationSelection,
+) => (
+  auth: Parameters<typeof buildMigrationPlan>[0],
+) => ReturnType<typeof buildMigrationPlan>;
+const buildPlanForSelection: BuildPlanForSelection = (selection) => (auth) =>
+  buildMigrationPlan(auth, selection);
+
+type Main = (
+  token: string,
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+  sourceVersionID: string,
+  destinationWorkspaceID: string,
+  destinationFolderID: string,
+  targetSchemaVersion?: string,
+) => Promise<Envelope<MigrationPlan>>;
+export const main: Main = (
+  token,
+  sourceWorkspaceID,
+  sourceProjectID,
+  sourceVersionID,
+  destinationWorkspaceID,
+  destinationFolderID,
+  targetSchemaVersion = "13.1",
+) => {
+  const id = createUUID();
+  const selection: MigrationSelection = {
+    sourceWorkspaceID,
+    sourceProjectID,
+    sourceVersionID,
+    destinationWorkspaceID,
+    destinationFolderID,
+    targetSchemaVersion,
+  };
+  return resolveVoiceflowAuth(token)
+    .then(buildPlanForSelection(selection))
+    .then((plan) => success("plan_migration", id, plan))
+    .catch((error) => failure("plan_migration", id, error));
+};
+===== END xyops/voiceflow/plan_migration.ts =====
+
+===== BEGIN xyops/voiceflow/regex.ts =====
+/** Centralized regular expressions used by the Voiceflow and XYOps boundaries. */
+export const VoiceflowRegex = {
+  bearerPrefix: /^Bearer\s+/i,
+  base64UrlDash: /-/g,
+  base64UrlUnderscore: /_/g,
+  // Match C0 controls, DEL, and C1 controls without rejecting ordinary ASCII.
+  // eslint-disable-next-line no-control-regex
+  controlCharacter: new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]"),
+  creatorID: /^[A-Za-z0-9_-]{1,128}$/,
+  diagnosticStage: /stage=[a-z-]+/i,
+  filename: /^[^/\\]+\.vf$/i,
+  projectAPIKey: /^VF\.DM\..+/,
+  pathSeparator: /[\\/]/,
+  trailingSlashes: /\/+$/,
+  voiceflowAPIKey: /VF\.DM\.[^\s"']+/gi,
+  redactedBearer: /Bearer\s+[^\s]+/gi,
+  redactedURL: /https?:\/\/[^\s"']+/gi,
+  whitespace: /\s+/g,
+  numericID: /^\d+$/,
+  schemaVersion: /^\d+\.\d+$/,
+  quotedSecretValue: /^(".*"|'.*')$/u,
+  secretName: /^[A-Za-z_][A-Za-z0-9_]*$/,
+  secretLineBreak: /\r?\n/,
+  xyopsSensitiveField:
+    /token|api[_-]?key|password|secret|authorization|credential|params?|output|data|activity|fields|env/i,
+  sensitiveWord: /secret|token|password|credential|authorization|jwt/i,
+  failureSensitiveDetail:
+    /\b(?:api[\s_-]*key|access[\s_-]*token|password|secret|authorization|bearer|credential)\b/i,
+  jwt: /\b(?:eyJ[A-Za-z0-9_-]+\.)[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
+  longSecretToken: /\b[A-Za-z0-9_-]{40,}\b/,
+  nonPrintable: /[^\x20-\x7e]+/g,
+  sseLineBreak: /\r\n|\n|\r/,
+  sseFrameBreak: /(?:\r\n){2}|\n\n|\r\r/,
+  sseLeadingSpace: /^ /,
+  safeEndpoint: /[^a-zA-Z0-9/_-]/g,
+  pluginLineBreak: /\r?\n/u,
+  stackFrame: /^\s*at\s+/u,
+  bearerValue: /\bBearer\s+[^\s,;}]+/giu,
+  pluginJWT: /\b(?:eyJ[A-Za-z0-9_-]{4,}\.)[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gu,
+  sensitiveAssignment:
+    /(["']?(?:api[ _-]?key|access[ _-]?token|refresh[ _-]?token|authorization|password|secret|token|jwt)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,;}\s]+)/giu,
+  dataAssignment:
+    /(["']?(?:params?|payload|export(?:ed)?(?:data|base64)?)["']?\s*[:=]\s*)(?:\{[^\n]*\}|\[[^\n]*\]|[^,;}\s]+)/giu,
+  structuredData: /\{[^\n]*\}|\[[^\n]*\]/gu,
+  prefixedSecret:
+    /\b(?:jwt|token|api[ _-]?key|sk|pk|vf)[_-][A-Za-z0-9_-]+\b/giu,
+  pluginLongToken: /\b[A-Za-z0-9_-]{24,}\b/gu,
+} as const;
+===== END xyops/voiceflow/regex.ts =====
+
+===== BEGIN xyops/voiceflow/secrets.ts =====
+import type {
+  AuthContext,
+  ConfigSecret,
+  ExistingSecret,
+  FolderRecord,
+  ProjectRecord,
+  SecretEntry,
+} from "./types";
+import { retrieveProjectApiKey } from "./api_key";
+import { loadFolders, loadProjects, loadWorkspaces } from "./catalog";
+import { requestBytes } from "./http";
+import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
+import { OperationFault } from "./contracts";
+
+export type { ExistingSecret } from "./types";
+
+export type { ConfigSecret, SecretEntry } from "./types";
+
+type LoadExistingSecrets = (
+  auth: AuthContext,
+  versionID: string,
+) => Promise<readonly ExistingSecret[]>;
+export const loadExistingSecrets: LoadExistingSecrets = async (auth, versionID) => {
+  const response = await requestBytes({
+    url: `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/load-creator/${encodePathSegment(versionID)}`,
+    init: { headers: { Authorization: `Bearer ${auth.token}` } },
+    maxBytes: 8_388_608,
+    timeoutMs: 15_000,
+  });
+  if (response.status < 200 || response.status >= 300)
+    throw new OperationFault("DEPENDENCY_FAILURE", true);
+  return parseExistingSecrets(response.bytes);
+};
+
+const parseExistingSecrets = (bytes: ArrayBuffer): readonly ExistingSecret[] => {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!isRecord(value) || !Array.isArray(value.secrets))
+      throw new Error();
+    return value.secrets.map(parseExistingSecret);
+  } catch {
+    throw new OperationFault("DEPENDENCY_FAILURE", true, "secret-list-invalid");
+  }
+};
+
+const parseExistingSecret = (value: unknown): ExistingSecret => {
+  if (!isRecord(value)) throw new Error();
+  const identity = parseSecretIdentity(value);
+  const visibility = parseSecretVisibility(value.visibility);
+  if (typeof value.hasValue !== "boolean") throw new Error();
+  return { ...identity, visibility, hasValue: value.hasValue };
+};
+const parseSecretIdentity = (value: Record<string, unknown>): Pick<ExistingSecret, "id" | "assistantID" | "name"> => {
+  const id = primitiveString(value.id);
+  const assistantID = primitiveString(value.assistantID);
+  const name = primitiveString(value.name);
+  if (id === undefined || assistantID === undefined || name === undefined)
+    throw new Error();
+  return { id, assistantID, name };
+};
+const parseSecretVisibility = (value: unknown): ExistingSecret["visibility"] => {
+  if (value === "masked" || value === "restricted") return value;
+  throw new Error();
+};
+const primitiveString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== "" ? value : undefined;
+
+type ParseSecretsFile = (contents: string) => readonly ConfigSecret[];
+export const parseSecretsFile: ParseSecretsFile = (contents) =>
+  parseSecretEntriesJSON(contents);
+
+type ParseSecretEntries = (value: unknown) => readonly ConfigSecret[];
+export const parseSecretEntries: ParseSecretEntries = (value) =>
+  typeof value === "string"
+    ? parseSecretEntriesJSON(value)
+    : parseSecretEntryArray(value);
+
+const parseSecretEntryArray = (value: unknown): readonly ConfigSecret[] => {
+  if (!Array.isArray(value))
+    throw new Error("Secrets must be a JSON array of key/value entries.");
+  const names = new Set<string>();
+  return value.map((entry, index) => {
+    const secret = parseSecretEntry(entry);
+    if (names.has(secret.key))
+      throw new Error(
+        `Secret entries contain duplicate key at index ${index}.`,
+      );
+    names.add(secret.key);
+    return secret;
+  });
+};
+
+const isSecretType = (value: unknown): value is ConfigSecret["type"] =>
+  value === "projectId" || value === "" || value === "url";
+
+const parseSecretEntry = (value: unknown): ConfigSecret => {
+  if (!isRecord(value) || Object.keys(value).length !== 3)
+    throw new Error(
+      "ConfigSecret entries must contain only key, value, and type fields.",
+    );
+  if (typeof value.key !== "string" || !value.key.trim())
+    throw new Error("Secret entries must contain a non-empty string key.");
+  if (typeof value.value !== "string")
+    throw new Error("Secret entries must contain a string value.");
+  if (!isSecretType(value.type))
+    throw new Error(
+      "Secret entries must contain type projectId, empty string, or url.",
+    );
+  return { key: value.key, value: value.value, type: value.type };
+};
+type ParseSecretEntriesJSON = (contents: string) => readonly ConfigSecret[];
+export const parseSecretEntriesJSON: ParseSecretEntriesJSON = (contents) =>
+  parseSecretEntries(JSON.parse(contents));
+type CollectConfiguredSecretTypes = (
+  entries: readonly ConfigSecret[],
+) => ReadonlySet<ConfigSecret["type"]>;
+export const collectConfiguredSecretTypes: CollectConfiguredSecretTypes = (
+  entries,
+) => new Set(entries.map((entry) => entry.type));
+
+type MapConfigSecretsToSecretEntries = (
+  entries: readonly ConfigSecret[],
+  resolvedValues: readonly string[],
+) => readonly SecretEntry[];
+export const mapConfigSecretsToSecretEntries: MapConfigSecretsToSecretEntries =
+  (entries, resolvedValues) =>
+    entries.map((entry, index) => ({
+      name: entry.key,
+      value: resolvedValues[index] ?? entry.value,
+    }));
+
+type ResolveProjectPath = (
+  workspaceRows: readonly { id: string; label: string }[],
+  folderRows: readonly FolderRecord[],
+  projectRows: readonly ProjectRecord[],
+  path: string,
+) => string;
+export const resolveProjectPath: ResolveProjectPath = (
+  workspaceRows,
+  folderRows,
+  projectRows,
+  path,
+) => {
+  const segments = path.split("/").map((segment) => segment.trim());
+  if (segments.some((segment) => segment === "") || segments.length < 2)
+    throw new Error("Configured project path could not be resolved.");
+  const workspace = workspaceRows.find((row) => matchesName(row, segments[0]));
+  if (workspace === undefined)
+    throw new Error("Configured project path could not be resolved.");
+  const folders = segments.slice(1, -1).reduce<FolderRecord[]>(
+    (resolved, label) => {
+      const parentID = resolved.at(-1)?.id;
+      const folder = folderRows.find(
+        (row) =>
+          row.workspaceID === workspace.id &&
+          matchesName(row, label) &&
+          row.parentID === parentID,
+      );
+      if (folder === undefined)
+        throw new Error("Configured project path could not be resolved.");
+      return [...resolved, folder];
+    },
+    [],
+  );
+  const project = projectRows.find(
+    (row) =>
+      row.workspaceID === workspace.id &&
+      matchesName(row, segments.at(-1) ?? "") &&
+      (folders.length === 0 ||
+        projectFolderID(row) === undefined ||
+        projectFolderID(row) === folders.at(-1)?.id),
+  );
+  if (project === undefined)
+    throw new Error("Configured project path could not be resolved.");
+  return project.id;
+};
+
+const matchesName = (row: { id: string; label: string }, value: string): boolean =>
+  row.id === value || row.label === value;
+const projectFolderID = (project: ProjectRecord): string | undefined =>
+  project.folderID;
+
+const resolveProjectID = (auth: AuthContext, value: string): Promise<string> =>
+  value.includes("/")
+    ? loadWorkspaces(auth).then((workspaces) => {
+        const workspace = workspaces.find((row) => matchesName(row, value.split("/")[0]?.trim() ?? ""));
+        if (workspace === undefined)
+          throw new Error("Configured project path could not be resolved.");
+        const catalogProjects = loadProjects(auth, workspace.id);
+        const catalogFolders = value.split("/").length > 2
+          ? loadFolders(auth, workspace.id)
+          : Promise.resolve([] as readonly FolderRecord[]);
+        return Promise.all([catalogFolders, catalogProjects])
+          .then(([folders, projects]) => resolveProjectPath(workspaces, folders, projects, value));
+      })
+    : Promise.resolve(value);
+
+type ResolveConfiguredSecretValues = (
+  auth: AuthContext,
+  entries: readonly ConfigSecret[],
+) => Promise<readonly SecretEntry[]>;
+export const resolveConfiguredSecretValues: ResolveConfiguredSecretValues =
+  (auth, entries) => {
+    const configuredTypes = collectConfiguredSecretTypes(entries);
+    if (!configuredTypes.has("projectId"))
+      return Promise.resolve(
+        mapConfigSecretsToSecretEntries(entries, entries.map((entry) => entry.value)),
+      );
+    const projectValues = entries
+      .filter((entry) => entry.type === "projectId")
+      .map((entry) => entry.value);
+    return Promise.all(projectValues.map((value) => resolveProjectID(auth, value)))
+      .then((projectIDs) => Promise.all(projectIDs.map((id) => retrieveProjectApiKey(auth, id))))
+      .then((apiKeys) => {
+        let keyIndex = 0;
+        return mapConfigSecretsToSecretEntries(
+          entries,
+          entries.map((entry) =>
+            entry.type === "projectId" ? apiKeys[keyIndex++] ?? entry.value : entry.value,
+          ),
+        );
+      });
+  };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  [value !== null, typeof value === "object", !Array.isArray(value)].every(
+    Boolean,
+  );
+===== END xyops/voiceflow/secrets.ts =====
+
+===== BEGIN xyops/voiceflow/types.ts =====
+export const VoiceflowOperation = {
+  CheckSession: "check_session",
+  ListWorkspaces: "list_workspaces",
+  ListProjects: "list_projects",
+  ListVersions: "list_versions",
+  ListFolders: "list_folders",
+  CreateFolder: "create_folder",
+  PlanMigration: "plan_migration",
+  ExecuteMigration: "execute_migration",
+} as const;
+
+export type VoiceflowOperation =
+  (typeof VoiceflowOperation)[keyof typeof VoiceflowOperation];
+
+export const ErrorCode = {
+  InvalidArgument: "INVALID_ARGUMENT",
+  Configuration: "CONFIGURATION",
+  AuthenticationFailed: "AUTHENTICATION_FAILED",
+  VoiceflowLoginRequired: "VOICEFLOW_LOGIN_REQUIRED",
+  NotFound: "NOT_FOUND",
+  DependencyTimeout: "DEPENDENCY_TIMEOUT",
+  DependencyFailure: "DEPENDENCY_FAILURE",
+  PlanMismatch: "PLAN_MISMATCH",
+  ConfirmationRequired: "CONFIRMATION_REQUIRED",
+  ImportOutcomeUnknown: "IMPORT_OUTCOME_UNKNOWN",
+  InternalError: "INTERNAL_ERROR",
+} as const;
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+
+export const WarningCode = {
+  NotIdempotent: "NOT_IDEMPOTENT",
+  ApiKeyRetrievalFailed: "API_KEY_RETRIEVAL_FAILED",
+} as const;
+export type WarningCode = (typeof WarningCode)[keyof typeof WarningCode];
+export type Warning = Readonly<{ code: WarningCode; message: string }>;
+export type OperationError = Readonly<{
+  code: ErrorCode;
+  message: string;
+  retryable: boolean;
+}>;
+export type Success<T> = {
+  readonly ok: true;
+  readonly operation: VoiceflowOperation;
+  readonly operationID: string;
+  readonly result: T;
+  readonly warnings: readonly Warning[];
+};
+export type Failure = {
+  readonly ok: false;
+  readonly operation: VoiceflowOperation;
+  readonly operationID: string;
+  readonly error: OperationError;
+};
+export type Envelope<T> = Success<T> | Failure;
+export type MigrationSelection = Readonly<{
+  sourceWorkspaceID: string;
+  sourceProjectID: string;
+  sourceVersionID: string;
+  destinationWorkspaceID: string;
+  destinationFolderID: string;
+  targetSchemaVersion?: string;
+}>;
+export type MigrationPlan = Readonly<{
+  planID: string;
+  selection: MigrationSelection;
+  labels: Readonly<{
+    sourceWorkspace: string;
+    sourceProject: string;
+    sourceVersion: string;
+    destinationWorkspace: string;
+    destinationFolder: string;
+  }>;
+}>;
+export type ImportedReceipt = Readonly<{
+  importStatus: number;
+  importBytes: number;
+  projectID: string;
+  assistantID?: string;
+  versionID?: string;
+  workspaceID?: string;
+  folderID?: string;
+}>;
+export type ExistingSecret = Readonly<{
+  id: string;
+  assistantID: string;
+  name: string;
+  visibility: "masked" | "restricted";
+  hasValue: boolean;
+}>;
+export type AuthContext = Readonly<{ token: string; creatorID: string }>;
+export type ConfigSecret = Readonly<{
+  key: string;
+  value: string;
+  type: "projectId" | "" | "url";
+}>;
+export type SecretEntry = Readonly<{ name: string; value: string }>;
+export type ApiKeyDiagnostic = Readonly<{ code: string; message: string }>;
+export type ApiKeyStatus =
+  | { readonly apiKeyRetrieved: true; readonly postImport?: never }
+  | {
+      readonly apiKeyRetrieved: false;
+      readonly postImport: {
+        readonly apiKeyRetrieved: false;
+        readonly diagnostic: ApiKeyDiagnostic;
+      };
+    };
+export type RequestBytesInput = Readonly<{
+  url: string;
+  init?: RequestInit;
+  maxBytes: number;
+  timeoutMs: number;
+}>;
+export type HttpBytes = Readonly<{
+  status: number;
+  headers: Headers;
+  bytes: ArrayBuffer;
+}>;
+export type ExportArtifact = Readonly<{
+  status: number;
+  bytes: ArrayBuffer;
+  filename: string;
+  contentType: string;
+}>;
+export type Option = Readonly<{ value: string; label: string }>;
+export type WorkspaceRecord = Readonly<{ id: string; label: string }>;
+export type EnvironmentRecord = Readonly<{
+  label: string;
+  draftVersionID?: string;
+  publishedVersionID?: string;
+}>;
+export type ProjectRecord = Readonly<{
+  id: string;
+  label: string;
+  workspaceID: string;
+  folderID?: string;
+  environments: readonly EnvironmentRecord[];
+}>;
+export type FolderRecord = Readonly<{
+  id: string;
+  label: string;
+  workspaceID: string;
+  parentID?: string;
+}>;
+export type ExecuteResult = Readonly<{
+  planID: string;
+  exportStatus: number;
+  exportBytes: number;
+  importStatus: number;
+  importBytes: number;
+  selected: MigrationSelection;
+  imported: ImportedReceipt;
+  apiKeyRetrieved?: boolean;
+  postImport?: ApiKeyStatus["postImport"];
+}>;
+===== END xyops/voiceflow/types.ts =====
+
+===== BEGIN xyops/voiceflow/urls.ts =====
+import { OperationFault } from "./contracts";
+import { VoiceflowRegex } from "./regex";
+
+export const VOICEFLOW_CREATOR_ORIGIN =
+  "https://creator.empyrean.voiceflow.com";
+export const VOICEFLOW_IDENTITY_ORIGIN =
+  "https://identity-api.empyrean.voiceflow.com";
+export const VOICEFLOW_REALTIME_HTTP_ORIGIN =
+  "https://realtime-http-api.empyrean.voiceflow.com";
+export const VOICEFLOW_REALTIME_WEBSOCKET_URL =
+  "wss://realtime.empyrean.voiceflow.com/";
+
+type EncodePathSegment = (value: string) => string;
+export const encodePathSegment: EncodePathSegment = (value) =>
+  encodeURIComponent(value);
+
+type VoiceflowURL = (origin: string, path: string) => string;
+export const voiceflowURL: VoiceflowURL = (origin, path) => `${origin}${path}`;
+
+type ParseXYOpsURL = (value: string) => string;
+export const parseXYOpsURL: ParseXYOpsURL = (value) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new OperationFault("INVALID_ARGUMENT");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.hash
+  ) {
+    throw new OperationFault("INVALID_ARGUMENT");
+  }
+  return url.toString().replace(VoiceflowRegex.trailingSlashes, "");
+};
+===== END xyops/voiceflow/urls.ts =====
+
+===== BEGIN xyops/voiceflow/uuid.ts =====
+import { randomBytes } from "crypto";
+
+type CreateUUID = () => string;
+export const createUUID: CreateUUID = () => {
+  const bytes = randomBytes(16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+===== END xyops/voiceflow/uuid.ts =====
+
+===== BEGIN xyops/voiceflow/validation.ts =====
+import { OperationFault } from "./contracts";
+import { VoiceflowRegex } from "./regex";
+
+const MAX_ID_LENGTH = 128;
+const MAX_NAME_LENGTH = 256;
+const MAX_SCHEMA_LENGTH = 40;
+const MAX_OPERATION_LENGTH = 64;
+
+const hasControlCharacter = (value: string): boolean =>
+  Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || (code >= 127 && code <= 159);
+  });
+
+const hasPathSeparator = (value: string): boolean =>
+  VoiceflowRegex.pathSeparator.test(value);
+
+const rejectInvalidString = (value: unknown, maximum: number): string => {
+  if (typeof value !== "string") throw new OperationFault("INVALID_ARGUMENT");
+  const normalized = value.trim();
+  if (
+    normalized.length === 0 ||
+    Array.from(normalized).length > maximum ||
+    hasControlCharacter(normalized)
+  ) {
+    throw new OperationFault("INVALID_ARGUMENT");
+  }
+  return normalized;
+};
+
+const parsePathSafeString = (value: unknown, maximum: number): string => {
+  const normalized = rejectInvalidString(value, maximum);
+  if (hasPathSeparator(normalized))
+    throw new OperationFault("INVALID_ARGUMENT");
+  return normalized;
+};
+
+type ParseWorkspaceID = (value: unknown) => string;
+export const parseWorkspaceID: ParseWorkspaceID = (value) =>
+  parsePathSafeString(value, MAX_ID_LENGTH);
+
+type ParseProjectID = (value: unknown) => string;
+export const parseProjectID: ParseProjectID = (value) =>
+  parsePathSafeString(value, MAX_ID_LENGTH);
+
+type ParseVersionID = (value: unknown) => string;
+export const parseVersionID: ParseVersionID = (value) =>
+  parsePathSafeString(value, MAX_ID_LENGTH);
+
+type ParseFolderID = (value: unknown) => string;
+export const parseFolderID: ParseFolderID = (value) => {
+  const normalized = parsePathSafeString(value, MAX_ID_LENGTH);
+  if (!VoiceflowRegex.numericID.test(normalized))
+    throw new OperationFault("INVALID_ARGUMENT");
+  return normalized;
+};
+
+type ParseFolderName = (value: unknown) => string;
+export const parseFolderName: ParseFolderName = (value) =>
+  parsePathSafeString(value, MAX_NAME_LENGTH);
+
+type ParseResourceSelection = (value: unknown) => string;
+export const parseResourceSelection: ParseResourceSelection = (value) =>
+  parsePathSafeString(value, MAX_NAME_LENGTH);
+
+type ParseCreatorID = (value: unknown) => string;
+export const parseCreatorID: ParseCreatorID = (value) =>
+  parsePathSafeString(value, MAX_ID_LENGTH);
+
+type ParseSchemaVersion = (value: unknown) => string;
+export const parseSchemaVersion: ParseSchemaVersion = (value) =>
+  rejectInvalidString(value, MAX_SCHEMA_LENGTH);
+
+const operations = new Set([
+  "check_session",
+  "list_workspaces",
+  "list_projects",
+  "list_versions",
+  "list_folders",
+  "create_folder",
+  "plan_migration",
+  "execute_migration",
+]);
+
+type ParseEventOperation = (value: unknown) => string;
+export const parseEventOperation: ParseEventOperation = (value) => {
+  const normalized = rejectInvalidString(value, MAX_OPERATION_LENGTH);
+  if (!operations.has(normalized)) throw new OperationFault("INVALID_ARGUMENT");
+  return normalized;
+};
+
+type RequireVoiceflowString = (value: unknown) => string;
+export const requireVoiceflowString: RequireVoiceflowString = (value) =>
+  rejectInvalidString(value, MAX_ID_LENGTH);
+===== END xyops/voiceflow/validation.ts =====

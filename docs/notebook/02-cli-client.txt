@@ -1,0 +1,1086 @@
+# Notebook bundle: 02-cli-client.txt
+# Source snapshot: 6 TypeScript files
+# Split using the explicit path markers below.
+
+===== BEGIN xyops/cli/client/http.ts =====
+import { fail, CliError } from "../diagnostics";
+import {
+  isRetryableStatus,
+  isSuccessfulCode,
+  isXYOpsResponse,
+} from "../guards";
+import type { XYOpsResponse } from "../types";
+
+export type Sleep = (milliseconds: number) => Promise<void>;
+export type RequestBody = Readonly<Record<string, unknown>>;
+export type Request = (
+  path: string,
+  body: RequestBody,
+  endpoint: string,
+) => Promise<XYOpsResponse>;
+export type StreamResponseReader<T> = (response: Response) => Promise<T>;
+
+type IsAbortError = (error: unknown) => boolean;
+const isAbortError: IsAbortError = (error) =>
+  error instanceof DOMException && error.name === "AbortError";
+
+type ToFetchError = (error: unknown, endpoint: string) => CliError;
+const toFetchError: ToFetchError = (error, endpoint) =>
+  fail(isAbortError(error) ? "timeout" : "network", {
+    endpoint,
+    retryable: true,
+  });
+
+type FetchRequest = (
+  fetcher: typeof fetch,
+  url: string,
+  apiKey: string,
+  body: RequestBody,
+  timeoutMs: number,
+  endpoint: string,
+) => Promise<Response>;
+const fetchRequest: FetchRequest = async (
+  fetcher,
+  url,
+  apiKey,
+  body,
+  timeoutMs,
+  endpoint,
+) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return fetcher(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "X-API-Key": apiKey },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  })
+    .catch((error) => Promise.reject(toFetchError(error, endpoint)))
+    .finally(() => clearTimeout(timeout));
+};
+
+type RequireHTTPResponse = (response: Response, endpoint: string) => Response;
+const requireHTTPResponse: RequireHTTPResponse = (response, endpoint) => {
+  if (!response.ok)
+    throw fail("http", {
+      endpoint,
+      status: response.status,
+      retryable: isRetryableStatus(response.status),
+    });
+  return response;
+};
+
+type ParseJSONResponse = (
+  response: Response,
+  endpoint: string,
+) => Promise<unknown>;
+const parseJSONResponse: ParseJSONResponse = (response, endpoint) =>
+  response.json().catch(() =>
+    Promise.reject(
+      fail("api", {
+        endpoint,
+        nextAction: "XYOps returned an invalid JSON response.",
+      }),
+    ),
+  );
+
+type RequireXYOpsResponse = (value: unknown, endpoint: string) => XYOpsResponse;
+const requireXYOpsResponse: RequireXYOpsResponse = (value, endpoint) => {
+  if (!isXYOpsResponse(value))
+    throw fail("api", {
+      endpoint,
+      nextAction: "XYOps returned an invalid response.",
+    });
+  return value;
+};
+
+type RequireSuccessfulResponse = (
+  value: XYOpsResponse,
+  endpoint: string,
+) => XYOpsResponse;
+const requireSuccessfulResponse: RequireSuccessfulResponse = (
+  value,
+  endpoint,
+) => {
+  if (!isSuccessfulCode(value.code))
+    throw fail("api", {
+      endpoint,
+      nextAction: "XYOps rejected the migration event.",
+    });
+  return value;
+};
+
+type ValidateAPIResponse = (value: unknown, endpoint: string) => XYOpsResponse;
+const validateAPIResponse: ValidateAPIResponse = (value, endpoint) =>
+  requireSuccessfulResponse(requireXYOpsResponse(value, endpoint), endpoint);
+
+type FetchJSON = (
+  fetcher: typeof fetch,
+  url: string,
+  apiKey: string,
+  body: RequestBody,
+  timeoutMs: number,
+  endpoint: string,
+) => Promise<XYOpsResponse>;
+export const fetchJSON: FetchJSON = async (
+  fetcher,
+  url,
+  apiKey,
+  body,
+  timeoutMs,
+  endpoint,
+) => {
+  const response = requireHTTPResponse(
+    await fetchRequest(fetcher, url, apiKey, body, timeoutMs, endpoint),
+    endpoint,
+  );
+  return validateAPIResponse(
+    await parseJSONResponse(response, endpoint),
+    endpoint,
+  );
+};
+
+type FetchSSE = <T>(
+  fetcher: typeof fetch,
+  url: string,
+  apiKey: string,
+  timeoutMs: number,
+  endpoint: string,
+  readResponse: StreamResponseReader<T>,
+) => Promise<T>;
+export const fetchSSE: FetchSSE = async (
+  fetcher,
+  url,
+  apiKey,
+  timeoutMs,
+  endpoint,
+  readResponse,
+) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return fetcher(url, {
+    method: "GET",
+    headers: { Accept: "text/event-stream", "X-API-Key": apiKey },
+    signal: controller.signal,
+  })
+    .catch((error) => Promise.reject(toFetchError(error, endpoint)))
+    .then((response) => {
+      if (!response.ok)
+        throw fail("http", {
+          endpoint,
+          status: response.status,
+          retryable: isRetryableStatus(response.status),
+        });
+      return readResponse(response);
+    })
+    .catch((error) =>
+      error instanceof CliError
+        ? Promise.reject(error)
+        : Promise.reject(toFetchError(error, endpoint)),
+    )
+    .finally(() => clearTimeout(timeout));
+};
+
+export const defaultSleep: Sleep = (milliseconds) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+===== END xyops/cli/client/http.ts =====
+
+===== BEGIN xyops/cli/client/index.ts =====
+import { fail, CliError } from "../diagnostics";
+import type {
+  CliDiagnostic,
+  EventParameters,
+  ResponseGuard,
+  VoiceflowEnvelope,
+  XYOpsClient,
+  XYOpsConfig,
+  XYOpsEventReference,
+} from "../types";
+import { fetchJSON, defaultSleep, type Request, type Sleep } from "./http";
+import { eventBody, pollJob, readEventWithRetry } from "./polling";
+import { streamJob, type StreamJob } from "./streaming";
+import {
+  readJobOutput,
+  readLaunchID,
+  requireEnvelope,
+  requireSuccessfulJob,
+} from "./job-response";
+import { normalizeVoiceflowResponse } from "../guards";
+import {
+  createJobObservationState,
+  transitionJobObservation,
+} from "./job-observation-state-machine";
+
+const RUN_PATH = "/api/app/run_event/v1";
+const JOB_PATH = "/api/app/get_job/v1";
+
+type CreateClientDependencies = Readonly<{
+  fetcher?: typeof fetch;
+  sleeper?: Sleep;
+  streamer?: StreamJob;
+}>;
+
+const readDiagnostic = (error: unknown): CliError["diagnostic"] =>
+  error instanceof CliError
+    ? error.diagnostic
+    : fail("execute-outcome-unknown").diagnostic;
+
+const translateExecuteDispatchError = (error: unknown): CliError => {
+  const diagnostic = readDiagnostic(error);
+  const code = ["timeout", "network"].includes(diagnostic.code)
+    ? "execute-outcome-unknown"
+    : diagnostic.code;
+  return fail(code, {
+    endpoint: RUN_PATH,
+    status: diagnostic.status,
+    nextAction:
+      "The execute dispatch outcome is unknown; reconcile before retrying.",
+  });
+};
+
+// The translation must distinguish transport errors from already-classified CLI failures.
+const readCliDiagnostic = (error: unknown): CliDiagnostic | undefined =>
+  error instanceof CliError ? error.diagnostic : undefined;
+const isUnknownOutcomeTransport = (
+  diagnostic: CliDiagnostic | undefined,
+): diagnostic is CliDiagnostic =>
+  diagnostic !== undefined && ["timeout", "network"].includes(diagnostic.code);
+const translateExecuteJobError = (error: unknown): CliError => {
+  const diagnostic = readCliDiagnostic(error);
+  if (isUnknownOutcomeTransport(diagnostic))
+    return fail("execute-outcome-unknown", {
+      endpoint: JOB_PATH,
+      status: diagnostic.status,
+      nextAction:
+        "The execute job outcome is unknown; reconcile before retrying.",
+    });
+  return toCliError(error);
+};
+const toCliError = (error: unknown): CliError =>
+  error instanceof CliError ? error : fail("execute-outcome-unknown");
+
+// Client construction binds optional infrastructure dependencies once at the boundary.
+export const createXYOpsClient = (
+  config: XYOpsConfig,
+  dependencies: CreateClientDependencies = {},
+): XYOpsClient => {
+  const fetcher = dependencies.fetcher ?? fetch;
+  const sleeper = dependencies.sleeper ?? defaultSleep;
+  const streamer = dependencies.streamer ?? streamJob;
+  const request: Request = (path, body, endpoint) =>
+    fetchJSON(
+      fetcher,
+      `${config.baseURL}${path}`,
+      config.apiKey,
+      body,
+      config.httpTimeoutMs,
+      endpoint,
+    );
+
+  const readEvent = <T>(
+    reference: XYOpsEventReference,
+    params: EventParameters,
+    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ): Promise<VoiceflowEnvelope<T>> =>
+    readEventWithRetry(
+      request,
+      sleeper,
+      config.pollIntervalMs,
+      reference,
+      params,
+      guard,
+    );
+
+  const reconcileAfterStreamFailure = <T>(
+    id: string,
+    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ): Promise<VoiceflowEnvelope<T>> =>
+    pollJob(id, request, sleeper, config, guard).catch((error) => {
+      const diagnostic = readCliDiagnostic(error);
+      if (
+        diagnostic?.code === "job" &&
+        diagnostic.nextAction !== "The migration execute job failed."
+      )
+        return Promise.reject(
+          fail("execute-outcome-unknown", {
+            endpoint: JOB_PATH,
+            nextAction:
+              "The execute job outcome is unknown; reconcile before retrying.",
+          }),
+        );
+      return Promise.reject(error);
+    });
+
+  const readTerminalStream = <T>(
+    id: string,
+    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ) => {
+    const streamOrJob = streamer(
+      fetcher,
+      config.baseURL,
+      config.apiKey,
+      id,
+      config.httpTimeoutMs,
+      {
+        maxBytes: config.streamMaxBytes,
+        maxFrameBytes: config.streamMaxFrameBytes,
+      },
+    ).catch((error) =>
+      readCliDiagnostic(error) === undefined
+        ? Promise.reject(
+            fail("execute-outcome-unknown", {
+              endpoint: "/api/app/stream_job/v1",
+              nextAction:
+                "The execute stream outcome is unknown; reconcile before retrying.",
+            }),
+          )
+        : reconcileAfterStreamFailure(id, guard),
+    );
+    return streamOrJob.then((streamOrJobResult) => {
+      if (!("kind" in streamOrJobResult)) return streamOrJobResult;
+      if (streamOrJobResult.kind === "failure")
+        return Promise.reject(
+          requireSuccessfulJob(
+            streamOrJobResult.data,
+            "/api/app/stream_job/v1",
+            "The migration execute job failed.",
+          ),
+        );
+      try {
+        const output = normalizeVoiceflowResponse(
+          readJobOutput(streamOrJobResult.data, "/api/app/stream_job/v1"),
+        );
+        return requireEnvelope(output, guard, "/api/app/stream_job/v1");
+      } catch {
+        return reconcileAfterStreamFailure(id, guard);
+      }
+    });
+  };
+
+  const startJobObservation = <T>(
+    id: string,
+    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ): Promise<VoiceflowEnvelope<T>> => {
+    const transition = transitionJobObservation(
+      createJobObservationState(id),
+      { kind: "execute-dispatched", jobID: id },
+    );
+    return transition.state.kind === "STREAMING"
+      ? readTerminalStream(id, guard)
+      : Promise.reject(
+          fail("execute-outcome-unknown", {
+            endpoint: RUN_PATH,
+            retryable: true,
+            nextAction: "The execute observation could not start; reconcile before retrying.",
+          }),
+        );
+  };
+
+  const executeEvent = <T>(
+    reference: XYOpsEventReference,
+    params: EventParameters,
+    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ): Promise<VoiceflowEnvelope<T>> =>
+    request(RUN_PATH, eventBody(reference, params), RUN_PATH)
+      .catch((error) => Promise.reject(translateExecuteDispatchError(error)))
+      .then((launch) => readLaunchID(launch, RUN_PATH))
+      .then((id) =>
+        typeof config.streamMaxBytes === "number" &&
+        typeof config.streamMaxFrameBytes === "number"
+          ? startJobObservation(id, guard)
+          : pollJob(id, request, sleeper, config, guard),
+      )
+      .catch((error) => Promise.reject(translateExecuteJobError(error)));
+
+  return { readEvent, executeEvent };
+};
+===== END xyops/cli/client/index.ts =====
+
+===== BEGIN xyops/cli/client/job-observation-state-machine.ts =====
+/* oxlint-disable complexity -- exhaustive observation lifecycle transitions. */
+import type { CliDiagnosticCode } from "../types";
+
+export type JobObservationState =
+  | { readonly kind: "DISPATCHED"; readonly jobID: string }
+  | { readonly kind: "STREAMING"; readonly jobID: string }
+  | { readonly kind: "STREAM_RECONCILING"; readonly jobID: string; readonly attempt: number }
+  | { readonly kind: "POLLING"; readonly jobID: string; readonly attempt: number }
+  | { readonly kind: "SUCCEEDED"; readonly jobID: string }
+  | { readonly kind: "FAILED"; readonly jobID: string; readonly diagnosticCode: CliDiagnosticCode }
+  | { readonly kind: "UNKNOWN_OUTCOME"; readonly jobID: string; readonly diagnosticCode: CliDiagnosticCode };
+
+export type JobObservationEvent =
+  | { readonly kind: "execute-dispatched"; readonly jobID: string }
+  | { readonly kind: "stream-failed" }
+  | { readonly kind: "stream-succeeded" }
+  | { readonly kind: "job-active"; readonly attempt: number }
+  | { readonly kind: "job-succeeded" }
+  | { readonly kind: "job-failed" }
+  | { readonly kind: "observation-failed"; readonly diagnosticCode: CliDiagnosticCode }
+  | { readonly kind: "poll-timeout" };
+
+export type JobObservationTransition = Readonly<{
+  readonly state: JobObservationState;
+  readonly accepted: boolean;
+}>;
+
+type CreateJobObservationState = (jobID: string) => JobObservationState;
+export const createJobObservationState: CreateJobObservationState = (jobID) => ({
+  kind: "DISPATCHED",
+  jobID,
+});
+
+type TransitionJobObservation = (
+  state: JobObservationState,
+  event: JobObservationEvent,
+) => JobObservationTransition;
+export const transitionJobObservation: TransitionJobObservation = (state, event) => {
+  if (["SUCCEEDED", "FAILED", "UNKNOWN_OUTCOME"].includes(state.kind))
+    return { state, accepted: false };
+  if (event.kind === "execute-dispatched" && state.kind === "DISPATCHED")
+    return { state: { kind: "STREAMING", jobID: event.jobID }, accepted: true };
+  if (event.kind === "stream-failed" && state.kind === "STREAMING")
+    return { state: { kind: "STREAM_RECONCILING", jobID: state.jobID, attempt: 0 }, accepted: true };
+  if (event.kind === "stream-succeeded" && state.kind === "STREAMING")
+    return { state: { kind: "SUCCEEDED", jobID: state.jobID }, accepted: true };
+  if (event.kind === "job-active" && state.kind === "STREAM_RECONCILING")
+    return { state: { kind: "POLLING", jobID: state.jobID, attempt: event.attempt }, accepted: true };
+  if (event.kind === "job-succeeded" && ["STREAM_RECONCILING", "POLLING"].includes(state.kind))
+    return { state: { kind: "SUCCEEDED", jobID: state.jobID }, accepted: true };
+  if (event.kind === "job-failed" && ["STREAM_RECONCILING", "POLLING"].includes(state.kind))
+    return { state: { kind: "FAILED", jobID: state.jobID, diagnosticCode: "job" }, accepted: true };
+  if (event.kind === "observation-failed" && ["STREAM_RECONCILING", "POLLING"].includes(state.kind))
+    return { state: { kind: "UNKNOWN_OUTCOME", jobID: state.jobID, diagnosticCode: event.diagnosticCode }, accepted: true };
+  if (event.kind === "poll-timeout" && ["STREAM_RECONCILING", "POLLING"].includes(state.kind))
+    return { state: { kind: "UNKNOWN_OUTCOME", jobID: state.jobID, diagnosticCode: "execute-outcome-unknown" }, accepted: true };
+  return { state, accepted: false };
+};
+===== END xyops/cli/client/job-observation-state-machine.ts =====
+
+===== BEGIN xyops/cli/client/job-response.ts =====
+import { fail } from "../diagnostics";
+import { VoiceflowRegex } from "../../voiceflow/regex";
+import {
+  isJobLaunch,
+  isRecord,
+  isSuccessfulCode,
+  isXYOpsJob,
+  isXYOpsJobResponse,
+  isXYOpsLaunchResponse,
+  isXYOpsWaitResponse,
+} from "../guards";
+import type {
+  ResponseGuard,
+  VoiceflowEnvelope,
+  XYOpsJob,
+  XYOpsResponse,
+} from "../types";
+
+const hasResponseData = (
+  response: XYOpsResponse,
+): response is XYOpsResponse & { data: unknown } => "data" in response;
+
+const recordChildren = (value: unknown): readonly unknown[] =>
+  isRecord(value) ? [value.job, value.data] : [];
+
+const readJobValue = (value: unknown): XYOpsJob | undefined =>
+  isXYOpsJob(value) ? value : undefined;
+
+const readJobContainer = (value: unknown): XYOpsJob | undefined =>
+  [value, ...recordChildren(value)]
+    .map(readJobValue)
+    .find((job): job is XYOpsJob => job !== undefined);
+
+const readTopLaunchID = (response: XYOpsResponse): string | undefined =>
+  isXYOpsLaunchResponse(response) ? response.id : undefined;
+
+const readDataLaunchID = (response: XYOpsResponse): string | undefined => {
+  if (!hasResponseData(response)) return undefined;
+  return [response.data, ...recordChildren(response.data)]
+    .map((value) => (isJobLaunch(value) ? value.id : undefined))
+    .find((id): id is string => id !== undefined);
+};
+
+export const readLaunchID = (
+  response: XYOpsResponse,
+  endpoint: string,
+): string => {
+  const id = [readTopLaunchID(response), readDataLaunchID(response)].find(
+    (candidate) => candidate !== undefined,
+  );
+  if (id !== undefined) return id;
+  throw fail("execute-outcome-unknown", {
+    endpoint,
+    nextAction:
+      "The execute dispatch outcome is unknown; reconcile before retrying.",
+  });
+};
+
+// XYOps has two supported response envelopes for jobs.
+const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined =>
+  isXYOpsJobResponse(response)
+    ? response.job
+    : hasResponseData(response)
+      ? readJobContainer(response.data)
+      : undefined;
+
+const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
+
+// Debug logging is deliberately isolated and redacts sensitive DTO branches.
+const redactResponseDTO = (value: unknown, key = ""): unknown => {
+  if (sensitiveField.test(key)) return "[redacted]";
+  if (Array.isArray(value)) return value.map((item) => redactResponseDTO(item));
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      redactResponseDTO(entryValue, entryKey),
+    ]),
+  );
+};
+
+const logInvalidJobResponseShape = (response: XYOpsResponse): void => {
+  if (process.env.XYOPS_DEBUG_RESPONSE_SHAPE !== "1") return;
+  console.error(
+    "[xyops] invalid get_job response",
+    redactResponseDTO(response),
+  );
+};
+
+export const readJobResponse = (
+  response: XYOpsResponse,
+  endpoint: string,
+): XYOpsJob => {
+  const job = findResponseJob(response);
+  if (job !== undefined) return job;
+  logInvalidJobResponseShape(response);
+  throw fail("job", {
+    endpoint,
+    nextAction: "XYOps returned an invalid job response.",
+  });
+};
+
+type XYOpsJobResult = Readonly<{
+  code?: number | string;
+  state?: string;
+  description?: string;
+  output?: string | null;
+  data?: unknown;
+}>;
+
+const MAX_FAILURE_DESCRIPTION_LENGTH = 240;
+
+const hasSensitiveDetail = (value: string): boolean =>
+  [
+    VoiceflowRegex.failureSensitiveDetail,
+    VoiceflowRegex.jwt,
+    VoiceflowRegex.longSecretToken,
+  ].some((pattern) => pattern.test(value));
+
+const selectFailureDetail = (job: XYOpsJobResult): string | undefined =>
+  [job.description, job.output].find(
+    (value): value is string =>
+      typeof value === "string" && value.trim().length > 0,
+  );
+
+const normalizeFailureDetail = (value: string): string =>
+  value
+    .replace(VoiceflowRegex.nonPrintable, " ")
+    .replace(VoiceflowRegex.whitespace, " ")
+    .trim();
+
+// These checks intentionally guard against accidentally exposing structured or secret data.
+const isUnsafeFailureDetail = (value: string): boolean =>
+  !value ||
+  value.startsWith("{") ||
+  value.startsWith("[") ||
+  hasSensitiveDetail(value);
+
+const failureStage = (value: string): string | undefined =>
+  value.match(/stage=[a-z-]+(?: api-key-(?:http-\d+|response))?/i)?.[0];
+
+const boundFailureDetail = (value: string): string =>
+  value.length <= MAX_FAILURE_DESCRIPTION_LENGTH
+    ? value
+    : `${value.slice(0, MAX_FAILURE_DESCRIPTION_LENGTH - 1).trimEnd()}…`;
+
+const logFailedJobResponse = (job: XYOpsJobResult): void => {
+  if (process.env.XYOPS_DEBUG_RESPONSE_SHAPE !== "1") return;
+  console.error("[xyops] failed get_job response", redactResponseDTO(job));
+};
+
+// Failure descriptions are sanitized before crossing the CLI boundary.
+const describeFailure = (job: XYOpsJobResult, fallback: string): string => {
+  const detail = selectFailureDetail(job);
+  if (detail === undefined) return fallback;
+  const normalized = normalizeFailureDetail(detail);
+  if (!isUnsafeFailureDetail(normalized)) return boundFailureDetail(normalized);
+  const stage = failureStage(normalized);
+  return stage === undefined
+    ? "XYOps reported a job failure."
+    : `XYOps reported a job failure (${stage}).`;
+};
+
+export const requireSuccessfulJob = (
+  job: XYOpsJobResult,
+  endpoint: string,
+  fallback: string,
+): XYOpsJobResult => {
+  if (!hasSuccessfulJobCode(job)) {
+    logFailedJobResponse(job);
+    throw fail("job", { endpoint, nextAction: describeFailure(job, fallback) });
+  }
+  return job;
+};
+
+const hasSuccessfulJobCode = (job: XYOpsJobResult): boolean =>
+  job.code !== undefined && isSuccessfulCode(job.code);
+
+const parseJobOutput = (output: string, endpoint: string): unknown => {
+  try {
+    return JSON.parse(output) as unknown;
+  } catch {
+    throw fail("job", {
+      endpoint,
+      nextAction: "XYOps returned malformed job output.",
+    });
+  }
+};
+
+const hasReadableOutput = (
+  job: XYOpsJobResult,
+): job is XYOpsJobResult & { output: string } =>
+  typeof job.output === "string" && job.output.trim().length > 0;
+
+// Output may be encoded as JSON text or returned in the data field.
+export const readJobOutput = (
+  job: XYOpsJobResult,
+  endpoint: string,
+): unknown => {
+  if (hasReadableOutput(job)) return parseJobOutput(job.output, endpoint);
+  if ("data" in job) return job.data;
+  throw fail("job", {
+    endpoint,
+    nextAction: "XYOps returned empty job output.",
+  });
+};
+
+export const readWaitResponseData = (
+  response: XYOpsResponse,
+  endpoint: string,
+): unknown => {
+  if (!isXYOpsWaitResponse(response))
+    throw fail("api", {
+      endpoint,
+      nextAction: "XYOps returned an invalid wait response.",
+    });
+  return readJobOutput(
+    requireSuccessfulJob(
+      response.job,
+      endpoint,
+      "The migration event job failed.",
+    ),
+    endpoint,
+  );
+};
+
+export const requireEnvelope = <T>(
+  data: unknown,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  endpoint: string,
+): VoiceflowEnvelope<T> => {
+  if (!guard(data))
+    throw fail("envelope", {
+      endpoint,
+      nextAction: "The migration runner returned an invalid envelope.",
+    });
+  return data;
+};
+===== END xyops/cli/client/job-response.ts =====
+
+===== BEGIN xyops/cli/client/polling.ts =====
+import { asCliError, fail, type CliError } from "../diagnostics";
+import { isCompletedJob, normalizeVoiceflowResponse } from "../guards";
+import type {
+  EventParameters,
+  ResponseGuard,
+  VoiceflowEnvelope,
+  XYOpsConfig,
+  XYOpsEventReference,
+  XYOpsJob,
+} from "../types";
+import { type Request, type Sleep } from "./http";
+import {
+  readJobOutput,
+  readJobResponse,
+  readWaitResponseData,
+  requireEnvelope,
+  requireSuccessfulJob,
+} from "./job-response";
+
+const WAIT_PATH = "/api/app/run_event/v1/wait";
+const JOB_PATH = "/api/app/get_job/v1";
+const MAX_READ_ATTEMPTS = 3;
+export const MAX_POLL_ATTEMPTS = 100;
+
+type EventBody = (
+  reference: XYOpsEventReference,
+  params: EventParameters,
+) => Readonly<Record<string, unknown>>;
+export const eventBody: EventBody = (reference, params) => ({
+  ...(typeof reference === "string" ? { title: reference } : reference),
+  params,
+});
+
+export const readEventWithRetry = <T>(
+  request: Request,
+  sleeper: Sleep,
+  intervalMs: number,
+  reference: XYOpsEventReference,
+  params: EventParameters,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  attempt = 0,
+): Promise<VoiceflowEnvelope<T>> =>
+  readEventAttempt(request, reference, params, guard).catch((error) =>
+    retryRead(
+      request,
+      sleeper,
+      intervalMs,
+      reference,
+      params,
+      guard,
+      attempt,
+      error,
+    ),
+  );
+
+const readEventAttempt = <T>(
+  request: Request,
+  reference: XYOpsEventReference,
+  params: EventParameters,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+): Promise<VoiceflowEnvelope<T>> =>
+  request(WAIT_PATH, eventBody(reference, params), WAIT_PATH)
+    .then((response) =>
+      normalizeVoiceflowResponse(readWaitResponseData(response, WAIT_PATH)),
+    )
+    .then((data) => requireEnvelope(data, guard, WAIT_PATH));
+
+const isRetryableReadError = (error: CliError): boolean =>
+  [
+    error.diagnostic.retryable,
+    ["timeout", "network", "http"].includes(error.diagnostic.code),
+  ].every(Boolean);
+
+// Retry policy combines transport classification and the bounded attempt count.
+const retryRead = <T>(
+  request: Request,
+  sleeper: Sleep,
+  intervalMs: number,
+  reference: XYOpsEventReference,
+  params: EventParameters,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  attempt: number,
+  error: unknown,
+): Promise<VoiceflowEnvelope<T>> => {
+  const cliError = asCliError(error);
+  return shouldStopRetry(cliError, attempt)
+    ? Promise.reject(cliError)
+    : sleeper(Math.min(intervalMs, 250 * 2 ** attempt)).then(() =>
+        readEventWithRetry(
+          request,
+          sleeper,
+          intervalMs,
+          reference,
+          params,
+          guard,
+          attempt + 1,
+        ),
+      );
+};
+const shouldStopRetry = (error: CliError, attempt: number): boolean =>
+  !isRetryableReadError(error) || attempt === MAX_READ_ATTEMPTS - 1;
+
+const completeJob = <T>(
+  job: XYOpsJob,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+): VoiceflowEnvelope<T> => {
+  const result = normalizeVoiceflowResponse(
+    readJobOutput(
+      requireSuccessfulJob(job, JOB_PATH, "The migration execute job failed."),
+      JOB_PATH,
+    ),
+  );
+  if (!guard(result))
+    throw fail("envelope", {
+      endpoint: JOB_PATH,
+      nextAction: "The execute job returned an invalid envelope.",
+    });
+  return result;
+};
+
+// Polling intentionally checks completion and deadline at each remote observation.
+const pollUntilComplete = async <T>(
+  id: string,
+  request: Request,
+  sleeper: Sleep,
+  intervalMs: number,
+  deadline: number,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  attempt: number,
+): Promise<VoiceflowEnvelope<T>> => {
+  if (Date.now() >= deadline || attempt > MAX_POLL_ATTEMPTS)
+    return Promise.reject(pollingDeadlineError());
+  const job = readJobResponse(
+    await request(JOB_PATH, { id }, JOB_PATH),
+    JOB_PATH,
+  );
+  if (isCompletedJob(job.completed)) return completeJob(job, guard);
+  return pollIncompleteJob(id, request, sleeper, intervalMs, deadline, guard, attempt);
+};
+const pollIncompleteJob = async <T>(
+  id: string,
+  request: Request,
+  sleeper: Sleep,
+  intervalMs: number,
+  deadline: number,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  attempt: number,
+): Promise<VoiceflowEnvelope<T>> => {
+  if (attempt >= MAX_POLL_ATTEMPTS) return Promise.reject(pollingDeadlineError());
+  await waitForNextPoll(sleeper, intervalMs, deadline);
+  if (Date.now() >= deadline) return Promise.reject(pollingDeadlineError());
+  return pollUntilComplete(id, request, sleeper, intervalMs, deadline, guard, attempt + 1);
+};
+const pollingDeadlineError = (): CliError =>
+  fail("execute-outcome-unknown", {
+    endpoint: JOB_PATH,
+    retryable: true,
+    nextAction: "The execute job timed out; reconcile before retrying.",
+  });
+
+const waitForNextPoll = async (
+  sleeper: Sleep,
+  intervalMs: number,
+  deadline: number,
+): Promise<void> => {
+  await sleeper(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
+};
+
+export const pollJob = <T>(
+  id: string,
+  request: Request,
+  sleeper: Sleep,
+  config: XYOpsConfig,
+  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+): Promise<VoiceflowEnvelope<T>> => {
+  if (!validPollingConfig(config.pollIntervalMs, config.pollTimeoutMs))
+    return Promise.reject(
+      fail("execute-outcome-unknown", {
+        endpoint: JOB_PATH,
+        nextAction: "Polling configuration is invalid; reconcile explicitly.",
+      }),
+    );
+  return pollUntilComplete(
+    id,
+    request,
+    sleeper,
+    config.pollIntervalMs,
+    Date.now() + config.pollTimeoutMs,
+    guard,
+    1,
+  );
+};
+
+const validPollingConfig = (intervalMs: number, timeoutMs: number): boolean =>
+  [
+    Number.isFinite(intervalMs),
+    intervalMs > 0,
+    Number.isFinite(timeoutMs),
+    timeoutMs > 0,
+  ].every(Boolean);
+===== END xyops/cli/client/polling.ts =====
+
+===== BEGIN xyops/cli/client/streaming.ts =====
+import { fail } from "../diagnostics";
+import { VoiceflowRegex } from "../../voiceflow/regex";
+import { isNonEmptyString, isXYOpsStreamEvent } from "../guards";
+import type {
+  XYOpsStreamEvent,
+  XYOpsStreamLimits,
+  XYOpsStreamResult,
+  XYOpsStreamJob,
+} from "../types";
+import { fetchSSE } from "./http";
+
+export const STREAM_PATH = "/api/app/stream_job/v1";
+export const DEFAULT_STREAM_MAX_BYTES = 1_048_576;
+export const DEFAULT_STREAM_MAX_FRAME_BYTES = 256_000;
+
+type ParseSSE = (
+  source: string,
+  limits?: XYOpsStreamLimits,
+) => readonly XYOpsStreamEvent[];
+
+const byteLength = (value: string): number =>
+  new TextEncoder().encode(value).byteLength;
+const streamError = (message: string): never => {
+  throw fail("stream", { endpoint: STREAM_PATH, nextAction: message });
+};
+
+// SSE parsing intentionally handles several independent wire-format cases.
+// eslint-disable-next-line complexity
+const parseEventFrame = (
+  frame: string,
+  maxFrameBytes: number,
+): XYOpsStreamEvent => {
+  if (byteLength(frame) > maxFrameBytes)
+    return streamError("The XYOps SSE event exceeded the size limit.");
+  let eventName = "";
+  const dataLines: string[] = [];
+  for (const line of frame.split(VoiceflowRegex.sseLineBreak)) {
+    if (line.startsWith(":")) continue;
+    const separator = line.indexOf(":");
+    const field = separator < 0 ? line : line.slice(0, separator);
+    const value =
+      separator < 0
+        ? ""
+        : line.slice(separator + 1).replace(VoiceflowRegex.sseLeadingSpace, "");
+    if (field === "event") eventName = value;
+    if (field === "data") dataLines.push(value);
+  }
+  if (!eventName || dataLines.length === 0)
+    return streamError("XYOps returned an incomplete SSE event.");
+  let data: unknown;
+  try {
+    data = JSON.parse(dataLines.join("\n")) as unknown;
+  } catch {
+    return streamError("XYOps returned malformed SSE JSON.");
+  }
+  const event: unknown = { type: eventName, data };
+  if (!isXYOpsStreamEvent(event))
+    return streamError("XYOps returned an unknown or invalid SSE event.");
+  return event;
+};
+
+// eslint-disable-next-line complexity
+export const parseSSE: ParseSSE = (source, limits = {}) => {
+  const maxBytes = limits.maxBytes ?? DEFAULT_STREAM_MAX_BYTES;
+  const maxFrameBytes = limits.maxFrameBytes ?? DEFAULT_STREAM_MAX_FRAME_BYTES;
+  if (byteLength(source) > maxBytes)
+    return streamError("The XYOps SSE response exceeded the size limit.");
+  const events: XYOpsStreamEvent[] = [];
+  const frames = source.split(VoiceflowRegex.sseFrameBreak);
+  for (const frame of frames) {
+    if (
+      !frame.trim() ||
+      frame
+        .split(VoiceflowRegex.sseLineBreak)
+        .every((line) => line.startsWith(":"))
+    )
+      continue;
+    events.push(parseEventFrame(frame, maxFrameBytes));
+  }
+  return events;
+};
+
+type TerminalJobData = Readonly<{
+  id: string;
+  code: number | string;
+}>;
+
+type HasTerminalJobStatus = (
+  data: Record<string, unknown> | undefined,
+) => data is Record<string, unknown> & TerminalJobData;
+const hasTerminalJobStatus: HasTerminalJobStatus = (
+  data,
+): data is Record<string, unknown> & TerminalJobData =>
+  data !== undefined &&
+  isNonEmptyString(data.id) &&
+  (typeof data.code === "number" || typeof data.code === "string");
+
+type ReadSSEResponse = (
+  response: Response,
+  limits: XYOpsStreamLimits,
+) => Promise<XYOpsStreamResult>;
+// eslint-disable-next-line complexity
+const readSSEResponse: ReadSSEResponse = async (response, limits) => {
+  if (response.body === null)
+    return streamError("XYOps returned an empty SSE body.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let source = "";
+  let totalBytes = 0;
+  const events: XYOpsStreamEvent[] = [];
+  // Chunk consumption combines byte limits, decoder flushing, and frame extraction.
+  // eslint-disable-next-line complexity
+  const readChunk = async (): Promise<void> => {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      source += decoder.decode();
+      if (source.trim())
+        events.push(
+          ...parseSSE(source, {
+            maxBytes: limits.maxBytes,
+            maxFrameBytes: limits.maxFrameBytes,
+          }),
+        );
+      return;
+    }
+    totalBytes += chunk.value.byteLength;
+    if (totalBytes > (limits.maxBytes ?? DEFAULT_STREAM_MAX_BYTES))
+      return streamError("The XYOps SSE response exceeded the size limit.");
+    source += decoder.decode(chunk.value, { stream: true });
+    const parts = source.split(VoiceflowRegex.sseFrameBreak);
+    source = parts.pop() ?? "";
+    for (const part of parts) {
+      if (part.trim()) events.push(...parseSSE(`${part}\n\n`, limits));
+    }
+    return readChunk();
+  };
+  await readChunk();
+  const candidates = events.filter(
+    (event) => event.type === "start" || event.type === "update",
+  );
+  const terminal = events
+    .slice()
+    .reverse()
+    .find((event: XYOpsStreamEvent) => event.type === "end")?.data;
+  // Some XYOps versions use end as an empty completion marker; retain the terminal update in that case.
+  const latest = [
+    terminal,
+    ...candidates.map((event) => event.data).reverse(),
+  ].find(hasTerminalJobStatus);
+  if (latest === undefined)
+    return streamError("XYOps ended the stream without a terminal job status.");
+  if (!events.some((event) => event.type === "end"))
+    return streamError("XYOps ended the stream before the terminal event.");
+  const result = {
+    jobID: latest.id,
+    code: latest.code,
+    data: latest,
+    requiresJobResponse: true,
+  } as const;
+  return latest.code === 0 || latest.code === "0"
+    ? { kind: "success", ...result }
+    : { kind: "failure", ...result };
+};
+
+export type StreamJob = XYOpsStreamJob;
+export const streamJob: StreamJob = (
+  fetcher,
+  baseURL,
+  apiKey,
+  jobID,
+  timeoutMs,
+  limits = {},
+) =>
+  fetchSSE(
+    fetcher,
+    `${baseURL}${STREAM_PATH}?id=${encodeURIComponent(jobID)}`,
+    apiKey,
+    timeoutMs,
+    STREAM_PATH,
+    (response) => readSSEResponse(response, limits),
+  );
+===== END xyops/cli/client/streaming.ts =====
