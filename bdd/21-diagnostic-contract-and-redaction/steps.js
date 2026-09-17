@@ -9,6 +9,7 @@ const {
   appendDiagnosticCause,
 } = await import("../../xyops/diagnostics/create.ts");
 const { classifyDispatchOutcome } = await import("../../xyops/diagnostics/outcome.ts");
+const { createPluginDiagnostic } = await import("../../xyops/plugin/diagnostics.ts");
 const { ok, error } = await import("../../xyops/diagnostics/result.ts");
 
 class DiagnosticWorld {
@@ -186,4 +187,20 @@ defineStep("a dispatched request has no confirmed result", function () {
 
 defineStep("its outcome state is {string}", function (expectedState) {
   assert.equal(this.value, expectedState);
+});
+
+defineStep("a plugin validation failure is converted at the response stage", function () {
+  this.value = createPluginDiagnostic("response", { code: "INVALID_INPUT" });
+});
+
+defineStep("its diagnostic domain is {string}", function (domain) {
+  assert.equal(this.value.domain, domain);
+});
+
+defineStep("its diagnostic stage is {string}", function (stage) {
+  assert.equal(this.value.stage, stage);
+});
+
+defineStep("its diagnostic code is {string}", function (code) {
+  assert.equal(this.value.code, code);
 });

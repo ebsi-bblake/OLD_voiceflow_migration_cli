@@ -2,9 +2,31 @@ import { PLUGIN_VERSION } from "./version";
 import { z } from "zod";
 import { VoiceflowRegex } from "../voiceflow/regex";
 import { PluginStage } from "./types";
+import {
+  createDiagnostic,
+  createUnexpectedDiagnostic,
+} from "../diagnostics/create";
+import type { Diagnostic } from "../diagnostics/types";
 export type { PluginStage } from "./types";
 
 export const pluginStages = Object.values(PluginStage);
+
+type CreatePluginDiagnostic = (stage: PluginStage, error: unknown) => Diagnostic;
+export const createPluginDiagnostic: CreatePluginDiagnostic = (stage, error) => {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    return createDiagnostic(
+      { code: error.code, retryable: false },
+      "plugin",
+      stage,
+    );
+  }
+  return createUnexpectedDiagnostic(error, "plugin", stage);
+};
 
 const maxDiagnosticLength = 320;
 const maxErrorClassLength = 80;

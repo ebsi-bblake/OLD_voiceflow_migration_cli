@@ -48,3 +48,9 @@ Feature: Execute BDD21 diagnostic contract slices
     Then its outcome state is "confirmed-rejection"
     When a dispatched request has no confirmed result
     Then its outcome state is "unknown-outcome"
+
+  Scenario: Keep plugin diagnostics structured before compatibility formatting
+    When a plugin validation failure is converted at the response stage
+    Then its diagnostic domain is "plugin"
+    And its diagnostic stage is "response"
+    And its diagnostic code is "INVALID_INPUT"
