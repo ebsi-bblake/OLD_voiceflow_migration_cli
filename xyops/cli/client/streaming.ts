@@ -134,7 +134,11 @@ const readSSEResponse: ReadSSEResponse = async (response, limits) => {
     }
     return readChunk();
   };
-  await readChunk();
+  try {
+    await readChunk();
+  } finally {
+    reader.releaseLock();
+  }
   const candidates = events.filter(
     (event) => event.type === "start" || event.type === "update",
   );

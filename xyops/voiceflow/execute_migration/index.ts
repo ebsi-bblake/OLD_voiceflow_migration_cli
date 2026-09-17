@@ -394,22 +394,19 @@ const resolveImportedVersionID: ResolveImportedVersionID = async (
   imported,
   workspaceID,
 ) => {
-  if (imported.versionID !== undefined)
-    return Promise.resolve(imported.versionID);
-  return loadProjects(auth, workspaceID).then((projects) => {
-    const project = projects.find(
-      (candidate) => candidate.id === imported.projectID,
+  if (imported.versionID !== undefined) return imported.versionID;
+  const projects = await loadProjects(auth, workspaceID);
+  const project = projects.find(
+    (candidate) => candidate.id === imported.projectID,
+  );
+  const versionID = project === undefined ? undefined : draftVersionID(project);
+  if (versionID === undefined)
+    throw new OperationFault(
+      "DEPENDENCY_FAILURE",
+      true,
+      "missing-destination-version-id",
     );
-    const versionID =
-      project === undefined ? undefined : draftVersionID(project);
-    if (versionID === undefined)
-      throw new OperationFault(
-        "DEPENDENCY_FAILURE",
-        true,
-        "missing-destination-version-id",
-      );
-    return versionID;
-  });
+  return versionID;
 };
 const draftVersionID = (project: ProjectRecord): string | undefined =>
   project.environments

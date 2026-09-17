@@ -346,6 +346,7 @@ export type SecretEffect =
 
 export type SecretTransition = Readonly<{
   readonly state: SecretState;
+  readonly accepted: boolean;
   readonly effects: readonly SecretEffect[];
 }>;
 
@@ -373,16 +374,17 @@ export const transitionSecretStateWithEffects = (
     state.kind === "FAILED" ||
     state.kind === "UNKNOWN_OUTCOME"
   )
-    return { state, effects: [] };
+    return { state, accepted: false, effects: [] };
   if (event.kind === "socket-open" && state.kind === "CONNECTING")
-    return { state: { ...state, kind: "CONNECTED" }, effects: [] };
+    return { state: { ...state, kind: "CONNECTED" }, accepted: true, effects: [] };
   if (event.kind === "connected" && state.kind === "CONNECTED")
     return {
       state: { ...state, kind: "SUBSCRIBING" },
+      accepted: true,
       effects: [{ kind: "send-subscription" }],
     };
   if (event.kind === "subscription-synced" && state.kind === "SUBSCRIBING")
-    return { state: { ...state, kind: "SUBSCRIBED" }, effects: [] };
+    return { state: { ...state, kind: "SUBSCRIBED" }, accepted: true, effects: [] };
   if (event.kind === "mutation-sent" && state.kind === "SUBSCRIBED")
     return {
       state: {
@@ -390,6 +392,7 @@ export const transitionSecretStateWithEffects = (
         kind: "MUTATION_SENT",
         mutationSyncID: event.mutationSyncID,
       },
+      accepted: true,
       effects: [
         { kind: "send-mutation", mutationSyncID: event.mutationSyncID },
       ],
@@ -405,11 +408,13 @@ export const transitionSecretStateWithEffects = (
         assistantID: state.assistantID,
         actionID: state.actionID,
       },
+      accepted: true,
       effects: [{ kind: "close-socket" }, { kind: "settle" }],
     };
   if (event.kind === "error-frame" || event.kind === "socket-error")
     return {
       state: { ...state, kind: "FAILED", code: "DEPENDENCY_FAILURE" },
+      accepted: true,
       effects: [{ kind: "close-socket" }, { kind: "settle" }],
     };
   if (event.kind === "socket-close")
@@ -419,14 +424,16 @@ export const transitionSecretStateWithEffects = (
         kind: state.kind === "MUTATION_SENT" ? "UNKNOWN_OUTCOME" : "FAILED",
         code: "DEPENDENCY_FAILURE",
       },
+      accepted: true,
       effects: [{ kind: "settle" }],
     };
   if (event.kind === "timeout")
     return {
       state: { ...state, kind: "UNKNOWN_OUTCOME", code: "DEPENDENCY_TIMEOUT" },
+      accepted: true,
       effects: [{ kind: "close-socket" }, { kind: "settle" }],
     };
-  return { state, effects: [] };
+  return { state, accepted: false, effects: [] };
 };
 export const transitionSecretState: TransitionSecretState = (state, event) =>
   transitionSecretStateWithEffects(state, event).state;
