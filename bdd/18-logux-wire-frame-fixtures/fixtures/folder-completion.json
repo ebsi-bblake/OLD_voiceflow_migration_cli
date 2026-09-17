@@ -1,0 +1,1 @@
+["sync",0,{"type":"workspace-folder.CREATE_ONE_DONE","payload":{"params":{"context":{"workspaceID":"workspace-id"},"data":{"name":"Imports"}},"result":{"data":{"id":"folder-id","name":"Imports","workspaceID":"workspace-id"}}},"meta":{"actionID":"action-folder-1"}},{"id":203,"time":203,"subprotocol":"1.9.0"}]
