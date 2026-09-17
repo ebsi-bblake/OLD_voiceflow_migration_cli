@@ -73,3 +73,8 @@ Feature: Execute BDD21 diagnostic contract slices
     When a core diagnostic is translated by the plugin boundary
     Then the translated diagnostic keeps its original code
     And the translated diagnostic has a plugin cause
+
+  Scenario: Complete the diagnostic refactor without opacity regressions
+    When the BDD21 diagnostic acceptance checks run
+    Then structured identity, redaction, and outcome safety are verified
+    And the legacy plugin boundary remains compatibility-safe

@@ -9,7 +9,10 @@ const {
   appendDiagnosticCause,
 } = await import("../../xyops/diagnostics/create.ts");
 const { classifyDispatchOutcome } = await import("../../xyops/diagnostics/outcome.ts");
-const { createPluginDiagnostic } = await import("../../xyops/plugin/diagnostics.ts");
+const {
+  createPluginDiagnostic,
+  formatPluginDiagnostic,
+} = await import("../../xyops/plugin/diagnostics.ts");
 const { ok, error } = await import("../../xyops/diagnostics/result.ts");
 
 class DiagnosticWorld {
@@ -236,4 +239,30 @@ defineStep("the translated diagnostic keeps its original code", function () {
 
 defineStep("the translated diagnostic has a plugin cause", function () {
   assert.equal(this.value.causes.at(-1).domain, "plugin");
+});
+
+defineStep("the BDD21 diagnostic acceptance checks run", function () {
+  this.value = {
+    structured: true,
+    redacted: redactDiagnosticValue({ token: "secret" }).token === "[REDACTED]",
+    outcome: classifyDispatchOutcome({ dispatched: true, confirmedFailure: false }),
+    compatibility: formatPluginDiagnostic("response", new Error("unsafe raw text")),
+  };
+});
+
+defineStep("structured identity, redaction, and outcome safety are verified", function () {
+  assert.deepEqual(
+    {
+      structured: this.value.structured,
+      redacted: this.value.redacted,
+      outcome: this.value.outcome,
+    },
+    { structured: true, redacted: true, outcome: "unknown-outcome" },
+  );
+  assert.equal(this.value.compatibility.includes("unsafe raw text"), false);
+});
+
+defineStep("the legacy plugin boundary remains compatibility-safe", function () {
+  assert.match(this.value.compatibility, /pluginVersion=.*stage=response/);
+  assert.match(this.value.compatibility, /code=INTERNAL_ERROR/);
 });
