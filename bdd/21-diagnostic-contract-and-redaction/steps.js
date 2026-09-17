@@ -8,6 +8,7 @@ const {
   createUnexpectedDiagnostic,
   appendDiagnosticCause,
 } = await import("../../xyops/diagnostics/create.ts");
+const { classifyDispatchOutcome } = await import("../../xyops/diagnostics/outcome.ts");
 const { ok, error } = await import("../../xyops/diagnostics/result.ts");
 
 class DiagnosticWorld {
@@ -169,4 +170,20 @@ defineStep("the diagnostic uses INTERNAL_ERROR without raw exception text", func
   assert.equal(this.value.code, "INTERNAL_ERROR");
   assert.equal(JSON.stringify(this.value).includes("raw response body"), false);
   assert.equal(this.value.domain, "transport");
+});
+
+defineStep("a request fails before dispatch", function () {
+  this.value = classifyDispatchOutcome({ dispatched: false, confirmedFailure: true });
+});
+
+defineStep("a dispatched request has a confirmed rejection", function () {
+  this.value = classifyDispatchOutcome({ dispatched: true, confirmedFailure: true });
+});
+
+defineStep("a dispatched request has no confirmed result", function () {
+  this.value = classifyDispatchOutcome({ dispatched: true, confirmedFailure: false });
+});
+
+defineStep("its outcome state is {string}", function (expectedState) {
+  assert.equal(this.value, expectedState);
 });

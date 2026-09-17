@@ -40,3 +40,11 @@ Feature: Execute BDD21 diagnostic contract slices
   Scenario: Normalize unexpected failures as safe structured causes
     When an unexpected failure crosses the transport boundary
     Then the diagnostic uses INTERNAL_ERROR without raw exception text
+
+  Scenario: Keep dispatch uncertainty distinct from confirmed rejection
+    When a request fails before dispatch
+    Then its outcome state is "before-dispatch-failure"
+    When a dispatched request has a confirmed rejection
+    Then its outcome state is "confirmed-rejection"
+    When a dispatched request has no confirmed result
+    Then its outcome state is "unknown-outcome"
