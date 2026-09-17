@@ -11,6 +11,7 @@ import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
 import type { VoiceflowOperation } from "../voiceflow/types";
 import { configureDebug } from "../voiceflow/debug";
+import { MigrationParameterName } from "../migration-parameters";
 export type { OperationHandlers } from "./types";
 
 type PluginEnvelope = Envelope<unknown>;
@@ -38,13 +39,16 @@ const trimParameter: TrimParameter = (value) => {
   return stringValue.trim();
 };
 
-type RequiredParameter = (job: NativePluginJob, name: string) => string;
+type RequiredParameter = (
+  job: NativePluginJob,
+  name: MigrationParameterName,
+) => string;
 const requiredParameter: RequiredParameter = (job, name) =>
   trimParameter(job.params[name]);
 
 type OptionalParameter = (
   job: NativePluginJob,
-  name: string,
+  name: MigrationParameterName,
 ) => string | undefined;
 const optionalParameter: OptionalParameter = (job, name) => {
   const value = job.params[name];
@@ -52,13 +56,16 @@ const optionalParameter: OptionalParameter = (job, name) => {
   return trimParameter(value);
 };
 
-type OptionalSecretInput = (job: NativePluginJob, name: string) => unknown;
+type OptionalSecretInput = (
+  job: NativePluginJob,
+  name: MigrationParameterName,
+) => unknown;
 const optionalSecretInput: OptionalSecretInput = (job, name) =>
   job.params[name];
 
 type RequiredConfirmation = (job: NativePluginJob) => true;
 const requiredConfirmation: RequiredConfirmation = (job) => {
-  if (job.params.CONFIRMED !== true)
+  if (job.params[MigrationParameterName.confirmed] !== true)
     throw new OperationFault("CONFIRMATION_REQUIRED");
   return true;
 };
@@ -79,47 +86,47 @@ const operationInvocations: OperationInvocations = {
   list_projects: (job, token, handlers) =>
     handlers["list_projects"](
       token,
-      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
+      requiredParameter(job, MigrationParameterName.sourceWorkspaceID),
     ),
   list_versions: (job, token, handlers) =>
     handlers["list_versions"](
       token,
-      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
-      requiredParameter(job, "SOURCE_PROJECT_ID"),
+      requiredParameter(job, MigrationParameterName.sourceWorkspaceID),
+      requiredParameter(job, MigrationParameterName.sourceProjectID),
     ),
   list_folders: (job, token, handlers) =>
     handlers["list_folders"](
       token,
-      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
+      requiredParameter(job, MigrationParameterName.destinationWorkspaceID),
     ),
   create_folder: (job, token, handlers) =>
     handlers["create_folder"](
       token,
-      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
-      requiredParameter(job, "DESTINATION_FOLDER_ID"),
+      requiredParameter(job, MigrationParameterName.destinationWorkspaceID),
+      requiredParameter(job, MigrationParameterName.destinationFolderID),
     ),
   plan_migration: (job, token, handlers) =>
     handlers["plan_migration"](
       token,
-      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
-      requiredParameter(job, "SOURCE_PROJECT_ID"),
-      requiredParameter(job, "SOURCE_VERSION_ID"),
-      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
-      requiredParameter(job, "DESTINATION_FOLDER_ID"),
-      optionalParameter(job, "TARGET_SCHEMA_VERSION"),
+      requiredParameter(job, MigrationParameterName.sourceWorkspaceID),
+      requiredParameter(job, MigrationParameterName.sourceProjectID),
+      requiredParameter(job, MigrationParameterName.sourceVersionID),
+      requiredParameter(job, MigrationParameterName.destinationWorkspaceID),
+      requiredParameter(job, MigrationParameterName.destinationFolderID),
+      optionalParameter(job, MigrationParameterName.targetSchemaVersion),
     ),
   execute_migration: (job, token, handlers) =>
     handlers["execute_migration"](
       token,
-      requiredParameter(job, "PLAN_ID"),
-      requiredParameter(job, "SOURCE_WORKSPACE_ID"),
-      requiredParameter(job, "SOURCE_PROJECT_ID"),
-      requiredParameter(job, "SOURCE_VERSION_ID"),
-      requiredParameter(job, "DESTINATION_WORKSPACE_ID"),
-      requiredParameter(job, "DESTINATION_FOLDER_ID"),
-      optionalParameter(job, "TARGET_SCHEMA_VERSION"),
+      requiredParameter(job, MigrationParameterName.planID),
+      requiredParameter(job, MigrationParameterName.sourceWorkspaceID),
+      requiredParameter(job, MigrationParameterName.sourceProjectID),
+      requiredParameter(job, MigrationParameterName.sourceVersionID),
+      requiredParameter(job, MigrationParameterName.destinationWorkspaceID),
+      requiredParameter(job, MigrationParameterName.destinationFolderID),
+      optionalParameter(job, MigrationParameterName.targetSchemaVersion),
       requiredConfirmation(job),
-      optionalSecretInput(job, "SECRET_FILE_CONTENTS"),
+      optionalSecretInput(job, MigrationParameterName.secretFileContents),
     ),
 };
 
@@ -142,7 +149,7 @@ export const dispatchOperation: DispatchOperation = (
   token,
   handlers = defaultOperationHandlers,
 ) => {
-  configureDebug(job.params.DEBUG);
+  configureDebug(job.params[MigrationParameterName.debug]);
   return invokeOperation(
     job.operation,
     () => operationInvocations[job.operation](job, token, handlers),

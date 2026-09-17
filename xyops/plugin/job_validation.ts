@@ -1,5 +1,6 @@
 import { PluginValidationFault } from "./validation_fault";
 import { isNonEmptyString, isPluginOperation, isRecord } from "./guards";
+import { MigrationParameterName } from "../migration-parameters";
 import type {
   NativePluginJob,
   PluginOperation,
@@ -27,7 +28,9 @@ const requireSupportedOperation = (value: string): PluginOperation => {
 
 type SelectOperation = (params: PluginParameters) => PluginOperation;
 const selectOperation: SelectOperation = (params) =>
-  requireSupportedOperation(requireOperationName(params.operation));
+  requireSupportedOperation(
+    requireOperationName(params[MigrationParameterName.operation]),
+  );
 
 const isPluginEventJob = (
   value: unknown,
