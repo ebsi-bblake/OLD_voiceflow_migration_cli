@@ -14,7 +14,6 @@ import {
 import {
   isSecretCompletion,
   isSecretFailure,
-  parseLoguxFrame,
   summarizeLoguxAction,
   summarizeSecretFailureFrame,
   type TraceFields,
@@ -73,7 +72,7 @@ export const createSecret: CreateSecret = (auth, assistantID, secret, dependenci
           if (effect.kind === "close-socket") connection?.cleanup();
           if (effect.kind === "settle") settle();
         } catch {
-          dispatch({ kind: "socket-error" });
+          dispatch({ kind: "transport-failure" });
           settle(new OperationFault("DEPENDENCY_FAILURE", true, `logux-${state.kind.toLowerCase()}-error`));
         }
       }
@@ -85,21 +84,20 @@ export const createSecret: CreateSecret = (auth, assistantID, secret, dependenci
       webSocket: dependencies.webSocket,
       subscription: { frame: ["sync", subscriptionID, { channel: `assistant/${assistantID}`, type: "logux/subscribe", since: { id: "0", time: 0 } }, { id: randomActionNumber(), time: actionTime++ }] },
       onEvent: (event) => {
-        if (event.kind === "open") return dispatch({ kind: "socket-open" });
-        if (event.kind === "timeout") {
-          dispatch({ kind: "timeout" });
+        if (event.kind === "connection-opened") return dispatch({ kind: "connection-established" });
+        if (event.kind === "connection-interrupted" && event.reason === "timeout") {
+          dispatch({ kind: "transport-timeout" });
           return settle(new OperationFault("DEPENDENCY_TIMEOUT", true, `logux-${state.kind.toLowerCase()}-timeout`));
         }
-        if (event.kind === "close") {
-          dispatch({ kind: "socket-close" });
+        if (event.kind === "connection-interrupted") {
+          dispatch({ kind: "connection-interrupted" });
           return settle(new OperationFault("DEPENDENCY_FAILURE", true, `logux-${state.kind.toLowerCase()}-close`));
         }
-        if (event.kind === "error") {
-          dispatch({ kind: "socket-error" });
+        if (event.kind === "transport-failure") {
+          dispatch({ kind: "transport-failure" });
           return settle(new OperationFault("DEPENDENCY_FAILURE", true, `logux-${state.kind.toLowerCase()}-${event.diagnostic}`));
         }
-        const frame = parseLoguxFrame(event.data);
-        if (!frame) return;
+        const frame = event.frame;
         traceFrame("in", frame);
         if (frame[0] === "error") {
           dispatch({ kind: "error-frame" });

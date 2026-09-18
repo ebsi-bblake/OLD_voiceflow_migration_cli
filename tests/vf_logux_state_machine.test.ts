@@ -40,7 +40,7 @@ describe("Logux state machines", () => {
       origin: "origin",
       actionID: "action",
     });
-    state = transitionFolderState(state, { kind: "socket-open" }).state;
+    state = transitionFolderState(state, { kind: "connection-established" }).state;
     state = transitionFolderState(state, { kind: "connected", subscriptionSyncID: 10 }).state;
     expect(state.kind).toBe("SUBSCRIBING");
     state = transitionFolderState(state, {
@@ -81,7 +81,7 @@ describe("Logux state machines", () => {
     expect(serverCompletionWithoutOrigin.state.kind).toBe("COMPLETED");
   });
 
-  test("classifies folder close and timeout outcomes by lifecycle state", () => {
+  test("classifies folder close and transport-timeout outcomes by lifecycle state", () => {
     const context = {
       workspaceID: "42",
       channel: "workspace/42",
@@ -90,18 +90,18 @@ describe("Logux state machines", () => {
       actionID: "action",
     } as const;
     let state = createFolderState(context);
-    expect(transitionFolderState(state, { kind: "socket-close" }).state.kind).toBe("FAILED");
-    state = transitionFolderState(state, { kind: "socket-open" }).state;
+    expect(transitionFolderState(state, { kind: "connection-interrupted" }).state.kind).toBe("FAILED");
+    state = transitionFolderState(state, { kind: "connection-established" }).state;
     state = transitionFolderState(state, { kind: "connected", subscriptionSyncID: 10 }).state;
     state = transitionFolderState(state, { kind: "subscription-synced", syncID: 10, mutationSyncID: 11 }).state;
     state = transitionFolderState(state, { kind: "mutation-sent", mutationSyncID: 11 }).state;
-    expect(transitionFolderState(state, { kind: "socket-close" }).state.kind).toBe("UNKNOWN_OUTCOME");
-    expect(transitionFolderState(state, { kind: "timeout" }).state.kind).toBe("UNKNOWN_OUTCOME");
+    expect(transitionFolderState(state, { kind: "connection-interrupted" }).state.kind).toBe("UNKNOWN_OUTCOME");
+    expect(transitionFolderState(state, { kind: "transport-timeout" }).state.kind).toBe("UNKNOWN_OUTCOME");
   });
 
   test("collects a scoped catalog snapshot through the matching subscription", () => {
     let state = createCatalogState("operation", "workspace/workspace-id", ["project"]);
-    state = transitionCatalogState(state, { kind: "socket-open" }).state;
+    state = transitionCatalogState(state, { kind: "connection-established" }).state;
     const subscribing = transitionCatalogState(state, {
       kind: "connected",
       subscriptionSyncID: 10,
@@ -128,7 +128,7 @@ describe("Logux state machines", () => {
 
   test("ignores duplicate and out-of-scope catalog actions", () => {
     let state = createCatalogState("operation", "workspace/workspace-id", ["project", "assistant"]);
-    state = transitionCatalogState(state, { kind: "socket-open" }).state;
+    state = transitionCatalogState(state, { kind: "connection-established" }).state;
     state = transitionCatalogState(state, { kind: "connected", subscriptionSyncID: 10 }).state;
     state = transitionCatalogState(state, { kind: "subscription-synced", syncID: 10 }).state;
     const first = {
@@ -153,7 +153,7 @@ describe("Logux state machines", () => {
 
   test("fails catalog collection when the row bound is exceeded", () => {
     let state = createCatalogState("operation", "workspace/workspace-id", ["project"]);
-    state = transitionCatalogState(state, { kind: "socket-open" }).state;
+    state = transitionCatalogState(state, { kind: "connection-established" }).state;
     state = transitionCatalogState(state, { kind: "connected", subscriptionSyncID: 10 }).state;
     state = transitionCatalogState(state, { kind: "subscription-synced", syncID: 10 }).state;
     const result = transitionCatalogState(state, {
@@ -170,7 +170,7 @@ describe("Logux state machines", () => {
 
   test("advances rename only through matching subscription and mutation sync IDs", () => {
     let state = createRenameState(renameContext);
-    state = transitionRenameState(state, { kind: "socket-open" }).state;
+    state = transitionRenameState(state, { kind: "connection-established" }).state;
     state = transitionRenameState(state, {
       kind: "connected",
       subscriptionSyncID: 10,
@@ -202,7 +202,7 @@ describe("Logux state machines", () => {
   test("requires catalog durability after mutation acknowledgement", () => {
     let state = createRenameState(renameContext);
     for (const event of [
-      { kind: "socket-open" as const },
+      { kind: "connection-established" as const },
       { kind: "connected" as const, subscriptionSyncID: 10 },
       { kind: "subscription-synced" as const, syncID: 10 },
       { kind: "mutation-sent" as const, mutationSyncID: 11, actionID: "action-id" },
@@ -231,18 +231,18 @@ describe("Logux state machines", () => {
   test("classifies close before and after mutation dispatch differently", () => {
     const connected = transitionRenameState(
       createRenameState(renameContext),
-      { kind: "socket-close" },
+      { kind: "connection-interrupted" },
     );
     expect(connected.state.kind).toBe("FAILED");
 
     let sent = createRenameState(renameContext);
     for (const event of [
-      { kind: "socket-open" as const },
+      { kind: "connection-established" as const },
       { kind: "connected" as const, subscriptionSyncID: 10 },
       { kind: "subscription-synced" as const, syncID: 10 },
       { kind: "mutation-sent" as const, mutationSyncID: 11, actionID: "action-id" },
     ]) sent = transitionRenameState(sent, event).state;
-    expect(transitionRenameState(sent, { kind: "socket-close" }).state.kind).toBe(
+    expect(transitionRenameState(sent, { kind: "connection-interrupted" }).state.kind).toBe(
       "UNKNOWN_OUTCOME",
     );
   });
@@ -344,7 +344,7 @@ describe("Logux state machines", () => {
   test("requires the matching secret action ID", () => {
     let state = createSecretState("assistant-id", "action-id");
     for (const event of [
-      { kind: "socket-open" as const },
+      { kind: "connection-established" as const },
       { kind: "connected" as const },
       { kind: "subscription-synced" as const },
       { kind: "mutation-sent" as const, mutationSyncID: 20 },

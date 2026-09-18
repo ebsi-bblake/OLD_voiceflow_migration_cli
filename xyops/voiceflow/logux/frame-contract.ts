@@ -10,14 +10,17 @@ export type SecretFailureCause = Readonly<{
   code: "dependency-failed";
 }>;
 
-// This boundary only proves that the message is a JSON array. Operation-specific
-// frame validation belongs to the consumer and the stricter BDD20 schemas.
+// This boundary validates the BDD18 tuple shape and the shared action envelope.
+// Operation-specific action payload semantics remain owned by each consumer.
 type ParseLoguxFrame = (text: string) => LoguxFrame | undefined;
 export const parseLoguxFrame: ParseLoguxFrame = (text) => {
   try {
     const value: unknown = JSON.parse(text);
     const parsed = LoguxFrameSchema.safeParse(value);
-    return parsed.success ? parsed.data : undefined;
+    if (!parsed.success) return undefined;
+    if (parsed.data[0] === "sync" && !LoguxActionSchema.safeParse(parsed.data[2]).success)
+      return undefined;
+    return parsed.data;
   } catch {
     return undefined;
   }

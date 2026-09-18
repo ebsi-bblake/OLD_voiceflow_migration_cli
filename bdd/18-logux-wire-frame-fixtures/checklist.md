@@ -12,12 +12,12 @@ Feature: **Logux wire-frame contract**
 | Preserve the connected response shape | PASS | `frame-contract.ts`, `schemas/frame.ts` | Focused BDD fixture scenario |
 | Preserve the rename subscription cursor policy | PASS | `frame-contract.ts`, `rename-project.ts` | Focused BDD fixture scenario; rename state tests |
 | Preserve folder completion frames | PASS | `frame-contract.ts`, `create-folder.ts`, `folder-state-machine.ts` | Focused BDD fixture scenario; folder state tests |
-| Preserve catalog replacement frames | PASS | `frame-contract.ts`, `catalog-frames.ts`, `frames.ts` | Focused BDD fixture scenario; catalog projection/state tests |
+| Preserve catalog replacement frames | PASS | `frame-contract.ts`, `catalog-frames.ts`, `connection.ts` | Focused BDD fixture scenario; catalog projection/state tests |
 | Preserve bounded error frames | PASS | `schemas/frame.ts`, `catalog-frames.ts` | Focused BDD fixture scenario; bounded-code parser regression test |
-| Ignore heartbeat frames as domain actions | PASS | `frame-contract.ts`, `frames.ts`, `catalog-frames.ts` | Focused BDD ping/pong scenarios; heartbeat catalog normalization test |
+| Ignore heartbeat frames as domain actions | PASS | `frame-contract.ts`, `connection.ts`, `catalog-frames.ts` | Focused BDD ping/pong scenarios; heartbeat catalog normalization test |
 | Reject a secret failure without action correlation | PASS | `frame-contract.ts`, `create-secret.ts` | Focused BDD fixture scenario; secret correlation test |
 | Reject a completion without assistant correlation | PASS | `frame-contract.ts`, `create-secret.ts` | Focused BDD fixture scenario; completion correlation test |
-| Reject a catalog frame with invalid values | PASS | `catalog-frames.ts`, `frames.ts` | Focused BDD fixture scenario; catalog boundary tests |
+| Reject a catalog frame with invalid values | PASS | `catalog-frames.ts`, `connection.ts` | Focused BDD fixture scenario; catalog boundary tests |
 | Normalize a correlated secret failure without leaking payload data | PASS | `frame-contract.ts`, `create-secret.ts`, diagnostics | Focused BDD scenario; `tests/vf_logux_state_machine.test.ts`, `tests/vf_error_diagnostics.test.ts` |
 | Accept completion only for both correlations | PASS | `frame-contract.ts`, `create-secret.ts`, `state-machine.ts` | Focused BDD scenario; secret state/correlation tests |
 
@@ -49,7 +49,7 @@ Feature: **Logux wire-frame contract**
 
 - `xyops/voiceflow/logux/schemas/frame.ts`
 - `xyops/voiceflow/logux/frame-contract.ts`
-- `xyops/voiceflow/logux/frames.ts`
+- `xyops/voiceflow/logux/connection.ts`
 - `xyops/voiceflow/logux/catalog-frames.ts`
 - `xyops/voiceflow/logux/create-folder.ts`
 - `xyops/voiceflow/logux/rename-project.ts`

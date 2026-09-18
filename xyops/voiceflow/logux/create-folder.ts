@@ -4,7 +4,6 @@ import { VoiceflowRegex } from "../regex";
 import { createUUID } from "../uuid";
 import { startLoguxConnection, type LoguxConnection, type LoguxFrame } from "./connection";
 import { createFolderState, transitionFolderState, type FolderEvent, type FolderEffect, type FolderState } from "./folder-state-machine";
-import { parseLoguxFrame } from "./frame-contract";
 import { isRecord } from "../guards";
 
 export type CreatedFolder = Readonly<{ id: string; name: string }>;
@@ -88,12 +87,11 @@ export const createFolder: CreateFolder = (auth, workspaceID, name) => {
       origin: context.origin,
       subscription: { frame: ["sync", subscriptionID, { channel: context.channel, type: "logux/subscribe", since: { id: "0", time: 0 } }, { id: -1, time: 1 }] },
       onEvent: (event) => {
-        if (event.kind === "open") return dispatch({ kind: "socket-open" });
-        if (event.kind === "timeout") return dispatch({ kind: "timeout" });
-        if (event.kind === "close") return dispatch({ kind: "socket-close" });
-        if (event.kind === "error") return dispatch({ kind: "socket-error", diagnostic: event.diagnostic });
-        const frame = parseLoguxFrame(event.data);
-        const normalized = frame === undefined ? undefined : normalizeFrame(frame);
+        if (event.kind === "connection-opened") return dispatch({ kind: "connection-established" });
+        if (event.kind === "connection-interrupted" && event.reason === "timeout") return dispatch({ kind: "transport-timeout" });
+        if (event.kind === "connection-interrupted") return dispatch({ kind: "connection-interrupted" });
+        if (event.kind === "transport-failure") return dispatch({ kind: "transport-failure", diagnostic: event.diagnostic });
+        const normalized = normalizeFrame(event.frame);
         if (normalized) dispatch(normalized);
       },
     });

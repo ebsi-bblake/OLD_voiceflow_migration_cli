@@ -5,7 +5,6 @@ import { loadExistingSecrets } from "../secrets";
 import { createSecret } from "./create-secret";
 import { updateSecret } from "./update-secret";
 import { startLoguxConnection, type LoguxConnection, type LoguxFrame } from "./connection";
-import { parseLoguxFrame } from "./frame-contract";
 import { normalizeCatalogFrame } from "./catalog-frames";
 import { createCatalogState, transitionCatalogState, type CatalogEffect, type CatalogEvent, type CatalogState } from "./catalog-state-machine";
 
@@ -47,15 +46,14 @@ export const syncCatalog: SyncCatalog = (auth, channel, wanted) => {
       origin: `${auth.creatorID}:${createUUID()}:${createUUID()}`,
       subscription: { frame: ["sync", subscriptionSyncID, { channel, type: "logux/subscribe", since: { id: "0", time: 0 } }, { id: 1, time: 1 }] },
       onEvent: (event) => {
-        if (event.kind === "open") return dispatch({ kind: "socket-open" });
-        if (event.kind === "timeout") return dispatch({ kind: "timeout" });
-        if (event.kind === "close") return dispatch({ kind: "socket-close" });
-        if (event.kind === "error") return dispatch({ kind: "socket-error", diagnostic: event.diagnostic });
-        const bytes = new TextEncoder().encode(event.data).byteLength;
-        incomingBytes += bytes;
-        if (bytes > MAX_INCOMING_FRAME_BYTES || incomingBytes > MAX_INCOMING_BYTES) return dispatch({ kind: "socket-error", diagnostic: "catalog-input-bound-exceeded" });
-        const frame: LoguxFrame | undefined = parseFrame(event.data);
-        if (frame === undefined) return;
+        if (event.kind === "connection-opened") return dispatch({ kind: "connection-established" });
+        if (event.kind === "connection-interrupted" && event.reason === "timeout") return dispatch({ kind: "transport-timeout" });
+        if (event.kind === "connection-interrupted") return dispatch({ kind: "connection-interrupted" });
+        if (event.kind === "transport-failure") return dispatch({ kind: "transport-failure", diagnostic: event.diagnostic });
+        const frameBytes = new TextEncoder().encode(JSON.stringify(event.frame)).byteLength;
+        incomingBytes += frameBytes;
+        if (frameBytes > MAX_INCOMING_FRAME_BYTES || incomingBytes > MAX_INCOMING_BYTES) return dispatch({ kind: "transport-failure", diagnostic: "catalog-input-bound-exceeded" });
+        const frame: LoguxFrame = event.frame;
         const normalized = normalizeCatalogFrame(frame, operationID, channel, incomingBytes, subscriptionSyncID);
         if (normalized?.kind === "connected") dispatch(normalized);
         else if (normalized) dispatch(normalized);
@@ -63,7 +61,6 @@ export const syncCatalog: SyncCatalog = (auth, channel, wanted) => {
     });
   });
 };
-const parseFrame = (value: string): LoguxFrame | undefined => parseLoguxFrame(value);
 const isSupportedRequest = (wanted: readonly string[]): boolean => wanted.length > 0 && wanted.every((type) => SUPPORTED_WANTED_TYPES.has(type));
 
 type CreateProjectSecrets = (auth: AuthContext, assistantID: string, secrets: readonly SecretEntry[]) => Promise<void>;

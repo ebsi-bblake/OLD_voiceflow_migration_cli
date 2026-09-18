@@ -37,7 +37,21 @@ test("shared runner authenticates, subscribes, and handles heartbeat outside ope
   expect(socket.sent[1]?.slice(0, 2)).toEqual(["sync", 10]);
   socket.onmessage?.({ data: JSON.stringify(["ping", 8]) });
   expect(socket.sent.at(-1)?.slice(0, 2)).toEqual(["pong", 8]);
-  expect(events.map(({ kind }) => kind)).toEqual(["open", "message"]);
+  expect(events.map(({ kind }) => kind)).toEqual(["connection-opened", "frame"]);
+  connection.cleanup();
+});
+
+test("boundary rejects malformed and non-text frames before domain delivery", async () => {
+  FakeSocket.instances = [];
+  const events: Array<{ kind: string }> = [];
+  const connection = input(events, 12);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const socket = FakeSocket.instances[0];
+  const before = events.length;
+  socket.onmessage?.({ data: "not-json" });
+  socket.onmessage?.({ data: { raw: "payload" } });
+  socket.onmessage?.({ data: JSON.stringify(["sync", 1, { type: "operation.EVENT", payload: "invalid" }]) });
+  expect(events.length).toBe(before);
   connection.cleanup();
 });
 
@@ -48,11 +62,11 @@ test("shared runner emits terminal transport signals once and cleanup is idempot
   await new Promise((resolve) => setTimeout(resolve, 0));
   const socket = FakeSocket.instances[0];
   socket.onerror?.(); socket.onclose?.(); socket.onerror?.();
-  expect(events.filter(({ kind }) => kind === "error")).toHaveLength(1);
+  expect(events.filter(({ kind }) => kind === "transport-failure")).toHaveLength(1);
   connection.cleanup(); connection.cleanup();
   expect(socket.closeCount).toBe(1);
   socket.onmessage?.({ data: JSON.stringify(["connected", 4, "server", [], {}]) });
-  expect(events.filter(({ kind }) => kind === "message")).toHaveLength(1);
+  expect(events.filter(({ kind }) => kind === "frame")).toHaveLength(1);
 });
 
 test("concurrent runners keep sockets and subscription channels isolated", async () => {
@@ -66,6 +80,15 @@ test("concurrent runners keep sockets and subscription channels isolated", async
   a.cleanup();
   expect(FakeSocket.instances[1].closeCount).toBe(0);
   b.cleanup();
+});
+
+test("timeout becomes a typed interruption and remains terminal", async () => {
+  FakeSocket.instances = [];
+  const events: Array<{ kind: string }> = [];
+  const connection = input(events, 31, 1);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(events.filter(({ kind }) => kind === "connection-interrupted")).toHaveLength(1);
+  connection.cleanup();
 });
 
 test("cleanup before timeout suppresses late callbacks", async () => {

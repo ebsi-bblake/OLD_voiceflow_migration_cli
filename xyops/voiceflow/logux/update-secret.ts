@@ -2,7 +2,6 @@ import type { AuthContext, ExistingSecret, SecretEntry } from "../types";
 import { OperationFault } from "../contracts";
 import { createUUID } from "../uuid";
 import { debugLog } from "../debug";
-import { parseLoguxFrame } from "./frame-contract";
 import { isRecord } from "../guards";
 import { startLoguxConnection, type LoguxConnection, type LoguxFrame } from "./connection";
 
@@ -29,12 +28,11 @@ export const updateSecret: UpdateSecret = (auth, assistantID, existing, secret) 
     origin,
     subscription: { frame: ["sync", subscriptionID, { channel: `assistant/${assistantID}`, type: "logux/subscribe", since: { id: "0", time: 0 } }, { id: 1, time: 1 }] },
     onEvent: (event) => {
-      if (event.kind === "open") return;
-      if (event.kind === "timeout") return settle(new OperationFault("DEPENDENCY_TIMEOUT", true, "logux-secret-update-timeout"));
-      if (event.kind === "close") return settle(new OperationFault("DEPENDENCY_FAILURE", true, "logux-secret-update-close"));
-      if (event.kind === "error") return settle(new OperationFault("DEPENDENCY_FAILURE", true, "logux-secret-update-error"));
-      const frame = parseLoguxFrame(event.data);
-      if (!frame) return;
+      if (event.kind === "connection-opened") return;
+      if (event.kind === "connection-interrupted" && event.reason === "timeout") return settle(new OperationFault("DEPENDENCY_TIMEOUT", true, "logux-secret-update-timeout"));
+      if (event.kind === "connection-interrupted") return settle(new OperationFault("DEPENDENCY_FAILURE", true, "logux-secret-update-close"));
+      if (event.kind === "transport-failure") return settle(new OperationFault("DEPENDENCY_FAILURE", true, "logux-secret-update-error"));
+      const frame = event.frame;
       traceFrame("in", frame);
       if (frame[0] === "error") return settle(new OperationFault("DEPENDENCY_FAILURE", true, "logux-secret-update-error-frame"));
       if (frame[0] === "connected") return;

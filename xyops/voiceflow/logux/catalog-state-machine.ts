@@ -51,7 +51,7 @@ export type CatalogState =
     };
 
 export type CatalogEvent =
-  | { readonly kind: "socket-open" }
+  | { readonly kind: "connection-established" }
   | { readonly kind: "connected"; readonly subscriptionSyncID: number }
   | { readonly kind: "subscription-synced"; readonly syncID: number }
   | {
@@ -68,9 +68,9 @@ export type CatalogEvent =
       readonly code: "AUTHENTICATION_FAILED" | "DEPENDENCY_FAILURE";
       readonly diagnostic: string;
     }
-  | { readonly kind: "socket-error"; readonly diagnostic: string }
-  | { readonly kind: "socket-close" }
-  | { readonly kind: "timeout" };
+  | { readonly kind: "transport-failure"; readonly diagnostic: string }
+  | { readonly kind: "connection-interrupted" }
+  | { readonly kind: "transport-timeout" };
 
 export type CatalogEffect =
   | { readonly kind: "send-subscription"; readonly syncID: number }
@@ -135,7 +135,7 @@ type TransitionCatalogState = (
 export const transitionCatalogState: TransitionCatalogState = (state, event) => {
   if (isTerminal(state)) return ignored(state);
 
-  if (event.kind === "socket-open" && state.kind === "CONNECTING")
+  if (event.kind === "connection-established" && state.kind === "CONNECTING")
     return accepted({ ...state, kind: "CONNECTED" });
 
   if (event.kind === "connected" && state.kind === "CONNECTED")
@@ -187,7 +187,7 @@ export const transitionCatalogState: TransitionCatalogState = (state, event) => 
       : accepted(nextState);
   }
 
-  if (event.kind === "error-frame" || event.kind === "socket-error")
+  if (event.kind === "error-frame" || event.kind === "transport-failure")
     return accepted(
       {
         kind: "FAILED",
@@ -199,7 +199,7 @@ export const transitionCatalogState: TransitionCatalogState = (state, event) => 
       [{ kind: "close-socket" }, { kind: "settle" }],
     );
 
-  if (event.kind === "timeout")
+  if (event.kind === "transport-timeout")
     return accepted(
       {
         kind: "TIMED_OUT",
@@ -211,7 +211,7 @@ export const transitionCatalogState: TransitionCatalogState = (state, event) => 
       [{ kind: "close-socket" }, { kind: "settle" }],
     );
 
-  if (event.kind === "socket-close")
+  if (event.kind === "connection-interrupted")
     return accepted(
       {
         kind: "FAILED",

@@ -24,7 +24,7 @@ export type FolderState =
   | { readonly kind: "UNKNOWN_OUTCOME"; readonly context: FolderContext; readonly code: "DEPENDENCY_FAILURE" | "DEPENDENCY_TIMEOUT"; readonly diagnostic: string; readonly retryable: true };
 
 export type FolderEvent =
-  | { readonly kind: "socket-open" }
+  | { readonly kind: "connection-established" }
   | { readonly kind: "connected"; readonly subscriptionSyncID: number }
   | { readonly kind: "subscription-synced"; readonly syncID: number; readonly mutationSyncID: number }
   | { readonly kind: "mutation-sent"; readonly mutationSyncID: number }
@@ -39,9 +39,9 @@ export type FolderEvent =
       readonly folderName?: string;
     }
   | { readonly kind: "error-frame"; readonly code: "AUTHENTICATION_FAILED" | "DEPENDENCY_FAILURE"; readonly diagnostic: string }
-  | { readonly kind: "socket-error"; readonly diagnostic: string }
-  | { readonly kind: "socket-close" }
-  | { readonly kind: "timeout" };
+  | { readonly kind: "transport-failure"; readonly diagnostic: string }
+  | { readonly kind: "connection-interrupted" }
+  | { readonly kind: "transport-timeout" };
 
 export type FolderEffect =
   | { readonly kind: "send-subscription"; readonly syncID: number }
@@ -69,7 +69,7 @@ const isScopedCompletion = (
 
 export const transitionFolderState = (state: FolderState, event: FolderEvent): FolderTransition => {
   if (terminal(state)) return ignored(state);
-  if (event.kind === "socket-open" && state.kind === "CONNECTING")
+  if (event.kind === "connection-established" && state.kind === "CONNECTING")
     return accepted({ ...state, kind: "CONNECTED" });
   if (event.kind === "connected" && state.kind === "CONNECTED")
     return accepted(
@@ -97,17 +97,17 @@ export const transitionFolderState = (state: FolderState, event: FolderEvent): F
       [{ kind: "close-socket" }, { kind: "settle" }],
     );
   }
-  if (event.kind === "error-frame" || event.kind === "socket-error")
+  if (event.kind === "error-frame" || event.kind === "transport-failure")
     return accepted(
       { kind: "FAILED", context: state.context, code: event.kind === "error-frame" ? event.code : "DEPENDENCY_FAILURE", diagnostic: event.diagnostic, retryable: event.kind !== "error-frame" || event.code !== "AUTHENTICATION_FAILED" },
       [{ kind: "close-socket" }, { kind: "settle" }],
     );
-  if (event.kind === "timeout")
+  if (event.kind === "transport-timeout")
     return accepted(
       { kind: "UNKNOWN_OUTCOME", context: state.context, code: "DEPENDENCY_TIMEOUT", diagnostic: "folder-operation-timeout", retryable: true },
       [{ kind: "close-socket" }, { kind: "settle" }],
     );
-  if (event.kind === "socket-close")
+  if (event.kind === "connection-interrupted")
     return accepted(
       isMutationState(state)
         ? { kind: "UNKNOWN_OUTCOME", context: state.context, code: "DEPENDENCY_FAILURE", diagnostic: "folder-socket-close-after-dispatch", retryable: true }

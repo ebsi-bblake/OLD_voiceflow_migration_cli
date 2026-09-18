@@ -309,10 +309,10 @@ defineStep("each operation is configured", function () {
   assert.ok(this.value.secret.transitionSecretStateWithEffects);
 });
 defineStep("the operation supplies its channel and cursor policy", function () {
-  assert.match(loguxSource, /channel|since/);
+  assert.match(loguxSource, /subscription|channel|since/);
 });
 defineStep("it supplies its mutation payload only when needed", function () {
-  assert.match(source("xyops/voiceflow/logux/frames.ts"), /mutation|sync/);
+  assert.match(source("xyops/voiceflow/logux/connection.ts"), /send|sync/);
 });
 defineStep(/^it supplies its sync\/action correlation policy$/, function () {
   assert.match(
@@ -425,7 +425,7 @@ defineStep(
   function () {
     this.value = {
       parameters: source("xyops/cli/state.ts"),
-      frames: source("xyops/voiceflow/logux/frames.ts"),
+      frames: source("xyops/voiceflow/logux/connection.ts"),
     };
   },
 );

@@ -57,7 +57,7 @@ export type RenameStateContext = Readonly<{
 }>;
 
 export type RenameEvent =
-  | { readonly kind: "socket-open" }
+  | { readonly kind: "connection-established" }
   | { readonly kind: "connected"; readonly subscriptionSyncID: number }
   | { readonly kind: "subscription-synced"; readonly syncID: number }
   | {
@@ -80,9 +80,9 @@ export type RenameEvent =
       readonly deadline: number;
     }
   | { readonly kind: "error-frame"; readonly diagnostic?: string }
-  | { readonly kind: "socket-error"; readonly diagnostic?: string }
-  | { readonly kind: "socket-close" }
-  | { readonly kind: "timeout" };
+  | { readonly kind: "transport-failure"; readonly diagnostic?: string }
+  | { readonly kind: "connection-interrupted" }
+  | { readonly kind: "transport-timeout" };
 
 export type RenameEffect =
   | { readonly kind: "send-subscription"; readonly syncID: number }
@@ -152,7 +152,7 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
       : ignored(state);
   }
 
-  if (event.kind === "socket-open" && state.kind === "CONNECTING")
+  if (event.kind === "connection-established" && state.kind === "CONNECTING")
     return accepted({ ...state, kind: "CONNECTED", subscriptionSyncID: 0 });
 
   if (event.kind === "connected" && state.kind === "CONNECTED")
@@ -259,7 +259,7 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
           ],
     );
 
-  if (event.kind === "error-frame" || event.kind === "socket-error")
+  if (event.kind === "error-frame" || event.kind === "transport-failure")
     return accepted(
       {
         kind: "FAILED",
@@ -270,7 +270,7 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
       [{ kind: "close-socket" }, { kind: "settle" }],
     );
 
-  if (event.kind === "timeout")
+  if (event.kind === "transport-timeout")
     return accepted(
       {
         kind: "UNKNOWN_OUTCOME",
@@ -297,7 +297,7 @@ export const transitionRenameState: TransitionRenameState = (state, event) => {
       ],
     );
 
-  if (event.kind === "socket-close")
+  if (event.kind === "connection-interrupted")
     return accepted(
       {
         kind: state.kind === "MUTATION_SENT" ? "UNKNOWN_OUTCOME" : "FAILED",
@@ -351,15 +351,15 @@ export type SecretTransition = Readonly<{
 }>;
 
 export type SecretEvent =
-  | { readonly kind: "socket-open" }
+  | { readonly kind: "connection-established" }
   | { readonly kind: "connected" }
   | { readonly kind: "subscription-synced" }
   | { readonly kind: "mutation-sent"; readonly mutationSyncID: number }
   | { readonly kind: "secret-done"; readonly actionID: string }
   | { readonly kind: "error-frame" }
-  | { readonly kind: "socket-error" }
-  | { readonly kind: "socket-close" }
-  | { readonly kind: "timeout" };
+  | { readonly kind: "transport-failure" }
+  | { readonly kind: "connection-interrupted" }
+  | { readonly kind: "transport-timeout" };
 
 type TransitionSecretState = (
   state: SecretState,
@@ -375,7 +375,7 @@ export const transitionSecretStateWithEffects = (
     state.kind === "UNKNOWN_OUTCOME"
   )
     return { state, accepted: false, effects: [] };
-  if (event.kind === "socket-open" && state.kind === "CONNECTING")
+  if (event.kind === "connection-established" && state.kind === "CONNECTING")
     return { state: { ...state, kind: "CONNECTED" }, accepted: true, effects: [] };
   if (event.kind === "connected" && state.kind === "CONNECTED")
     return {
@@ -411,13 +411,13 @@ export const transitionSecretStateWithEffects = (
       accepted: true,
       effects: [{ kind: "close-socket" }, { kind: "settle" }],
     };
-  if (event.kind === "error-frame" || event.kind === "socket-error")
+  if (event.kind === "error-frame" || event.kind === "transport-failure")
     return {
       state: { ...state, kind: "FAILED", code: "DEPENDENCY_FAILURE" },
       accepted: true,
       effects: [{ kind: "close-socket" }, { kind: "settle" }],
     };
-  if (event.kind === "socket-close")
+  if (event.kind === "connection-interrupted")
     return {
       state: {
         ...state,
@@ -427,7 +427,7 @@ export const transitionSecretStateWithEffects = (
       accepted: true,
       effects: [{ kind: "settle" }],
     };
-  if (event.kind === "timeout")
+  if (event.kind === "transport-timeout")
     return {
       state: { ...state, kind: "UNKNOWN_OUTCOME", code: "DEPENDENCY_TIMEOUT" },
       accepted: true,

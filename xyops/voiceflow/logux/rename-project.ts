@@ -4,7 +4,6 @@ import { createUUID } from "../uuid";
 import { debugLog } from "../debug";
 import { startLoguxConnection, type LoguxConnection, type LoguxFrame } from "./connection";
 import { createRenameState, transitionRenameState, type RenameEvent, type RenameState, type RenameEffect } from "./state-machine";
-import { parseLoguxFrame } from "./frame-contract";
 import { isRecord } from "../guards";
 
 export type RenameProject = (auth: AuthContext, workspaceID: string, projectID: string, folderID: string, name: string) => Promise<void>;
@@ -50,7 +49,7 @@ export const renameProject: RenameProject = (auth, workspaceID, projectID, folde
         }
         if (effect.kind === "close-socket") connection?.cleanup();
         if (effect.kind === "settle") settle();
-      } catch { dispatch({ kind: "socket-error", diagnostic: "rename-effect-failed" }); }
+      } catch { dispatch({ kind: "transport-failure", diagnostic: "rename-effect-failed" }); }
     }
   };
   const dispatch = (event: RenameEvent): boolean => {
@@ -65,12 +64,11 @@ export const renameProject: RenameProject = (auth, workspaceID, projectID, folde
     origin,
     subscription: { frame: ["sync", subscriptionID, { channel: `workspace/${workspaceID}`, type: "logux/subscribe" }, { id: -1, time: 1 }] },
     onEvent: (event) => {
-      if (event.kind === "open") return void dispatch({ kind: "socket-open" });
-      if (event.kind === "timeout") { dispatch({ kind: "timeout" }); return settle(new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout"))); }
-      if (event.kind === "close") { dispatch({ kind: "socket-close" }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close"))); }
-      if (event.kind === "error") { dispatch({ kind: "socket-error", diagnostic: event.diagnostic }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error"))); }
-      const frame = parseLoguxFrame(event.data);
-      if (!frame) return;
+      if (event.kind === "connection-opened") return void dispatch({ kind: "connection-established" });
+      if (event.kind === "connection-interrupted" && event.reason === "timeout") { dispatch({ kind: "transport-timeout" }); return settle(new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout"))); }
+      if (event.kind === "connection-interrupted") { dispatch({ kind: "connection-interrupted" }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close"))); }
+      if (event.kind === "transport-failure") { dispatch({ kind: "transport-failure", diagnostic: event.diagnostic }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error"))); }
+      const frame = event.frame;
       traceFrame("in", frame);
       const action = actionOf(frame);
       if (typeof action?.type === "string") observedActionTypes.add(action.type);
