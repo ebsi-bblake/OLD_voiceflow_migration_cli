@@ -100,7 +100,7 @@ export const createDiagnostic: CreateDiagnostic = (
     nextAction: actionFor(fault.code),
     context: safe,
     causes: [
-      ...(fault.details?.causes ?? []).slice(0, MAX_CAUSES).map(safeCause),
+      ...(fault.details?.causes ?? []).slice(0, MAX_CAUSES - 1).map(safeCause),
       causeFromFault(
         fault,
         fault.details?.domain ?? domain,

@@ -1,6 +1,7 @@
 import { VoiceflowRegex } from "../voiceflow/regex";
 import type { CliDiagnostic, CliDiagnosticCode } from "./types";
-import type { Diagnostic } from "../diagnostics/types";
+import type { Diagnostic, SafeContext } from "../diagnostics/types";
+import { redactDiagnosticValue } from "../diagnostics/redact";
 export type { CliDiagnostic, CliDiagnosticCode } from "./types";
 
 type SafeEndpoint = (endpoint: string) => string;
@@ -55,14 +56,23 @@ export const asCliError: AsCliError = (error) =>
   error instanceof CliError ? error : fail("network", { retryable: false });
 
 type CliErrorOutput = (error: unknown) => Readonly<Record<string, unknown>>;
+const isSafeContextObject = (value: unknown): value is SafeContext =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+const safeDiagnostic = (diagnostic: Diagnostic): SafeContext => {
+  const redacted = redactDiagnosticValue(diagnostic);
+  return isSafeContextObject(redacted) ? redacted : {};
+};
 export const cliErrorOutput: CliErrorOutput = (error) => {
   const diagnostic = asCliError(error).diagnostic;
+  const safeNestedDiagnostic = diagnostic.diagnostic === undefined
+    ? undefined
+    : safeDiagnostic(diagnostic.diagnostic);
   return {
     code: diagnostic.code,
     endpoint: diagnostic.endpoint,
     retryable: diagnostic.retryable,
     ...(diagnostic.status === undefined ? {} : { status: diagnostic.status }),
     nextAction: diagnostic.nextAction,
-    ...(diagnostic.diagnostic === undefined ? {} : { diagnostic: diagnostic.diagnostic }),
+    ...(safeNestedDiagnostic === undefined ? {} : { diagnostic: safeNestedDiagnostic }),
   };
 };
