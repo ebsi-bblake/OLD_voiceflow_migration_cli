@@ -1,4 +1,3 @@
-/* oxlint-disable complexity -- exhaustive folder protocol transitions. */
 export type FolderContext = Readonly<{
   readonly workspaceID: string;
   readonly channel: string;
@@ -118,113 +117,166 @@ const isScopedCompletion = (
   event.channel === state.context.channel &&
   event.workspaceID === state.context.workspaceID;
 
+type FolderEventHandler = (
+  state: FolderState,
+  event: FolderEvent,
+) => FolderTransition | undefined;
+
+const handleConnectionEstablished: FolderEventHandler = (state, event) =>
+  event.kind === "connection-established" && state.kind === "CONNECTING"
+    ? accepted({ ...state, kind: "CONNECTED" })
+    : event.kind === "connection-established"
+      ? ignored(state)
+      : undefined;
+
+const handleConnected: FolderEventHandler = (state, event) =>
+  event.kind === "connected" && state.kind === "CONNECTED"
+    ? accepted(
+        {
+          ...state,
+          kind: "SUBSCRIBING",
+          subscriptionSyncID: event.subscriptionSyncID,
+        },
+        [{ kind: "send-subscription", syncID: event.subscriptionSyncID }],
+      )
+    : event.kind === "connected"
+      ? ignored(state)
+      : undefined;
+
+const handleSubscriptionSynced: FolderEventHandler = (state, event) => {
+  if (event.kind !== "subscription-synced") return undefined;
+  if (state.kind !== "SUBSCRIBING" || event.syncID !== state.subscriptionSyncID)
+    return ignored(state);
+  return accepted({
+    kind: "SUBSCRIBED",
+    context: state.context,
+    subscriptionSyncID: state.subscriptionSyncID,
+  });
+};
+
+const handleMutationSent: FolderEventHandler = (state, event) =>
+  event.kind === "mutation-sent" && state.kind === "SUBSCRIBED"
+    ? accepted(
+        {
+          kind: "MUTATION_SENT",
+          context: state.context,
+          subscriptionSyncID: state.subscriptionSyncID,
+          mutationSyncID: event.mutationSyncID,
+        },
+        [{ kind: "send-mutation", syncID: event.mutationSyncID }],
+      )
+    : event.kind === "mutation-sent"
+      ? ignored(state)
+      : undefined;
+
+const handleMutationSynced: FolderEventHandler = (state, event) => {
+  if (event.kind !== "mutation-synced") return undefined;
+  if (!isMutationState(state) || event.syncID !== state.mutationSyncID)
+    return ignored(state);
+  return accepted(state);
+};
+
+const handleFolderCompleted: FolderEventHandler = (state, event) => {
+  if (event.kind !== "folder-completed") return undefined;
+  if (!isMutationState(state) || !isScopedCompletion(state, event))
+    return ignored(state);
+  if (
+    event.folderID === undefined ||
+    event.folderName !== state.context.folderName
+  )
+    return accepted(
+      {
+        kind: "FAILED",
+        context: state.context,
+        code: "DEPENDENCY_FAILURE",
+        diagnostic: "folder-completion-invalid",
+        retryable: true,
+      },
+      [{ kind: "close-socket" }, { kind: "settle" }],
+    );
+  return accepted(
+    {
+      kind: "COMPLETED",
+      context: state.context,
+      folder: { id: event.folderID, name: event.folderName },
+    },
+    [{ kind: "close-socket" }, { kind: "settle" }],
+  );
+};
+
+const handleFailure: FolderEventHandler = (state, event) => {
+  if (event.kind !== "error-frame" && event.kind !== "transport-failure")
+    return undefined;
+  const isAuthenticationFailure =
+    event.kind === "error-frame" && event.code === "AUTHENTICATION_FAILED";
+  return accepted(
+    {
+      kind: "FAILED",
+      context: state.context,
+      code: event.kind === "error-frame" ? event.code : "DEPENDENCY_FAILURE",
+      diagnostic: event.diagnostic,
+      retryable: !isAuthenticationFailure,
+    },
+    [{ kind: "close-socket" }, { kind: "settle" }],
+  );
+};
+
+const handleTimeout: FolderEventHandler = (state, event) =>
+  event.kind === "transport-timeout"
+    ? accepted(
+        {
+          kind: "UNKNOWN_OUTCOME",
+          context: state.context,
+          code: "DEPENDENCY_TIMEOUT",
+          diagnostic: "folder-operation-timeout",
+          retryable: true,
+        },
+        [{ kind: "close-socket" }, { kind: "settle" }],
+      )
+    : undefined;
+
+const handleConnectionInterrupted: FolderEventHandler = (state, event) =>
+  event.kind === "connection-interrupted"
+    ? accepted(
+        isMutationState(state)
+          ? {
+              kind: "UNKNOWN_OUTCOME",
+              context: state.context,
+              code: "DEPENDENCY_FAILURE",
+              diagnostic: "folder-socket-close-after-dispatch",
+              retryable: true,
+            }
+          : {
+              kind: "FAILED",
+              context: state.context,
+              code: "DEPENDENCY_FAILURE",
+              diagnostic: "folder-socket-close-before-dispatch",
+              retryable: true,
+            },
+        [{ kind: "settle" }],
+      )
+    : undefined;
+
+const folderEventHandlers: readonly FolderEventHandler[] = [
+  handleConnectionEstablished,
+  handleConnected,
+  handleSubscriptionSynced,
+  handleMutationSent,
+  handleMutationSynced,
+  handleFolderCompleted,
+  handleFailure,
+  handleTimeout,
+  handleConnectionInterrupted,
+];
+
 export const transitionFolderState = (
   state: FolderState,
   event: FolderEvent,
 ): FolderTransition => {
   if (terminal(state)) return ignored(state);
-  if (event.kind === "connection-established" && state.kind === "CONNECTING")
-    return accepted({ ...state, kind: "CONNECTED" });
-  if (event.kind === "connected" && state.kind === "CONNECTED")
-    return accepted(
-      {
-        ...state,
-        kind: "SUBSCRIBING",
-        subscriptionSyncID: event.subscriptionSyncID,
-      },
-      [{ kind: "send-subscription", syncID: event.subscriptionSyncID }],
-    );
-  if (
-    event.kind === "subscription-synced" &&
-    state.kind === "SUBSCRIBING" &&
-    event.syncID === state.subscriptionSyncID
-  )
-    return accepted({
-      kind: "SUBSCRIBED",
-      context: state.context,
-      subscriptionSyncID: state.subscriptionSyncID,
-    });
-  if (event.kind === "mutation-sent" && state.kind === "SUBSCRIBED")
-    return accepted(
-      {
-        kind: "MUTATION_SENT",
-        context: state.context,
-        subscriptionSyncID: state.subscriptionSyncID,
-        mutationSyncID: event.mutationSyncID,
-      },
-      [{ kind: "send-mutation", syncID: event.mutationSyncID }],
-    );
-  if (event.kind === "mutation-synced" && isMutationState(state))
-    return event.syncID === state.mutationSyncID
-      ? accepted(state)
-      : ignored(state);
-  if (event.kind === "folder-completed" && isMutationState(state)) {
-    if (!isScopedCompletion(state, event)) return ignored(state);
-    if (
-      event.folderID === undefined ||
-      event.folderName !== state.context.folderName
-    )
-      return accepted(
-        {
-          kind: "FAILED",
-          context: state.context,
-          code: "DEPENDENCY_FAILURE",
-          diagnostic: "folder-completion-invalid",
-          retryable: true,
-        },
-        [{ kind: "close-socket" }, { kind: "settle" }],
-      );
-    return accepted(
-      {
-        kind: "COMPLETED",
-        context: state.context,
-        folder: { id: event.folderID, name: event.folderName },
-      },
-      [{ kind: "close-socket" }, { kind: "settle" }],
-    );
+  for (const handler of folderEventHandlers) {
+    const result = handler(state, event);
+    if (result !== undefined) return result;
   }
-  if (event.kind === "error-frame" || event.kind === "transport-failure")
-    return accepted(
-      {
-        kind: "FAILED",
-        context: state.context,
-        code: event.kind === "error-frame" ? event.code : "DEPENDENCY_FAILURE",
-        diagnostic: event.diagnostic,
-        retryable:
-          event.kind !== "error-frame" ||
-          event.code !== "AUTHENTICATION_FAILED",
-      },
-      [{ kind: "close-socket" }, { kind: "settle" }],
-    );
-  if (event.kind === "transport-timeout")
-    return accepted(
-      {
-        kind: "UNKNOWN_OUTCOME",
-        context: state.context,
-        code: "DEPENDENCY_TIMEOUT",
-        diagnostic: "folder-operation-timeout",
-        retryable: true,
-      },
-      [{ kind: "close-socket" }, { kind: "settle" }],
-    );
-  if (event.kind === "connection-interrupted")
-    return accepted(
-      isMutationState(state)
-        ? {
-            kind: "UNKNOWN_OUTCOME",
-            context: state.context,
-            code: "DEPENDENCY_FAILURE",
-            diagnostic: "folder-socket-close-after-dispatch",
-            retryable: true,
-          }
-        : {
-            kind: "FAILED",
-            context: state.context,
-            code: "DEPENDENCY_FAILURE",
-            diagnostic: "folder-socket-close-before-dispatch",
-            retryable: true,
-          },
-      [{ kind: "settle" }],
-    );
   return ignored(state);
 };

@@ -6,6 +6,7 @@ import {
   startLoguxConnection,
   type LoguxConnection,
   type LoguxFrame,
+  type LoguxTransportEvent,
 } from "./connection";
 import {
   createRenameState,
@@ -13,7 +14,7 @@ import {
   type RenameEvent,
   type RenameState,
   type RenameEffect,
-} from "./state-machine";
+} from "./rename-state-machine";
 import { isRecord } from "../guards";
 
 export type RenameProject = (
@@ -28,7 +29,27 @@ const actionOf = (frame: LoguxFrame): RecordValue | undefined =>
   isRecord(frame[2]) ? frame[2] : undefined;
 export const syncedForRequest = (frame: LoguxFrame, syncID: number): boolean =>
   frame[0] === "synced" && frame[1] === syncID;
-/* oxlint-disable complexity -- protocol payload validation and lifecycle are explicit. */
+const patchPayloadMatches = (
+  action: RecordValue,
+  workspaceID: string,
+  projectID: string,
+  name: string,
+): boolean => {
+  const payload = isRecord(action.payload) ? action.payload : undefined;
+  if (payload === undefined) return false;
+  if (payload.workspaceID !== workspaceID || payload.key !== projectID)
+    return false;
+  const value = isRecord(payload.value) ? payload.value : undefined;
+  return value?.name === name;
+};
+
+const patchOriginMatches = (
+  action: RecordValue,
+  expectedOrigin: string | undefined,
+): boolean =>
+  expectedOrigin === undefined ||
+  (isRecord(action.meta) && action.meta.origin === expectedOrigin);
+
 export const patchCompleted = (
   frame: LoguxFrame,
   workspaceID: string,
@@ -38,14 +59,9 @@ export const patchCompleted = (
 ): boolean => {
   const action = actionOf(frame);
   if (action?.type !== "project.CRUD:PATCH") return false;
-  const payload = isRecord(action.payload) ? action.payload : undefined;
-  const value = payload && isRecord(payload.value) ? payload.value : undefined;
-  const meta = isRecord(action.meta) ? action.meta : undefined;
   return (
-    payload?.workspaceID === workspaceID &&
-    payload.key === projectID &&
-    value?.name === name &&
-    (expectedOrigin === undefined || meta?.origin === expectedOrigin)
+    patchPayloadMatches(action, workspaceID, projectID, name) &&
+    patchOriginMatches(action, expectedOrigin)
   );
 };
 const actionSummary = (
@@ -107,29 +123,32 @@ export const renameProject: RenameProject = (
             ),
         );
     };
+    const executeEffect = (effect: RenameEffect): void => {
+      if (effect.kind === "send-mutation") {
+        const frame: LoguxFrame = [
+          "sync",
+          effect.syncID,
+          {
+            type: "assistant.PATCH_ONE",
+            payload: {
+              id: projectID,
+              patch: { name },
+              context: { workspaceID },
+            },
+            meta: { origin, actionID: effect.actionID },
+          },
+          { id: -2, time: 2 },
+        ];
+        traceFrame("out", frame);
+        connection?.send(frame);
+      }
+      if (effect.kind === "close-socket") connection?.cleanup();
+      if (effect.kind === "settle") settle();
+    };
     const executeEffects = (effects: readonly RenameEffect[]): void => {
       for (const effect of effects) {
         try {
-          if (effect.kind === "send-mutation") {
-            const frame: LoguxFrame = [
-              "sync",
-              effect.syncID,
-              {
-                type: "assistant.PATCH_ONE",
-                payload: {
-                  id: projectID,
-                  patch: { name },
-                  context: { workspaceID },
-                },
-                meta: { origin, actionID: effect.actionID },
-              },
-              { id: -2, time: 2 },
-            ];
-            traceFrame("out", frame);
-            connection?.send(frame);
-          }
-          if (effect.kind === "close-socket") connection?.cleanup();
-          if (effect.kind === "settle") settle();
+          executeEffect(effect);
         } catch {
           dispatch({
             kind: "transport-failure",
@@ -145,6 +164,85 @@ export const renameProject: RenameProject = (
       executeEffects(transition.effects);
       return true;
     };
+    const handleTransportEvent = (
+      event: Exclude<LoguxTransportEvent, { readonly kind: "frame" }>,
+    ): void => {
+      if (event.kind === "connection-opened")
+        return void dispatch({ kind: "connection-established" });
+      if (
+        event.kind === "connection-interrupted" &&
+        event.reason === "timeout"
+      ) {
+        dispatch({ kind: "transport-timeout" });
+        settle(
+          new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout")),
+        );
+        return;
+      }
+      if (event.kind === "connection-interrupted") {
+        dispatch({ kind: "connection-interrupted" });
+        settle(
+          new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close")),
+        );
+        return;
+      }
+      dispatch({ kind: "transport-failure", diagnostic: event.diagnostic });
+      settle(
+        new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error")),
+      );
+    };
+    const handleServerError = (frame: LoguxFrame): boolean => {
+      if (frame[0] !== "error") return false;
+      dispatch({ kind: "error-frame", diagnostic: "server-error" });
+      settle(
+        new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("received")),
+      );
+      return true;
+    };
+    const handleConnectedFrame = (frame: LoguxFrame): boolean => {
+      if (frame[0] !== "connected") return false;
+      dispatch({ kind: "connected", subscriptionSyncID: subscriptionID });
+      return true;
+    };
+    const handleSubscriptionFrame = (frame: LoguxFrame): boolean => {
+      if (frame[0] !== "synced" || frame[1] !== subscriptionID) return false;
+      if (!dispatch({ kind: "subscription-synced", syncID: subscriptionID }))
+        return true;
+      dispatch({
+        kind: "mutation-sent",
+        mutationSyncID,
+        actionID: createUUID(),
+      });
+      return true;
+    };
+    const handleMutationFrame = (frame: LoguxFrame): boolean => {
+      if (state.kind !== "MUTATION_SENT") return false;
+      if (!syncedForRequest(frame, mutationSyncID)) return false;
+      if (dispatch({ kind: "mutation-synced", syncID: mutationSyncID }))
+        settle();
+      return true;
+    };
+    const handlePatchFrame = (
+      frame: LoguxFrame,
+      action: RecordValue | undefined,
+    ): void => {
+      if (frame[0] !== "sync" || !isRecord(action)) return;
+      dispatch({
+        kind: "project-patch",
+        matches: patchCompleted(frame, workspaceID, projectID, name, origin),
+      });
+    };
+    const handleFrame = (frame: LoguxFrame): void => {
+      traceFrame("in", frame);
+      const action = actionOf(frame);
+      if (typeof action?.type === "string")
+        observedActionTypes.add(action.type);
+      if (handleServerError(frame)) return;
+      if (handleConnectedFrame(frame)) return;
+      if (handleSubscriptionFrame(frame)) return;
+      if (handleMutationFrame(frame)) return;
+      handlePatchFrame(frame, action);
+    };
     connection = startLoguxConnection({
       token: auth.token,
       origin,
@@ -157,82 +255,8 @@ export const renameProject: RenameProject = (
         ],
       },
       onEvent: (event) => {
-        if (event.kind === "connection-opened")
-          return void dispatch({ kind: "connection-established" });
-        if (
-          event.kind === "connection-interrupted" &&
-          event.reason === "timeout"
-        ) {
-          dispatch({ kind: "transport-timeout" });
-          return settle(
-            new OperationFault(
-              "DEPENDENCY_TIMEOUT",
-              true,
-              diagnostic("timeout"),
-            ),
-          );
-        }
-        if (event.kind === "connection-interrupted") {
-          dispatch({ kind: "connection-interrupted" });
-          return settle(
-            new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close")),
-          );
-        }
-        if (event.kind === "transport-failure") {
-          dispatch({ kind: "transport-failure", diagnostic: event.diagnostic });
-          return settle(
-            new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error")),
-          );
-        }
-        const frame = event.frame;
-        traceFrame("in", frame);
-        const action = actionOf(frame);
-        if (typeof action?.type === "string")
-          observedActionTypes.add(action.type);
-        if (frame[0] === "error") {
-          dispatch({ kind: "error-frame", diagnostic: "server-error" });
-          return settle(
-            new OperationFault(
-              "DEPENDENCY_FAILURE",
-              true,
-              diagnostic("received"),
-            ),
-          );
-        }
-        if (frame[0] === "connected")
-          return void dispatch({
-            kind: "connected",
-            subscriptionSyncID: subscriptionID,
-          });
-        if (frame[0] === "synced" && frame[1] === subscriptionID) {
-          if (
-            !dispatch({ kind: "subscription-synced", syncID: subscriptionID })
-          )
-            return;
-          dispatch({
-            kind: "mutation-sent",
-            mutationSyncID,
-            actionID: createUUID(),
-          });
-          return;
-        }
-        if (state.kind !== "MUTATION_SENT") return;
-        if (syncedForRequest(frame, mutationSyncID)) {
-          if (dispatch({ kind: "mutation-synced", syncID: mutationSyncID }))
-            settle();
-          return;
-        }
-        if (frame[0] === "sync" && isRecord(action))
-          dispatch({
-            kind: "project-patch",
-            matches: patchCompleted(
-              frame,
-              workspaceID,
-              projectID,
-              name,
-              origin,
-            ),
-          });
+        if (event.kind === "frame") handleFrame(event.frame);
+        else handleTransportEvent(event);
       },
     });
   });

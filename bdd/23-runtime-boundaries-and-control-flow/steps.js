@@ -11,7 +11,7 @@ const logux =
   await import("../../xyops/voiceflow/logux/catalog-state-machine.ts");
 const folder =
   await import("../../xyops/voiceflow/logux/folder-state-machine.ts");
-const secret = await import("../../xyops/voiceflow/logux/state-machine.ts");
+const secret = await import("../../xyops/voiceflow/logux/secret-state-machine.ts");
 
 const source = (path) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
@@ -316,7 +316,7 @@ defineStep("it supplies its mutation payload only when needed", function () {
 });
 defineStep(/^it supplies its sync\/action correlation policy$/, function () {
   assert.match(
-    source("xyops/voiceflow/logux/state-machine.ts"),
+    source("xyops/voiceflow/logux/rename-state-machine.ts"),
     /actionID|syncID/,
   );
 });

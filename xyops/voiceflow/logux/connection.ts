@@ -57,7 +57,138 @@ const emitTerminal = (
 const sendSerialized = (socket: WebSocket, frame: LoguxFrame): void =>
   socket.send(JSON.stringify(frame));
 
-/* oxlint-disable complexity -- socket lifecycle branches are explicit and terminal. */
+type SendFrame = (frame: LoguxFrame) => void;
+
+const createSendFrame =
+  (
+    resources: ConnectionResources,
+    onEvent: LoguxConnectionInput["onEvent"],
+  ): SendFrame =>
+  (frame) => {
+    if (resources.cleaned || resources.socket === undefined) return;
+    try {
+      sendSerialized(resources.socket, frame);
+    } catch {
+      emitTerminal(
+        resources,
+        { kind: "transport-failure", diagnostic: "logux-send-failed" },
+        onEvent,
+      );
+    }
+  };
+
+const handleHeartbeatFrame = (frame: LoguxFrame, send: SendFrame): boolean => {
+  if (frame[0] === "ping") {
+    send(["pong", frame[1]]);
+    return true;
+  }
+  return frame[0] === "pong";
+};
+
+const sendSubscriptionAfterConnection = (
+  frame: LoguxFrame,
+  resources: ConnectionResources,
+  input: LoguxConnectionInput,
+  send: SendFrame,
+): void => {
+  if (
+    frame[0] !== "connected" ||
+    input.subscription === undefined ||
+    resources.subscriptionSent
+  )
+    return;
+  resources.subscriptionSent = true;
+  send(input.subscription.frame);
+};
+
+const handleMessage = (
+  data: unknown,
+  resources: ConnectionResources,
+  input: LoguxConnectionInput,
+  send: SendFrame,
+): void => {
+  if (typeof data !== "string" || resources.cleaned) return;
+  const frame = parseLoguxFrame(data);
+  if (frame === undefined || handleHeartbeatFrame(frame, send)) return;
+  input.onEvent({ kind: "frame", frame });
+  sendSubscriptionAfterConnection(frame, resources, input, send);
+};
+
+const cleanupConnection = (resources: ConnectionResources): void => {
+  if (resources.cleaned) return;
+  resources.cleaned = true;
+  if (resources.timer !== undefined) clearTimeout(resources.timer);
+  resources.timer = undefined;
+  const socket = resources.socket;
+  resources.socket = undefined;
+  if (socket !== undefined) {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+  }
+  closeSocket(socket);
+};
+
+const createSocketHandlers = (
+  socket: WebSocket,
+  resources: ConnectionResources,
+  input: LoguxConnectionInput,
+  send: SendFrame,
+): Pick<WebSocket, "onopen" | "onmessage" | "onerror" | "onclose"> => ({
+  onopen: () => {
+    if (resources.cleaned || resources.terminal) return;
+    input.onEvent({ kind: "connection-opened" });
+    try {
+      sendSerialized(socket, [
+        "connect",
+        CONNECT_VERSION,
+        input.origin,
+        0,
+        { token: input.token, subprotocol: SUBPROTOCOL },
+      ]);
+    } catch {
+      emitTerminal(
+        resources,
+        {
+          kind: "transport-failure",
+          diagnostic: "logux-connect-send-failed",
+        },
+        input.onEvent,
+      );
+    }
+  },
+  onmessage: (event: MessageEvent) =>
+    handleMessage(event.data, resources, input, send),
+  onerror: () =>
+    emitTerminal(
+      resources,
+      { kind: "transport-failure", diagnostic: "logux-socket-error" },
+      input.onEvent,
+    ),
+  onclose: () =>
+    emitTerminal(
+      resources,
+      { kind: "connection-interrupted", reason: "close" },
+      input.onEvent,
+    ),
+});
+
+const startConnectionTimer = (
+  resources: ConnectionResources,
+  input: LoguxConnectionInput,
+): void => {
+  resources.timer = setTimeout(
+    () =>
+      emitTerminal(
+        resources,
+        { kind: "connection-interrupted", reason: "timeout" },
+        input.onEvent,
+      ),
+    input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
+};
+
 /** Owns raw socket mechanics and emits validated transport-boundary events only. */
 export const startLoguxConnection = (
   input: LoguxConnectionInput,
@@ -69,100 +200,13 @@ export const startLoguxConnection = (
     terminal: false,
     subscriptionSent: false,
   };
-  const send = (frame: LoguxFrame): void => {
-    if (resources.cleaned || resources.socket === undefined) return;
-    try {
-      sendSerialized(resources.socket, frame);
-    } catch {
-      emitTerminal(
-        resources,
-        { kind: "transport-failure", diagnostic: "logux-send-failed" },
-        input.onEvent,
-      );
-    }
-  };
-  const onMessage = (data: unknown): void => {
-    if (typeof data !== "string" || resources.cleaned) return;
-    const frame = parseLoguxFrame(data);
-    if (frame === undefined) return;
-    if (frame[0] === "ping") {
-      send(["pong", frame[1]]);
-      return;
-    }
-    if (frame[0] === "pong") return;
-    input.onEvent({ kind: "frame", frame });
-    if (
-      frame[0] === "connected" &&
-      input.subscription !== undefined &&
-      !resources.subscriptionSent
-    ) {
-      resources.subscriptionSent = true;
-      send(input.subscription.frame);
-    }
-  };
-  const cleanup = (): void => {
-    if (resources.cleaned) return;
-    resources.cleaned = true;
-    if (resources.timer !== undefined) clearTimeout(resources.timer);
-    resources.timer = undefined;
-    const socket = resources.socket;
-    resources.socket = undefined;
-    if (socket !== undefined) {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-    }
-    closeSocket(socket);
-  };
-  resources.timer = setTimeout(
-    () =>
-      emitTerminal(
-        resources,
-        { kind: "connection-interrupted", reason: "timeout" },
-        input.onEvent,
-      ),
-    input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-  );
+  const send = createSendFrame(resources, input.onEvent);
+  startConnectionTimer(resources, input);
   try {
     const Socket = input.webSocket ?? WebSocket;
     const socket = new Socket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
     resources.socket = socket;
-    socket.onopen = () => {
-      if (resources.cleaned || resources.terminal) return;
-      input.onEvent({ kind: "connection-opened" });
-      try {
-        sendSerialized(socket, [
-          "connect",
-          CONNECT_VERSION,
-          input.origin,
-          0,
-          { token: input.token, subprotocol: SUBPROTOCOL },
-        ]);
-      } catch {
-        emitTerminal(
-          resources,
-          {
-            kind: "transport-failure",
-            diagnostic: "logux-connect-send-failed",
-          },
-          input.onEvent,
-        );
-      }
-    };
-    socket.onmessage = (event: MessageEvent) => onMessage(event.data);
-    socket.onerror = () =>
-      emitTerminal(
-        resources,
-        { kind: "transport-failure", diagnostic: "logux-socket-error" },
-        input.onEvent,
-      );
-    socket.onclose = () =>
-      emitTerminal(
-        resources,
-        { kind: "connection-interrupted", reason: "close" },
-        input.onEvent,
-      );
+    Object.assign(socket, createSocketHandlers(socket, resources, input, send));
   } catch {
     emitTerminal(
       resources,
@@ -170,7 +214,7 @@ export const startLoguxConnection = (
       input.onEvent,
     );
   }
-  return { send, cleanup };
+  return { send, cleanup: () => cleanupConnection(resources) };
 };
 
 export const sendSubscriptionOnce = (

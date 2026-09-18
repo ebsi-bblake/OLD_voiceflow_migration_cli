@@ -75,7 +75,83 @@ const errorDiagnostic = (frame: LoguxFrame): string =>
     ? "logux-authentication-failed"
     : "logux-dependency-failure";
 
-/* oxlint-disable complexity -- protocol payload and lifecycle guards are explicit. */
+const nestedRecord = (value: unknown, key: string): Record<string, unknown> =>
+  isRecord(value) && isRecord(value[key]) ? value[key] : {};
+const stringField = (
+  value: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined =>
+  value !== undefined && typeof value[key] === "string"
+    ? value[key]
+    : undefined;
+const completionAction = (
+  frame: LoguxFrame,
+): Record<string, unknown> | undefined => {
+  const action = isRecord(frame[2]) ? frame[2] : undefined;
+  return action?.type === "workspace-folder.CREATE_ONE_DONE"
+    ? action
+    : undefined;
+};
+const workspaceIDFromCompletion = (
+  payload: Record<string, unknown> | undefined,
+): string | undefined => {
+  const paramsContext = nestedRecord(
+    nestedRecord(payload, "params"),
+    "context",
+  );
+  const resultData = nestedRecord(nestedRecord(payload, "result"), "data");
+  return [nestedRecord(payload, "context"), paramsContext, resultData]
+    .map((value) => stringField(value, "workspaceID"))
+    .find((value): value is string => value !== undefined);
+};
+
+const normalizeCompletionFrame = (
+  frame: LoguxFrame,
+  channel: string,
+): FolderEvent | undefined => {
+  const action = completionAction(frame);
+  if (action === undefined) return undefined;
+  const meta = isRecord(action.meta) ? action.meta : undefined;
+  const payload = isRecord(action.payload) ? action.payload : undefined;
+  return {
+    kind: "folder-completed",
+    actionID: stringField(meta, "actionID") ?? "",
+    origin: stringField(meta, "origin"),
+    channel: stringField(action, "channel") ?? channel,
+    workspaceID: workspaceIDFromCompletion(payload),
+    folderID: folderIDFrom(payload),
+    folderName: folderNameFrom(payload),
+  };
+};
+
+const normalizeFolderFrame = (
+  frame: LoguxFrame,
+  stateKind: FolderState["kind"],
+  subscriptionID: number,
+  channel: string,
+): FolderEvent | undefined => {
+  if (frame[0] === "connected")
+    return { kind: "connected", subscriptionSyncID: subscriptionID };
+  if (frame[0] === "synced" && typeof frame[1] === "number") {
+    if (stateKind === "SUBSCRIBING")
+      return {
+        kind: "subscription-synced",
+        syncID: frame[1],
+        mutationSyncID: positiveSyncID(),
+      };
+    if (stateKind === "MUTATION_SENT")
+      return { kind: "mutation-synced", syncID: frame[1] };
+    return undefined;
+  }
+  if (frame[0] === "error")
+    return {
+      kind: "error-frame",
+      code: errorCode(frame),
+      diagnostic: errorDiagnostic(frame),
+    };
+  return normalizeCompletionFrame(frame, channel);
+};
+
 export type CreateFolder = (
   auth: AuthContext,
   workspaceID: string,
@@ -136,48 +212,6 @@ export const createFolder: CreateFolder = (auth, workspaceID, name) => {
           mutationSyncID: event.mutationSyncID,
         });
     };
-    const normalizeFrame = (frame: LoguxFrame): FolderEvent | undefined => {
-      if (frame[0] === "connected")
-        return { kind: "connected", subscriptionSyncID: subscriptionID };
-      if (frame[0] === "synced" && typeof frame[1] === "number") {
-        if (state.kind === "SUBSCRIBING")
-          return {
-            kind: "subscription-synced",
-            syncID: frame[1],
-            mutationSyncID: positiveSyncID(),
-          };
-        if (state.kind === "MUTATION_SENT")
-          return { kind: "mutation-synced", syncID: frame[1] };
-        return undefined;
-      }
-      if (frame[0] === "error")
-        return {
-          kind: "error-frame",
-          code: errorCode(frame),
-          diagnostic: errorDiagnostic(frame),
-        };
-      const action = isRecord(frame[2]) ? frame[2] : undefined;
-      if (action?.type !== "workspace-folder.CREATE_ONE_DONE") return undefined;
-      const meta = isRecord(action.meta) ? action.meta : undefined;
-      const payload = isRecord(action.payload) ? action.payload : undefined;
-      const params = isRecord(payload?.params) ? payload.params : {};
-      const paramsContext = isRecord(params.context) ? params.context : {};
-      const result = isRecord(payload?.result) ? payload.result : {};
-      const resultData = isRecord(result.data) ? result.data : {};
-      const workspace = [payload?.context, paramsContext, resultData]
-        .map((value) => (isRecord(value) ? value.workspaceID : undefined))
-        .find((value): value is string => typeof value === "string");
-      return {
-        kind: "folder-completed",
-        actionID: typeof meta?.actionID === "string" ? meta.actionID : "",
-        origin: typeof meta?.origin === "string" ? meta.origin : undefined,
-        channel:
-          typeof action.channel === "string" ? action.channel : context.channel,
-        workspaceID: workspace,
-        folderID: folderIDFrom(payload),
-        folderName: folderNameFrom(payload),
-      };
-    };
     connection = startLoguxConnection({
       token: auth.token,
       origin: context.origin,
@@ -208,7 +242,12 @@ export const createFolder: CreateFolder = (auth, workspaceID, name) => {
             kind: "transport-failure",
             diagnostic: event.diagnostic,
           });
-        const normalized = normalizeFrame(event.frame);
+        const normalized = normalizeFolderFrame(
+          event.frame,
+          state.kind,
+          subscriptionID,
+          context.channel,
+        );
         if (normalized) dispatch(normalized);
       },
     });

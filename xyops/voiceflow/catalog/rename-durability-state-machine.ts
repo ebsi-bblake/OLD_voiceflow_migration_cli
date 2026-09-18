@@ -120,78 +120,114 @@ const accepted = (
   state: RenameDurabilityState,
 ): RenameDurabilityTransition => ({ state, accepted: true });
 
-/* oxlint-disable complexity -- exhaustive durability transitions are intentional. */
+type RenameDurabilityEventHandler = (
+  state: RenameDurabilityState,
+  event: RenameDurabilityEvent,
+) => RenameDurabilityTransition | undefined;
+
+const handleStartAttempt: RenameDurabilityEventHandler = (state, event) => {
+  if (event.kind !== "start-attempt") return undefined;
+  if (state.kind !== "READY" && state.kind !== "WAITING_TO_RETRY")
+    return ignored(state);
+  return accepted({
+    kind: "ATTEMPTING",
+    context: state.context,
+    attempt: event.attempt,
+    attemptID: event.attemptID,
+    limit: event.limit,
+    deadline: event.deadline,
+  });
+};
+
+const handleCatalogResult: RenameDurabilityEventHandler = (state, event) => {
+  if (event.kind !== "catalog-result") return undefined;
+  if (state.kind !== "ATTEMPTING" || event.attemptID !== state.attemptID)
+    return ignored(state);
+  return event.matches && event.project !== undefined
+    ? accepted({
+        kind: "CONFIRMED",
+        context: state.context,
+        project: event.project,
+      })
+    : ignored(state);
+};
+
+const handleTransientFailure: RenameDurabilityEventHandler = (state, event) => {
+  if (event.kind !== "transient-failure") return undefined;
+  if (state.kind !== "ATTEMPTING" || event.attemptID !== state.attemptID)
+    return ignored(state);
+  return ignored(state);
+};
+
+const handlePermanentFailure: RenameDurabilityEventHandler = (state, event) =>
+  event.kind === "permanent-failure" && state.kind === "ATTEMPTING"
+    ? accepted({
+        kind: "FAILED",
+        context: state.context,
+        code: event.code,
+        diagnostic: event.diagnostic,
+        retryable: event.retryable,
+      })
+    : event.kind === "permanent-failure"
+      ? ignored(state)
+      : undefined;
+
+const handleRetryTimer: RenameDurabilityEventHandler = (state, event) => {
+  if (event.kind !== "retry-timer") return undefined;
+  if (state.kind !== "WAITING_TO_RETRY" || event.attemptID !== state.attemptID)
+    return ignored(state);
+  return accepted({
+    kind: "ATTEMPTING",
+    context: state.context,
+    attempt: state.attempt + 1,
+    attemptID: event.nextAttemptID,
+    limit: state.limit,
+    deadline: state.deadline,
+  });
+};
+
+const handleTimerFailure: RenameDurabilityEventHandler = (state, event) =>
+  event.kind === "timer-failure" && state.kind === "WAITING_TO_RETRY"
+    ? accepted({
+        kind: "FAILED",
+        context: state.context,
+        code: "DEPENDENCY_FAILURE",
+        diagnostic: event.diagnostic,
+        retryable: true,
+      })
+    : event.kind === "timer-failure"
+      ? ignored(state)
+      : undefined;
+
+const handleCancel: RenameDurabilityEventHandler = (state, event) =>
+  event.kind === "cancel"
+    ? accepted({
+        kind: "CANCELLED",
+        context: state.context,
+        diagnostic: "rename-durability-cancelled",
+        retryable: false,
+      })
+    : undefined;
+
+const renameDurabilityHandlers: readonly RenameDurabilityEventHandler[] = [
+  handleStartAttempt,
+  handleCatalogResult,
+  handleTransientFailure,
+  handlePermanentFailure,
+  handleRetryTimer,
+  handleTimerFailure,
+  handleCancel,
+];
+
 export const transitionRenameDurability = (
   state: RenameDurabilityState,
   event: RenameDurabilityEvent,
 ): RenameDurabilityTransition => {
   if (terminal(state)) return ignored(state);
-  if (
-    event.kind === "start-attempt" &&
-    (state.kind === "READY" || state.kind === "WAITING_TO_RETRY")
-  )
-    return accepted({
-      kind: "ATTEMPTING",
-      context: state.context,
-      attempt: event.attempt,
-      attemptID: event.attemptID,
-      limit: event.limit,
-      deadline: event.deadline,
-    });
-  if (
-    event.kind === "catalog-result" &&
-    state.kind === "ATTEMPTING" &&
-    event.attemptID === state.attemptID
-  )
-    return event.matches && event.project !== undefined
-      ? accepted({
-          kind: "CONFIRMED",
-          context: state.context,
-          project: event.project,
-        })
-      : ignored(state);
-  if (
-    event.kind === "transient-failure" &&
-    state.kind === "ATTEMPTING" &&
-    event.attemptID === state.attemptID
-  )
-    return ignored(state);
-  if (event.kind === "permanent-failure" && state.kind === "ATTEMPTING")
-    return accepted({
-      kind: "FAILED",
-      context: state.context,
-      code: event.code,
-      diagnostic: event.diagnostic,
-      retryable: event.retryable,
-    });
-  if (
-    event.kind === "retry-timer" &&
-    state.kind === "WAITING_TO_RETRY" &&
-    event.attemptID === state.attemptID
-  )
-    return accepted({
-      kind: "ATTEMPTING",
-      context: state.context,
-      attempt: state.attempt + 1,
-      attemptID: event.nextAttemptID,
-      limit: state.limit,
-      deadline: state.deadline,
-    });
-  if (event.kind === "timer-failure" && state.kind === "WAITING_TO_RETRY")
-    return accepted({
-      kind: "FAILED",
-      context: state.context,
-      code: "DEPENDENCY_FAILURE",
-      diagnostic: event.diagnostic,
-      retryable: true,
-    });
-  if (event.kind === "cancel")
-    return accepted({
-      kind: "CANCELLED",
-      context: state.context,
-      diagnostic: "rename-durability-cancelled",
-      retryable: false,
-    });
+  for (const handler of renameDurabilityHandlers) {
+    const result = handler(state, event);
+    if (result !== undefined) return result;
+  }
   return ignored(state);
 };
 

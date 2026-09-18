@@ -14,7 +14,7 @@ import {
   type SecretEffect,
   type SecretEvent,
   type SecretState,
-} from "./state-machine";
+} from "./secret-state-machine";
 import {
   isSecretCompletion,
   isSecretFailure,

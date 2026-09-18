@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   bypassRename,
   createRenameState,
-  createSecretState,
   transitionRenameState,
+} from "../xyops/voiceflow/logux/rename-state-machine";
+import {
+  createSecretState,
   transitionSecretState,
-} from "../xyops/voiceflow/logux/state-machine";
+} from "../xyops/voiceflow/logux/secret-state-machine";
 import {
   createCatalogState,
   transitionCatalogState,

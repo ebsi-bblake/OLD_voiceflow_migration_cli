@@ -1,4 +1,3 @@
-/* oxlint-disable complexity -- protocol transitions are intentionally exhaustive. */
 export type CatalogRow = Readonly<Record<string, unknown>>;
 const MAX_CATALOG_ROWS = 100_000;
 
@@ -133,105 +132,151 @@ type TransitionCatalogState = (
   state: CatalogState,
   event: CatalogEvent,
 ) => CatalogTransition;
-export const transitionCatalogState: TransitionCatalogState = (
-  state,
-  event,
-) => {
-  if (isTerminal(state)) return ignored(state);
 
-  if (event.kind === "connection-established" && state.kind === "CONNECTING")
-    return accepted({ ...state, kind: "CONNECTED" });
+type CatalogEventHandler = (
+  state: CatalogState,
+  event: CatalogEvent,
+) => CatalogTransition | undefined;
 
-  if (event.kind === "connected" && state.kind === "CONNECTED")
-    return accepted(
-      {
-        ...state,
-        kind: "SUBSCRIBING",
-        subscriptionSyncID: event.subscriptionSyncID,
-      },
-      [{ kind: "send-subscription", syncID: event.subscriptionSyncID }],
-    );
+const handleConnectionEstablished: CatalogEventHandler = (state, event) =>
+  event.kind === "connection-established" && state.kind === "CONNECTING"
+    ? accepted({ ...state, kind: "CONNECTED" })
+    : event.kind === "connection-established"
+      ? ignored(state)
+      : undefined;
 
-  if (
-    event.kind === "subscription-synced" &&
-    state.kind === "SUBSCRIBING" &&
-    event.syncID === state.subscriptionSyncID
-  )
-    return accepted({
-      kind: "COLLECTING",
-      context: state.context,
-      subscriptionSyncID: state.subscriptionSyncID,
-      seenTypes: new Set(),
-      rows: [],
-      byteCount: 0,
-    });
-
-  if (event.kind === "catalog-action" && state.kind === "COLLECTING") {
-    if (!actionIsScopedToState(state, event))
-      return accepted({ ...state, byteCount: event.byteCount });
-    if (!requestedTypeSet(state).has(event.type))
-      return accepted({ ...state, byteCount: event.byteCount });
-    if (state.seenTypes.has(event.type))
-      return accepted({ ...state, byteCount: event.byteCount });
-    if (state.rows.length + event.rows.length > MAX_CATALOG_ROWS)
-      return accepted(
+const handleConnected: CatalogEventHandler = (state, event) =>
+  event.kind === "connected" && state.kind === "CONNECTED"
+    ? accepted(
         {
-          kind: "FAILED",
-          context: state.context,
-          code: "DEPENDENCY_FAILURE",
-          diagnostic: "catalog-row-bound-exceeded",
-          retryable: true,
+          ...state,
+          kind: "SUBSCRIBING",
+          subscriptionSyncID: event.subscriptionSyncID,
         },
-        [{ kind: "close-socket" }, { kind: "settle" }],
-      );
-    const seenTypes = new Set(state.seenTypes).add(event.type);
-    const rows = [...state.rows, ...event.rows];
-    const nextState = { ...state, seenTypes, rows, byteCount: event.byteCount };
-    return actionCompletesSnapshot(requestedTypeSet(state), seenTypes)
-      ? accepted(
-          { kind: "COMPLETED", context: state.context, seenTypes, rows },
-          [{ kind: "close-socket" }, { kind: "settle" }],
-        )
-      : accepted(nextState);
-  }
+        [{ kind: "send-subscription", syncID: event.subscriptionSyncID }],
+      )
+    : event.kind === "connected"
+      ? ignored(state)
+      : undefined;
 
-  if (event.kind === "error-frame" || event.kind === "transport-failure")
-    return accepted(
-      {
-        kind: "FAILED",
-        context: state.context,
-        code: event.kind === "error-frame" ? event.code : "DEPENDENCY_FAILURE",
-        diagnostic: event.diagnostic,
-        retryable:
-          event.kind !== "error-frame" ||
-          event.code !== "AUTHENTICATION_FAILED",
-      },
-      [{ kind: "close-socket" }, { kind: "settle" }],
-    );
+const handleSubscriptionSynced: CatalogEventHandler = (state, event) => {
+  if (event.kind !== "subscription-synced") return undefined;
+  if (state.kind !== "SUBSCRIBING" || event.syncID !== state.subscriptionSyncID)
+    return ignored(state);
+  return accepted({
+    kind: "COLLECTING",
+    context: state.context,
+    subscriptionSyncID: state.subscriptionSyncID,
+    seenTypes: new Set(),
+    rows: [],
+    byteCount: 0,
+  });
+};
 
-  if (event.kind === "transport-timeout")
-    return accepted(
-      {
-        kind: "TIMED_OUT",
-        context: state.context,
-        code: "DEPENDENCY_TIMEOUT",
-        diagnostic: "catalog-operation-timeout",
-        retryable: true,
-      },
-      [{ kind: "close-socket" }, { kind: "settle" }],
-    );
+const updateByteCount = (
+  state: Extract<CatalogState, { readonly kind: "COLLECTING" }>,
+  byteCount: number,
+): CatalogTransition => accepted({ ...state, byteCount });
 
-  if (event.kind === "connection-interrupted")
+const applyCatalogAction = (
+  state: Extract<CatalogState, { readonly kind: "COLLECTING" }>,
+  event: Extract<CatalogEvent, { readonly kind: "catalog-action" }>,
+): CatalogTransition => {
+  if (!actionIsScopedToState(state, event))
+    return updateByteCount(state, event.byteCount);
+  const requestedTypes = requestedTypeSet(state);
+  if (!requestedTypes.has(event.type) || state.seenTypes.has(event.type))
+    return updateByteCount(state, event.byteCount);
+  if (state.rows.length + event.rows.length > MAX_CATALOG_ROWS)
     return accepted(
       {
         kind: "FAILED",
         context: state.context,
         code: "DEPENDENCY_FAILURE",
-        diagnostic: "catalog-socket-close-before-completion",
+        diagnostic: "catalog-row-bound-exceeded",
         retryable: true,
       },
-      [{ kind: "settle" }],
+      [{ kind: "close-socket" }, { kind: "settle" }],
     );
+  const seenTypes = new Set(state.seenTypes).add(event.type);
+  const rows = [...state.rows, ...event.rows];
+  return actionCompletesSnapshot(requestedTypes, seenTypes)
+    ? accepted({ kind: "COMPLETED", context: state.context, seenTypes, rows }, [
+        { kind: "close-socket" },
+        { kind: "settle" },
+      ])
+    : accepted({ ...state, seenTypes, rows, byteCount: event.byteCount });
+};
 
+const handleCatalogAction: CatalogEventHandler = (state, event) => {
+  if (event.kind !== "catalog-action") return undefined;
+  if (state.kind !== "COLLECTING") return ignored(state);
+  return applyCatalogAction(state, event);
+};
+
+const handleFailure: CatalogEventHandler = (state, event) => {
+  if (event.kind !== "error-frame" && event.kind !== "transport-failure")
+    return undefined;
+  const isAuthenticationFailure =
+    event.kind === "error-frame" && event.code === "AUTHENTICATION_FAILED";
+  return accepted(
+    {
+      kind: "FAILED",
+      context: state.context,
+      code: event.kind === "error-frame" ? event.code : "DEPENDENCY_FAILURE",
+      diagnostic: event.diagnostic,
+      retryable: !isAuthenticationFailure,
+    },
+    [{ kind: "close-socket" }, { kind: "settle" }],
+  );
+};
+
+const handleTimeout: CatalogEventHandler = (state, event) =>
+  event.kind === "transport-timeout"
+    ? accepted(
+        {
+          kind: "TIMED_OUT",
+          context: state.context,
+          code: "DEPENDENCY_TIMEOUT",
+          diagnostic: "catalog-operation-timeout",
+          retryable: true,
+        },
+        [{ kind: "close-socket" }, { kind: "settle" }],
+      )
+    : undefined;
+
+const handleConnectionInterrupted: CatalogEventHandler = (state, event) =>
+  event.kind === "connection-interrupted"
+    ? accepted(
+        {
+          kind: "FAILED",
+          context: state.context,
+          code: "DEPENDENCY_FAILURE",
+          diagnostic: "catalog-socket-close-before-completion",
+          retryable: true,
+        },
+        [{ kind: "settle" }],
+      )
+    : undefined;
+
+const catalogEventHandlers: readonly CatalogEventHandler[] = [
+  handleConnectionEstablished,
+  handleConnected,
+  handleSubscriptionSynced,
+  handleCatalogAction,
+  handleFailure,
+  handleTimeout,
+  handleConnectionInterrupted,
+];
+
+export const transitionCatalogState: TransitionCatalogState = (
+  state,
+  event,
+) => {
+  if (isTerminal(state)) return ignored(state);
+  for (const handler of catalogEventHandlers) {
+    const result = handler(state, event);
+    if (result !== undefined) return result;
+  }
   return ignored(state);
 };
