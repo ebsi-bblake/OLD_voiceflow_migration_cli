@@ -85,19 +85,29 @@ const redactMap = (
     depth,
   );
 
-/* oxlint-disable complexity -- bounded structural value dispatch is explicit. */
+const redactPrimitive = (value: unknown): SafeContextValue | undefined => {
+  if (typeof value === "string") return boundedString(value);
+  if (typeof value === "number" || typeof value === "boolean" || value === null)
+    return value;
+  return undefined;
+};
+
+const redactContainer = (value: object, depth: number): SafeContextValue => {
+  if (Array.isArray(value)) return redactArray(value, depth);
+  if (value instanceof Map) return redactMap(value, depth);
+  if (value instanceof Error) return "[UNTRUSTED]";
+  if (isRecord(value)) return redactRecord(value, depth);
+  return "[UNTRUSTED]";
+};
+
 export const redactDiagnosticValue: RedactDiagnosticValue = (
   value,
   depth = 0,
 ) => {
   if (depth >= MAX_DEPTH) return "[TRUNCATED]";
-  if (typeof value === "string") return boundedString(value);
-  if (typeof value === "number" || typeof value === "boolean" || value === null)
-    return value;
-  if (Array.isArray(value)) return redactArray(value, depth);
-  if (value instanceof Map) return redactMap(value, depth);
-  if (value instanceof Error) return "[UNTRUSTED]";
-  if (typeof value === "object" && isRecord(value))
-    return redactRecord(value, depth);
+  const primitive = redactPrimitive(value);
+  if (primitive !== undefined) return primitive;
+  if (typeof value === "object" && value !== null)
+    return redactContainer(value, depth);
   return "[UNTRUSTED]";
 };
