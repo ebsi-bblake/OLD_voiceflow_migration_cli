@@ -45,6 +45,25 @@ const selection = {
   targetSchemaVersion: "13.1",
 } as const;
 
+test("does not redispatch a timed-out event wait request", async () => {
+  let requests = 0;
+  const client = createXYOpsClient(config, {
+    fetcher: async () => {
+      requests += 1;
+      throw new Error("request timed out");
+    },
+  });
+
+  await expect(
+    client.readEvent(
+      "event-projects",
+      { operation: "list_projects" },
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+    ),
+  ).rejects.toMatchObject({ diagnostic: { code: "network" } });
+  expect(requests).toBe(1);
+});
+
 const nativePluginOutput = (envelope: unknown): string =>
   JSON.stringify({
     xy: 1,

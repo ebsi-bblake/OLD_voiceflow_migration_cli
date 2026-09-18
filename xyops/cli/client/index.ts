@@ -9,7 +9,7 @@ import type {
   XYOpsEventReference,
 } from "../types";
 import { fetchJSON, defaultSleep, type Request, type Sleep } from "./http";
-import { eventBody, pollJob, readEventWithRetry } from "./polling";
+import { eventBody, pollJob, readEventOnce } from "./polling";
 import { streamJob, type StreamJob } from "./streaming";
 import {
   readJobOutput,
@@ -131,14 +131,7 @@ export const createXYOpsClient = (
     params: EventParameters,
     guard: ResponseSchema<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> =>
-    readEventWithRetry(
-      request,
-      sleeper,
-      config.pollIntervalMs,
-      reference,
-      params,
-      guard,
-    );
+    readEventOnce(request, reference, params, guard);
 
   const readStreamOrJob = async (
     id: string,
