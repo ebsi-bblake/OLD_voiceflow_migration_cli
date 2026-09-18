@@ -8,18 +8,26 @@ const groups = [
   ["04-plugin", "xyops/plugin"],
   ["05-voiceflow-core", "xyops/voiceflow"],
   ["06-voiceflow-catalog", "xyops/voiceflow/catalog"],
-  ["07-voiceflow-http-import", "xyops/voiceflow/http", "xyops/voiceflow/import"],
+  [
+    "07-voiceflow-http-import",
+    "xyops/voiceflow/http",
+    "xyops/voiceflow/import",
+  ],
   ["08-voiceflow-logux", "xyops/voiceflow/logux"],
   ["09-voiceflow-planning", "xyops/voiceflow/planning"],
-  ["10-voiceflow-execute", "xyops/voiceflow/execute_migration", "xyops/voiceflow/execute-migration-state-machine.ts"],
+  [
+    "10-voiceflow-execute",
+    "xyops/voiceflow/execute_migration",
+    "xyops/voiceflow/execute-migration-state-machine.ts",
+  ],
 ] as const;
 
 type Group = readonly [name: string, ...roots: string[]];
 type NotebookFile = Readonly<{ path: string; source: string }>;
 
 const root = process.cwd();
-const outputDirectory = process.argv[2] ?? "notebook-2";
-const suffix = "_refactored";
+const outputDirectory = process.argv[2] ?? "docs/notebook";
+const suffix = `_${new Date().toDateString()}`;
 
 const isTypeScript = (path: string): boolean => path.endsWith(".ts");
 const isWithin = (path: string, rootPath: string): boolean =>
@@ -37,13 +45,17 @@ const readTree = async (directory: string): Promise<readonly string[]> => {
 };
 
 const sourceFiles = (): Promise<readonly string[]> =>
-  Promise.all(["xyops/cli", "xyops/plugin", "xyops/voiceflow"].map(readTree)).then(
-    (trees) => trees.flat().filter(isTypeScript).sort(),
-  );
+  Promise.all(
+    ["xyops/cli", "xyops/plugin", "xyops/voiceflow"].map(readTree),
+  ).then((trees) => trees.flat().filter(isTypeScript).sort());
 
 const groupFor = (path: string): Group => {
-  const matches = groups.filter(([, ...roots]) => roots.some((rootPath) => isWithin(path, rootPath)));
-  const group = matches.sort((left, right) => right[1].length - left[1].length)[0];
+  const matches = groups.filter(([, ...roots]) =>
+    roots.some((rootPath) => isWithin(path, rootPath)),
+  );
+  const group = matches.sort(
+    (left, right) => right[1].length - left[1].length,
+  )[0];
   if (group === undefined) throw new Error(`No notebook group owns ${path}`);
   return group;
 };
@@ -65,10 +77,20 @@ const bundleContents = (name: string, files: readonly NotebookFile[]): string =>
     ]),
   ].join("\n");
 
-const notebookReadme = (bundles: readonly { name: string; files: readonly NotebookFile[] }[]): string => {
-  const fileCount = bundles.reduce((total, bundle) => total + bundle.files.length, 0);
+const notebookReadme = (
+  bundles: readonly { name: string; files: readonly NotebookFile[] }[],
+): string => {
+  const fileCount = bundles.reduce(
+    (total, bundle) => total + bundle.files.length,
+    0,
+  );
   const byteCount = bundles.reduce(
-    (total, bundle) => total + bundle.files.reduce((bytes, file) => bytes + Buffer.byteLength(file.source), 0),
+    (total, bundle) =>
+      total +
+      bundle.files.reduce(
+        (bytes, file) => bytes + Buffer.byteLength(file.source),
+        0,
+      ),
     0,
   );
   const inventory = bundles
@@ -115,7 +137,10 @@ const generateNotebook = async (): Promise<void> => {
       );
     }),
   );
-  await writeFile(join(root, outputDirectory, "README.md"), notebookReadme(bundles));
+  await writeFile(
+    join(root, outputDirectory, "README.md"),
+    notebookReadme(bundles),
+  );
 };
 
 generateNotebook().catch((error: unknown) => {

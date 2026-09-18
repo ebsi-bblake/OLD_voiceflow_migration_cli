@@ -12,12 +12,14 @@ import { loadFolders, loadProjects, loadWorkspaces } from "./catalog";
 import { requestBytes } from "./http";
 import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
 import { OperationFault } from "./contracts";
-import { SecretEntrySchema } from "./schemas/secret_entry";
+import { SecretEntryArraySchema } from "./schemas/secret_entry";
 import { ExistingSecretSchema } from "./schemas/existing_secret";
 
-const ExistingSecretsResponseSchema = z.object({
-  secrets: z.array(ExistingSecretSchema),
-}).loose();
+const ExistingSecretsResponseSchema = z
+  .object({
+    secrets: z.array(ExistingSecretSchema),
+  })
+  .loose();
 
 export type { ExistingSecret } from "./types";
 
@@ -27,7 +29,10 @@ type LoadExistingSecrets = (
   auth: AuthContext,
   versionID: string,
 ) => Promise<readonly ExistingSecret[]>;
-export const loadExistingSecrets: LoadExistingSecrets = async (auth, versionID) => {
+export const loadExistingSecrets: LoadExistingSecrets = async (
+  auth,
+  versionID,
+) => {
   const response = await requestBytes({
     url: `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/load-creator/${encodePathSegment(versionID)}`,
     init: { headers: { Authorization: `Bearer ${auth.token}` } },
@@ -39,7 +44,9 @@ export const loadExistingSecrets: LoadExistingSecrets = async (auth, versionID) 
   return parseExistingSecrets(response.bytes);
 };
 
-const parseExistingSecrets = (bytes: ArrayBuffer): readonly ExistingSecret[] => {
+const parseExistingSecrets = (
+  bytes: ArrayBuffer,
+): readonly ExistingSecret[] => {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
     const parsed = ExistingSecretsResponseSchema.safeParse(value);
@@ -61,25 +68,20 @@ export const parseSecretEntries: ParseSecretEntries = (value) =>
     : parseSecretEntryArray(value);
 
 const parseSecretEntryArray = (value: unknown): readonly ConfigSecret[] => {
-  if (!Array.isArray(value))
-    throw new Error("Secrets must be a JSON array of key/value entries.");
-  const names = new Set<string>();
-  return value.map((entry, index) => {
-    const secret = parseSecretEntry(entry);
-    if (names.has(secret.key))
-      throw new Error(
-        `Secret entries contain duplicate key at index ${index}.`,
-      );
-    names.add(secret.key);
-    return secret;
-  });
-};
-
-const parseSecretEntry = (value: unknown): ConfigSecret => {
-  const parsed = SecretEntrySchema.safeParse(value);
-  if (!parsed.success)
-    throw new Error("Secret entry failed structural validation.");
-  return parsed.data;
+  const parsed = SecretEntryArraySchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const hasDuplicate = parsed.error.issues.some(
+    (issue) => issue.message === "secret names must be unique",
+  );
+  if (hasDuplicate) throw new Error("duplicate secret entry key");
+  const isNotArray = parsed.error.issues.some(
+    (issue) => issue.code === "invalid_type" && issue.expected === "array",
+  );
+  throw new Error(
+    isNotArray
+      ? "Secrets must be a JSON array of key/value entries."
+      : "Secret entry failed structural validation.",
+  );
 };
 type ParseSecretEntriesJSON = (contents: string) => readonly ConfigSecret[];
 export const parseSecretEntriesJSON: ParseSecretEntriesJSON = (contents) =>
@@ -120,8 +122,9 @@ export const resolveProjectPath: ResolveProjectPath = (
   const workspace = workspaceRows.find((row) => matchesName(row, segments[0]));
   if (workspace === undefined)
     throw new Error("Configured project path could not be resolved.");
-  const folders = segments.slice(1, -1).reduce<FolderRecord[]>(
-    (resolved, label) => {
+  const folders = segments
+    .slice(1, -1)
+    .reduce<FolderRecord[]>((resolved, label) => {
       const parentID = resolved.at(-1)?.id;
       const folder = folderRows.find(
         (row) =>
@@ -132,13 +135,11 @@ export const resolveProjectPath: ResolveProjectPath = (
       if (folder === undefined)
         throw new Error("Configured project path could not be resolved.");
       return [...resolved, folder];
-    },
-    [],
-  );
+    }, []);
   const project = projectRows.find(
     (row) =>
       row.workspaceID === workspace.id &&
-      matchesName(row, segments.at(-1) ?? "") &&
+      matchesName(row, segments?.at(-1)) &&
       (folders.length === 0 ||
         projectFolderID(row) === undefined ||
         projectFolderID(row) === folders.at(-1)?.id),
@@ -148,23 +149,30 @@ export const resolveProjectPath: ResolveProjectPath = (
   return project.id;
 };
 
-const matchesName = (row: { id: string; label: string }, value: string): boolean =>
-  row.id === value || row.label === value;
+const matchesName = (
+  row: { id: string; label: string },
+  value: string | undefined,
+): boolean => value !== undefined && (row.id === value || row.label === value);
 const projectFolderID = (project: ProjectRecord): string | undefined =>
   project.folderID;
 
 const resolveProjectID = (auth: AuthContext, value: string): Promise<string> =>
   value.includes("/")
-    ? loadWorkspaces(auth).then((workspaces) => {
-        const workspace = workspaces.find((row) => matchesName(row, value.split("/")[0]?.trim() ?? ""));
+    ? loadWorkspaces(auth).then(async (workspaces) => {
+        const workspace = workspaces.find((row) =>
+          matchesName(row, value.split("/")[0]?.trim()),
+        );
         if (workspace === undefined)
           throw new Error("Configured project path could not be resolved.");
         const catalogProjects = loadProjects(auth, workspace.id);
-        const catalogFolders = value.split("/").length > 2
-          ? loadFolders(auth, workspace.id)
-          : Promise.resolve([] as readonly FolderRecord[]);
-        return Promise.all([catalogFolders, catalogProjects])
-          .then(([folders, projects]) => resolveProjectPath(workspaces, folders, projects, value));
+        const catalogFolders =
+          value.split("/").length > 2
+            ? loadFolders(auth, workspace.id)
+            : Promise.resolve([] as readonly FolderRecord[]);
+        return Promise.all([catalogFolders, catalogProjects]).then(
+          ([folders, projects]) =>
+            resolveProjectPath(workspaces, folders, projects, value),
+        );
       })
     : Promise.resolve(value);
 
@@ -173,26 +181,33 @@ type ResolveConfiguredSecretValues = (
   entries: readonly ConfigSecret[],
 ) => Promise<readonly SecretEntry[]>;
 export const resolveConfiguredSecretValues: ResolveConfiguredSecretValues =
-  (auth, entries) => {
+  async (auth, entries) => {
     const configuredTypes = collectConfiguredSecretTypes(entries);
     if (!configuredTypes.has("projectId"))
       return Promise.resolve(
-        mapConfigSecretsToSecretEntries(entries, entries.map((entry) => entry.value)),
+        mapConfigSecretsToSecretEntries(
+          entries,
+          entries.map((entry) => entry.value),
+        ),
       );
     const projectValues = entries
       .filter((entry) => entry.type === "projectId")
       .map((entry) => entry.value);
-    return Promise.all(projectValues.map((value) => resolveProjectID(auth, value)))
-      .then((projectIDs) => Promise.all(projectIDs.map((id) => retrieveProjectApiKey(auth, id))))
+    return Promise.all(
+      projectValues.map((value) => resolveProjectID(auth, value)),
+    )
+      .then((projectIDs) =>
+        Promise.all(projectIDs.map((id) => retrieveProjectApiKey(auth, id))),
+      )
       .then((apiKeys) => {
         let keyIndex = 0;
         return mapConfigSecretsToSecretEntries(
           entries,
           entries.map((entry) =>
-            entry.type === "projectId" ? apiKeys[keyIndex++] ?? entry.value : entry.value,
+            entry.type === "projectId"
+              ? (apiKeys[keyIndex++] ?? entry.value)
+              : entry.value,
           ),
         );
       });
   };
-
-

@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { MigrationFileConfigSchema } from "../xyops/cli/schemas/migration-config";
+import {
+  MigrationFileConfigSchema,
+  XYOpsEnvironmentSchema,
+} from "../xyops/cli/schemas/migration-config";
 import { NativePluginJobSchema, PluginOperationSchema } from "../xyops/plugin/schemas/native_plugin_job";
 import { CatalogRecordSchema } from "../xyops/voiceflow/catalog/schemas/catalog_record";
 import { parseFolder, parseProject } from "../xyops/voiceflow/catalog/record-parsers";
 import { ExistingSecretSchema } from "../xyops/voiceflow/schemas/existing_secret";
-import { SecretEntrySchema } from "../xyops/voiceflow/schemas/secret_entry";
+import {
+  SecretEntryArraySchema,
+  SecretEntrySchema,
+} from "../xyops/voiceflow/schemas/secret_entry";
 import { XYOpsResponseSchema, XYOpsStreamEventSchema } from "../xyops/cli/schemas/xyops-responses";
 import { LoguxActionSchema } from "../xyops/voiceflow/logux/schemas/action";
 import { LoguxFrameSchema } from "../xyops/voiceflow/logux/schemas/frame";
@@ -20,6 +26,16 @@ describe("BDD25 Zod-only boundary contracts", () => {
     if (parsed.success) expect(parsed.data.source_workspace).toBe("workspace");
     expect(MigrationFileConfigSchema.safeParse({ unsupported: true }).success).toBe(false);
     expect(MigrationFileConfigSchema.safeParse(null).success).toBe(false);
+  });
+
+  test("owns environment and secret collection boundaries", () => {
+    expect(XYOpsEnvironmentSchema.safeParse({ XYOPS_API_KEY: "key" }).success).toBe(true);
+    expect(XYOpsEnvironmentSchema.safeParse({ XYOPS_API_KEY: 42 }).success).toBe(false);
+    expect(SecretEntryArraySchema.safeParse([
+      { key: "KEY", value: "value", type: "" },
+      { key: "KEY", value: "other", type: "" },
+    ]).success).toBe(false);
+    expect(SecretEntryArraySchema.safeParse({ key: "KEY" }).success).toBe(false);
   });
 
   test("uses one Zod owner for plugin jobs and operation values", () => {

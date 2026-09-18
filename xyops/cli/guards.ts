@@ -2,7 +2,7 @@ import {
   NativePluginDataSchema,
   NativePluginResponseSchema,
 } from "./schemas/xyops-responses";
-import { SecretEntrySchema } from "../voiceflow/schemas/secret_entry";
+import { SecretEntryArraySchema } from "../voiceflow/schemas/secret_entry";
 import type {
   EventParameterValue,
 } from "./types";
@@ -28,16 +28,8 @@ export const normalizeVoiceflowResponse: NormalizeVoiceflowResponse = (value) =>
     .find((result) => result !== undefined) ?? value;
 
 type IsSecretEntries = (value: unknown) => boolean;
-const isSecretEntries: IsSecretEntries = (value) => {
-  if (!Array.isArray(value)) return false;
-  const names = new Set<string>();
-  return value.every((entry) => {
-    const parsed = SecretEntrySchema.safeParse(entry);
-    if (!parsed.success || names.has(parsed.data.key)) return false;
-    names.add(parsed.data.key);
-    return true;
-  });
-};
+const isSecretEntries: IsSecretEntries = (value) =>
+  SecretEntryArraySchema.safeParse(value).success;
 
 const isPrimitiveEventParameter = (value: unknown): value is string | boolean =>
   typeof value === "string" || typeof value === "boolean";

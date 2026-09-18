@@ -56,7 +56,7 @@ Implementation files changed:
 - `xyops/voiceflow/import/schemas/receipt.ts`
 - `xyops/voiceflow/import/input.ts`
 - `xyops/voiceflow/logux/catalog-frames.ts`
-- `xyops/voiceflow/logux/frames.ts`
+- `xyops/voiceflow/logux/connection.ts`
 
 Focused evidence:
 - BDD25: PASS, 10 scenarios / 91 steps, with runtime schema probes

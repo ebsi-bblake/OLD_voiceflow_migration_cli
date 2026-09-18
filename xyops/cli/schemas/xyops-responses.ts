@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { XYOpsStreamEventType } from "../types";
 
+export const XYOpsRecordSchema = z.record(z.string(), z.unknown());
+
 const responseCodeSchema = z.union([z.number(), z.string()]);
 const responseDescriptionSchema = z.string().optional();
 const responseIDSchema = z.string().optional();

@@ -3,8 +3,10 @@ import { resolveConfiguredFilePath } from "./file-path";
 import { fail } from "./diagnostics";
 import { z } from "zod";
 import { parseXYOpsURL } from "../voiceflow/urls";
-import { parseSecretEntries } from "../voiceflow/secrets";
-import { MigrationFileConfigSchema } from "./schemas/migration-config";
+import {
+  MigrationFileConfigSchema,
+  XYOpsEnvironmentSchema,
+} from "./schemas/migration-config";
 import {
   parseResourceSelection,
   parseSchemaVersion,
@@ -22,7 +24,9 @@ export type {
 } from "./types";
 
 /** The file contract deliberately uses snake_case to match the CLI config file. */
-export type MigrationFileConfigInput = z.infer<typeof MigrationFileConfigSchema>;
+export type MigrationFileConfigInput = z.infer<
+  typeof MigrationFileConfigSchema
+>;
 export type MigrationFileConfig = Readonly<{
   sourceWorkspaceID?: string;
   sourceFolderID?: string;
@@ -55,14 +59,14 @@ const DEFAULT_EVENT_TITLES = {
   executeMigration: "voiceflow_execute_migration",
 } as const;
 
-type Environment = Readonly<Record<string, string | undefined>>;
+type Environment = z.infer<typeof XYOpsEnvironmentSchema>;
 
 type ReadTrimmedEnvironment = (
   environment: Environment,
   name: string,
-) => string;
+) => string | undefined;
 const readTrimmedEnvironment: ReadTrimmedEnvironment = (environment, name) =>
-  (environment[name] ?? "").trim();
+  environment[name]?.trim();
 
 type RequiredEnvironment = (environment: Environment, name: string) => string;
 const requiredEnvironment: RequiredEnvironment = (environment, name) => {
@@ -260,13 +264,19 @@ const readDurations: ReadDurations = (environment) => ({
 type ReadXYOpsConfig = (environment?: Environment) => XYOpsConfig;
 export const readXYOpsConfig: ReadXYOpsConfig = (
   environment = process.env,
-) => ({
-  baseURL: readBaseURL(environment),
-  apiKey: requiredEnvironment(environment, "XYOPS_API_KEY"),
-  events: readEventConfig(environment),
-  ...readDurations(environment),
-});
-
+) => {
+  const parsed = XYOpsEnvironmentSchema.safeParse(environment);
+  if (!parsed.success)
+    throw fail("configuration", {
+      nextAction: "The process environment contains invalid values.",
+    });
+  return {
+    baseURL: readBaseURL(parsed.data),
+    apiKey: requiredEnvironment(parsed.data, "XYOPS_API_KEY"),
+    events: readEventConfig(parsed.data),
+    ...readDurations(parsed.data),
+  };
+};
 
 type ValidateConfigArguments = () => void;
 const validateConfigArguments: ValidateConfigArguments = () => {
@@ -284,40 +294,34 @@ type ReadConfigArgument = () => string | undefined;
 const readConfigArgument: ReadConfigArgument = () =>
   process.argv.find((argument) => argument.startsWith("--config="))?.slice(9);
 
-type ConfigFieldParser = (value: unknown) => string;
+type ConfigFieldParser = (value: string) => string;
 
-type ParseResourcePath = (value: unknown) => string;
+type ParseResourcePath = (value: string) => string;
 const parseResourcePath: ParseResourcePath = (value) => {
-  if (typeof value !== "string")
-    throw new Error("path must be a string");
   const segments = value.split("/").map((segment) => segment.trim());
-  if (segments.some((segment) => {
-    try {
-      parseResourceSelection(segment);
-      return false;
-    } catch {
-      return true;
-    }
-  }))
+  if (
+    segments.some((segment) => {
+      try {
+        parseResourceSelection(segment);
+        return false;
+      } catch {
+        return true;
+      }
+    })
+  )
     throw new Error("path contains an invalid segment");
   return value.trim();
 };
 
-type ReadConfiguredSecrets = (value: unknown) => string | SecretEntries;
+type ReadConfiguredSecrets = (
+  value: MigrationFileConfigInput["secrets"],
+) => string | SecretEntries;
 const readConfiguredSecrets: ReadConfiguredSecrets = (value) => {
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    try {
-      return parseSecretEntries(value);
-    } catch {
-      throw fail("configuration", {
-        nextAction: "The inline secrets must be a valid secret entry array.",
-      });
-    }
-  }
-  throw fail("configuration", {
-    nextAction: "secrets must be a file path or a secret entry array.",
-  });
+  if (value === undefined)
+    throw fail("configuration", {
+      nextAction: "secrets must be a file path or a secret entry array.",
+    });
+  return value;
 };
 
 type MigrationStringField = readonly [
@@ -388,7 +392,7 @@ export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
   ];
   fields.forEach(([property, name, parser]) => {
     const value = config[property];
-    if (value === undefined) return;
+    if (typeof value !== "string") return;
     try {
       parser(value);
     } catch {

@@ -7,8 +7,8 @@ import {
   XYOpsJobResponseSchema,
   XYOpsLaunchResponseSchema,
   XYOpsWaitResponseSchema,
+  XYOpsRecordSchema,
 } from "../schemas/xyops-responses";
-import { isRecord } from "../../voiceflow/guards";
 import type {
   ResponseSchema,
   VoiceflowEnvelope,
@@ -16,14 +16,10 @@ import type {
   XYOpsResponse,
 } from "../types";
 
-const isPlainRecord = isRecord;
-
-const hasResponseData = (
-  response: XYOpsResponse,
-): response is XYOpsResponse & { data: unknown } => "data" in response;
-
-const recordChildren = (value: unknown): readonly unknown[] =>
-  isPlainRecord(value) ? [value.job, value.data] : [];
+const recordChildren = (value: unknown): readonly unknown[] => {
+  const parsed = XYOpsRecordSchema.safeParse(value);
+  return parsed.success ? [parsed.data.job, parsed.data.data] : [];
+};
 
 const readJobValue = (value: unknown): XYOpsJob | undefined => {
   const parsed = XYOpsJobSchema.safeParse(value);
@@ -41,7 +37,6 @@ const readTopLaunchID = (response: XYOpsResponse): string | undefined => {
 };
 
 const readDataLaunchID = (response: XYOpsResponse): string | undefined => {
-  if (!hasResponseData(response)) return undefined;
   return [response.data, ...recordChildren(response.data)]
     .map((value) => {
       const parsed = JobLaunchSchema.safeParse(value);
@@ -70,9 +65,7 @@ const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined => {
   const parsed = XYOpsJobResponseSchema.safeParse(response);
   return parsed.success
     ? parsed.data.job
-    : hasResponseData(response)
-      ? readJobContainer(response.data)
-      : undefined;
+    : readJobContainer(response.data);
 };
 
 const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
@@ -81,9 +74,10 @@ const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
 const redactResponseDTO = (value: unknown, key = ""): unknown => {
   if (sensitiveField.test(key)) return "[redacted]";
   if (Array.isArray(value)) return value.map((item) => redactResponseDTO(item));
-  if (!isPlainRecord(value)) return value;
+  const parsed = XYOpsRecordSchema.safeParse(value);
+  if (!parsed.success) return value;
   return Object.fromEntries(
-    Object.entries(value).map(([entryKey, entryValue]) => [
+    Object.entries(parsed.data).map(([entryKey, entryValue]) => [
       entryKey,
       redactResponseDTO(entryValue, entryKey),
     ]),
