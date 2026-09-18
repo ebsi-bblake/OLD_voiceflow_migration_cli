@@ -29,7 +29,10 @@
     "bdd:23": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/23-runtime-boundaries-and-control-flow/feature.feature' --import 'bdd/23-runtime-boundaries-and-control-flow/steps.js'",
     "bdd:25": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/25-zod-only-boundaries/feature.feature' --import 'bdd/25-zod-only-boundaries/steps.js'",
     "bdd:26": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/26-diagnostic-transparency-and-canonical-errors/feature.feature' --import 'bdd/26-diagnostic-transparency-and-canonical-errors/steps.js'",
-    "bdd": "bun run bdd:18 && bun run bdd:19 && bun run bdd:20 && bun run bdd:21 && bun run bdd:22 && bun run bdd:23 && bun run bdd:25 && bun run bdd:26",
+    "bdd:27": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/27-authoritative-effect-runner/feature.feature' --import 'bdd/27-authoritative-effect-runner/steps.js'",
+    "bdd:28": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/28-logux-shared-connection/feature.feature' --import 'bdd/28-logux-shared-connection/steps.js'",
+    "bdd:29": "bun node_modules/@cucumber/cucumber/bin/cucumber-js 'bdd/29-logux-transport-domain-boundary/feature.feature' --import 'bdd/29-logux-transport-domain-boundary/steps.js'",
+    "bdd": "bun run bdd:18 && bun run bdd:19 && bun run bdd:20 && bun run bdd:21 && bun run bdd:22 && bun run bdd:23 && bun run bdd:25 && bun run bdd:26 && bun run bdd:27 && bun run bdd:28 && bun run bdd:29",
     "verify:cli": "bun scripts/validate-cli-artifacts.ts",
     "probe:network-secrets": "bun scripts/probe-network-secrets.ts",
     "check": "bun run lint && bun run typecheck && bun run test"
