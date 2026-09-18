@@ -67,7 +67,29 @@ type PollObservation = <T>(
   dispatch: DispatchObservation,
   useStreaming: boolean,
 ) => Promise<VoiceflowEnvelope<T>>;
-/* oxlint-disable complexity -- polling translates terminal outcomes through the reducer. */
+
+const pollFailureEvent = (error: unknown): JobObservationEvent => {
+  const diagnostic = readCliDiagnostic(error);
+  return diagnostic?.code === "job"
+    ? { kind: "job-failed" }
+    : { kind: "poll-timeout" };
+};
+
+const streamingUnknownOutcome = (
+  diagnostic: CliDiagnostic | undefined,
+  useStreaming: boolean,
+): CliError | undefined => {
+  if (!useStreaming || diagnostic?.code !== "job") return undefined;
+  return fail("execute-outcome-unknown", {
+    endpoint: JOB_PATH,
+    nextAction:
+      "The execute job outcome is unknown; reconcile before retrying.",
+    ...(diagnostic.diagnostic === undefined
+      ? {}
+      : { diagnostic: diagnostic.diagnostic }),
+  });
+};
+
 const pollObservation: PollObservation = async <T>(
   pollJobResult: () => Promise<VoiceflowEnvelope<T>>,
   dispatch: DispatchObservation,
@@ -78,21 +100,10 @@ const pollObservation: PollObservation = async <T>(
     dispatch({ kind: "job-succeeded" });
     return result;
   } catch (error) {
-    const diagnostic = error instanceof CliError ? error.diagnostic : undefined;
-    dispatch(
-      diagnostic?.code === "job"
-        ? { kind: "job-failed" }
-        : { kind: "poll-timeout" },
-    );
-    if (useStreaming && diagnostic?.code === "job")
-      throw fail("execute-outcome-unknown", {
-        endpoint: JOB_PATH,
-        nextAction:
-          "The execute job outcome is unknown; reconcile before retrying.",
-        ...(diagnostic.diagnostic === undefined
-          ? {}
-          : { diagnostic: diagnostic.diagnostic }),
-      });
+    const diagnostic = readCliDiagnostic(error);
+    dispatch(pollFailureEvent(error));
+    const unknownOutcome = streamingUnknownOutcome(diagnostic, useStreaming);
+    if (unknownOutcome !== undefined) throw unknownOutcome;
     throw error;
   }
 };
@@ -129,13 +140,11 @@ export const createXYOpsClient = (
       guard,
     );
 
-  const readTerminalStream = async <T>(
+  const readStreamOrJob = async (
     id: string,
-    guard: ResponseSchema<VoiceflowEnvelope<T>>,
-  ): Promise<VoiceflowEnvelope<T>> => {
-    let streamOrJob: Awaited<ReturnType<typeof streamer>>;
+  ): Promise<Awaited<ReturnType<typeof streamer>>> => {
     try {
-      streamOrJob = await streamer(
+      return await streamer(
         fetcher,
         config.baseURL,
         config.apiKey,
@@ -147,14 +156,19 @@ export const createXYOpsClient = (
         },
       );
     } catch (error) {
-      if (readCliDiagnostic(error) === undefined)
-        throw fail("network", {
-          endpoint: "/api/app/stream_job/v1",
-          retryable: true,
-          nextAction: "The XYOps stream transport failed.",
-        });
-      throw error;
+      if (readCliDiagnostic(error) !== undefined) throw error;
+      throw fail("network", {
+        endpoint: "/api/app/stream_job/v1",
+        retryable: true,
+        nextAction: "The XYOps stream transport failed.",
+      });
     }
+  };
+
+  const parseTerminalStream = <T>(
+    streamOrJob: Awaited<ReturnType<typeof streamer>>,
+    guard: ResponseSchema<VoiceflowEnvelope<T>>,
+  ): VoiceflowEnvelope<T> => {
     if ("kind" in streamOrJob && streamOrJob.kind === "failure")
       throw requireSuccessfulJob(
         streamOrJob.data,
@@ -176,6 +190,12 @@ export const createXYOpsClient = (
       });
     }
   };
+
+  const readTerminalStream = async <T>(
+    id: string,
+    guard: ResponseSchema<VoiceflowEnvelope<T>>,
+  ): Promise<VoiceflowEnvelope<T>> =>
+    parseTerminalStream(await readStreamOrJob(id), guard);
 
   const startJobObservation = <T>(
     id: string,

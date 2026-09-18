@@ -16,7 +16,7 @@ const secret = await import("../../xyops/voiceflow/logux/secret-state-machine.ts
 const source = (path) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const migrationSource = source("xyops/voiceflow/execute_migration/index.ts");
-const effectRunnerSource = source("xyops/voiceflow/execute_migration/effect-runner.ts");
+const effectRunnerSource = `${source("xyops/voiceflow/execute_migration/effect-runner/runtime.ts")}\n${source("xyops/voiceflow/execute_migration/effect-runner/handlers.ts")}`;
 const clientSource = source("xyops/cli/client/index.ts");
 const streamingSource = source("xyops/cli/client/streaming.ts");
 const loguxSource = source("xyops/voiceflow/logux/connection.ts");
