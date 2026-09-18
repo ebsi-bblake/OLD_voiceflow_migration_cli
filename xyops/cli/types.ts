@@ -1,3 +1,5 @@
+import type { Diagnostic } from "../diagnostics/types";
+
 export type Option = Readonly<{ value: string; label: string }>;
 export type MigrationSelection = Readonly<{
   sourceWorkspaceID: string;
@@ -30,7 +32,12 @@ export type VoiceflowFailure = Readonly<{
   ok: false;
   operation: string;
   operationID: string;
-  error: Readonly<{ code: string; message: string; retryable: boolean }>;
+  error: Readonly<{
+    code: string;
+    message: string;
+    retryable: boolean;
+    diagnostic?: Diagnostic;
+  }>;
 }>;
 export type VoiceflowEnvelope<T> = VoiceflowSuccess<T> | VoiceflowFailure;
 export type ResponseGuard<T> = (value: unknown) => value is T;
@@ -190,6 +197,7 @@ export type CliDiagnostic = Readonly<{
   retryable: boolean;
   status?: number;
   nextAction: string;
+  diagnostic?: Diagnostic;
 }>;
 export type XYOpsClient = Readonly<{
   readEvent: <T>(

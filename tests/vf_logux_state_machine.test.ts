@@ -21,6 +21,7 @@ import {
   createFolderState,
   transitionFolderState,
 } from "../xyops/voiceflow/logux/folder-state-machine";
+import { normalizeCatalogFrame } from "../xyops/voiceflow/logux/catalog-frames";
 
 const renameContext = {
   workspaceID: "workspace-id",
@@ -253,6 +254,9 @@ describe("Logux state machines", () => {
   test("exports the wire-frame contract for BDD adapters", () => {
     expect(parseLoguxFrame("not-json")).toBeUndefined();
     expect(parseLoguxFrame("{}")).toBeUndefined();
+    expect(parseLoguxFrame(JSON.stringify(["unknown", 1]))).toBeUndefined();
+    expect(parseLoguxFrame(JSON.stringify(["sync", 1.5, { type: "action" }]))).toBeUndefined();
+    expect(parseLoguxFrame(JSON.stringify(["error", "x".repeat(81)]))).toBeUndefined();
     expect(isSubscriptionComplete(["synced", 101], 101)).toBe(true);
     expect(isSubscriptionComplete(["synced", 102], 101)).toBe(false);
     expect(
@@ -273,6 +277,25 @@ describe("Logux state machines", () => {
         },
       ], "action-1", "assistant-id"),
     ).toBe(true);
+  });
+
+  test("does not normalize heartbeat or non-sync frames as catalog actions", () => {
+    expect(normalizeCatalogFrame(["ping", 95], "operation", "channel", 10, 1)).toBeUndefined();
+    expect(normalizeCatalogFrame([
+      "connected",
+      4,
+      "connection",
+      [],
+      {},
+    ], "operation", "channel", 10, 1)).toEqual({
+      kind: "connected",
+      subscriptionSyncID: 1,
+    });
+    expect(normalizeCatalogFrame([
+      "pong",
+      0,
+      { type: "project.CRUD:REPLACE", payload: { values: [{ id: "leak" }] } },
+    ], "operation", "channel", 10, 1)).toBeUndefined();
   });
 
   test("summarizes secret failures without exposing sensitive detail", () => {

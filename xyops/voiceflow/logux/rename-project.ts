@@ -10,7 +10,7 @@ import {
   type RenameState,
   type RenameEffect,
 } from "./state-machine";
-import { LoguxFrameSchema } from "./schemas/frame";
+import { parseLoguxFrame } from "./frame-contract";
 
 export type RenameProject = (
   auth: AuthContext,
@@ -24,15 +24,8 @@ type Frame = readonly unknown[];
 type RecordValue = Readonly<Record<string, unknown>>;
 const isRecord = (value: unknown): value is RecordValue =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const parseFrame = (value: unknown): Frame | undefined => {
-  if (typeof value !== "string") return undefined;
-  try {
-    const parsed = LoguxFrameSchema.safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const parseFrame = (value: unknown): Frame | undefined =>
+  typeof value === "string" ? parseLoguxFrame(value) : undefined;
 const actionOf = (frame: Frame): RecordValue | undefined =>
   isRecord(frame[2]) ? frame[2] : undefined;
 

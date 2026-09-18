@@ -1,4 +1,4 @@
-import { isNumericFolderID, isRawRow } from "../guards";
+import { VoiceflowRegex } from "../regex";
 import { CatalogRecordSchema } from "./schemas/catalog_record";
 import type {
   EnvironmentRecord,
@@ -24,8 +24,12 @@ const invalidRow: CatalogParseResult<never> = {
 
 const validRow = <T>(value: T): CatalogParseResult<T> => ({ ok: true, value });
 
-const isCatalogRecord = (value: unknown): value is RawCatalogRow =>
-  CatalogRecordSchema.safeParse(value).success;
+const parseCatalogRecord = (
+  value: unknown,
+): RawCatalogRow | undefined => {
+  const parsed = CatalogRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+};
 
 // Runtime validation intentionally handles multiple external representations.
 const isIDValue = (value: unknown): value is string | number =>
@@ -49,9 +53,10 @@ const readLabel = (row: RawCatalogRow, fallback: string): string => {
 
 // Catalog environments arrive as either arrays or keyed objects.
 const readEnvironmentRows = (value: unknown): readonly RawCatalogRow[] =>
-  Array.isArray(value) ? value.filter(isRawRow) : readObjectEnvironmentRows(value);
-const readObjectEnvironmentRows = (value: unknown): readonly RawCatalogRow[] =>
-  isRawRow(value) ? Object.values(value).filter(isRawRow) : [];
+  (Array.isArray(value) ? value : Object.values(value ?? {})).flatMap((entry) => {
+    const parsed = parseCatalogRecord(entry);
+    return parsed === undefined ? [] : [parsed];
+  });
 
 const isVersionValue = (value: unknown): value is string | number =>
   typeof value === "string" || typeof value === "number";
@@ -73,8 +78,10 @@ const readEnvironments = (value: unknown): readonly EnvironmentRecord[] =>
 
 type ParseWorkspace = (value: unknown) => CatalogParseResult<WorkspaceRecord>;
 // Runtime validation establishes the WorkspaceRecord contract before catalog options are built.
-export const parseWorkspace: ParseWorkspace = (value) =>
-  isCatalogRecord(value) ? parseWorkspaceRow(value) : invalidRow;
+export const parseWorkspace: ParseWorkspace = (value) => {
+  const parsed = parseCatalogRecord(value);
+  return parsed === undefined ? invalidRow : parseWorkspaceRow(parsed);
+};
 const parseWorkspaceRow = (value: RawCatalogRow): CatalogParseResult<WorkspaceRecord> => {
   const id = readID(value);
   return id === undefined ? invalidRow : validRow({ id, label: readLabel(value, id) });
@@ -83,7 +90,8 @@ const parseWorkspaceRow = (value: RawCatalogRow): CatalogParseResult<WorkspaceRe
 const parseProject: (value: unknown) => CatalogParseResult<ProjectRecord> = (
   value,
 ) => {
-  return isCatalogRecord(value) ? parseProjectRow(value) : invalidRow;
+  const parsed = parseCatalogRecord(value);
+  return parsed === undefined ? invalidRow : parseProjectRow(parsed);
 };
 const parseProjectRow = (value: RawCatalogRow): CatalogParseResult<ProjectRecord> => {
   const identity = projectIdentity(readID(value), normalizeOptionalID(value.workspaceID));
@@ -114,7 +122,8 @@ const withProjectWorkspace = (
 const parseFolder: (value: unknown) => CatalogParseResult<FolderRecord> = (
   value,
 ) => {
-  return isCatalogRecord(value) ? parseFolderRow(value) : invalidRow;
+  const parsed = parseCatalogRecord(value);
+  return parsed === undefined ? invalidRow : parseFolderRow(parsed);
 };
 const parseFolderRow = (value: RawCatalogRow): CatalogParseResult<FolderRecord> => {
   const id = readID(value);
@@ -141,7 +150,7 @@ const numericFolderIdentity = (
   id: string,
   workspaceID: string | undefined,
 ): FolderIdentity | undefined =>
-  isNumericFolderID(id) ? withFolderWorkspace(id, workspaceID) : undefined;
+  VoiceflowRegex.numericID.test(id) ? withFolderWorkspace(id, workspaceID) : undefined;
 const withFolderWorkspace = (
   id: string,
   workspaceID: string | undefined,

@@ -12,7 +12,10 @@ const requireSuccessfulEnvelope = <T>(
 ): T => {
   if (value.ok === false)
     throw fail("envelope", {
-      nextAction: `${operation} was rejected by the migration runner.`,
+      nextAction:
+        value.error.diagnostic?.nextAction ??
+        `${operation} was rejected by the migration runner.`,
+      diagnostic: value.error.diagnostic,
     });
   return value.result;
 };

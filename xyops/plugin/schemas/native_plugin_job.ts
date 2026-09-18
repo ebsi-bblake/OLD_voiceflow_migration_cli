@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { supportedPluginOperations } from "../operations";
+
+export const PluginOperationSchema = z.enum(supportedPluginOperations);
 
 export const NativePluginJobSchema = z
   .object({

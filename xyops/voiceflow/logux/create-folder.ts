@@ -9,7 +9,7 @@ import {
   type FolderEffect,
   type FolderState,
 } from "./folder-state-machine";
-import { LoguxFrameSchema } from "./schemas/frame";
+import { parseLoguxFrame } from "./frame-contract";
 
 export type CreatedFolder = Readonly<{ id: string; name: string }>;
 type RecordValue = Readonly<Record<string, unknown>>;
@@ -17,14 +17,7 @@ type Frame = readonly unknown[];
 const FOLDER_CHANNEL = (workspaceID: string): string => `workspace/${workspaceID}`;
 const isRecord = (value: unknown): value is RecordValue =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-const parseFrame = (value: string): Frame | undefined => {
-  try {
-    const parsed = LoguxFrameSchema.safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const parseFrame = (value: string): Frame | undefined => parseLoguxFrame(value);
 const isSafeFolderName = (value: string): boolean => {
   const trimmed = value.trim();
   return trimmed.length > 0 && trimmed.length <= 128 && !VoiceflowRegex.controlCharacter.test(trimmed);

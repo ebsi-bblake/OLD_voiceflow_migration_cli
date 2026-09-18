@@ -1,0 +1,1779 @@
+# Notebook bundle: 01-cli-core_refactored.txt
+# Source snapshot: 17 TypeScript files
+# Split using the explicit path markers below.
+
+===== BEGIN xyops/cli/config.ts =====
+import { readFile } from "node:fs/promises";
+import { resolveConfiguredFilePath } from "./file-path";
+import { fail } from "./diagnostics";
+import { z } from "zod";
+import { parseXYOpsURL } from "../voiceflow/urls";
+import { parseSecretEntries } from "../voiceflow/secrets";
+import { MigrationFileConfigSchema } from "./schemas/migration-config";
+import {
+  parseResourceSelection,
+  parseSchemaVersion,
+} from "../voiceflow/validation";
+import type {
+  SecretEntries,
+  XYOpsConfig,
+  XYOpsEventConfig,
+  XYOpsEventReference,
+} from "./types";
+export type {
+  XYOpsConfig,
+  XYOpsEventConfig,
+  XYOpsEventReference,
+} from "./types";
+
+/** The file contract deliberately uses snake_case to match the CLI config file. */
+export type MigrationFileConfigInput = z.infer<typeof MigrationFileConfigSchema>;
+export type MigrationFileConfig = Readonly<{
+  sourceWorkspaceID?: string;
+  sourceFolderID?: string;
+  sourceProjectID?: string;
+  sourcePath?: string;
+  destinationWorkspaceID?: string;
+  destinationFolderID?: string;
+  destinationPath?: string;
+  sourceVersionID?: string;
+  targetSchemaVersion?: string;
+  /** Local/network path to a JSON secret array, or an inline secret array. */
+  secrets?: string | SecretEntries;
+}>;
+
+export const DEFAULT_HTTP_TIMEOUT_MS = 15_000;
+export const DEFAULT_POLL_INTERVAL_MS = 1_000;
+export const DEFAULT_POLL_TIMEOUT_MS = 300_000;
+export const DEFAULT_STREAM_MAX_BYTES = 1_048_576;
+export const DEFAULT_STREAM_MAX_FRAME_BYTES = 256_000;
+export const DEFAULT_XYOPS_BASE_URL = "http://localhost:5522";
+
+const DEFAULT_EVENT_TITLES = {
+  checkSession: "voiceflow_check_session",
+  listWorkspaces: "voiceflow_list_workspaces",
+  listProjects: "voiceflow_list_projects",
+  listVersions: "voiceflow_list_versions",
+  listFolders: "voiceflow_list_folders",
+  createFolder: "voiceflow_create_folder",
+  planMigration: "voiceflow_plan_migration",
+  executeMigration: "voiceflow_execute_migration",
+} as const;
+
+type Environment = Readonly<Record<string, string | undefined>>;
+
+type ReadTrimmedEnvironment = (
+  environment: Environment,
+  name: string,
+) => string;
+const readTrimmedEnvironment: ReadTrimmedEnvironment = (environment, name) =>
+  (environment[name] ?? "").trim();
+
+type RequiredEnvironment = (environment: Environment, name: string) => string;
+const requiredEnvironment: RequiredEnvironment = (environment, name) => {
+  const value = readTrimmedEnvironment(environment, name);
+  if (!value)
+    throw fail("configuration", { nextAction: `${name} is not configured.` });
+  return value;
+};
+
+type EventReferenceParser = (
+  value: string,
+  name: string,
+) => XYOpsEventReference;
+type ParseEventId = EventReferenceParser;
+const parseEventId: ParseEventId = (value, name) => {
+  if (!value)
+    throw fail("configuration", {
+      nextAction: `${name} must include an event ID.`,
+    });
+  return { id: value };
+};
+type ParseEventTitle = EventReferenceParser;
+const parseEventTitle: ParseEventTitle = (value, name) => {
+  if (!value)
+    throw fail("configuration", {
+      nextAction: `${name} must include an event title.`,
+    });
+  return { title: value };
+};
+const EVENT_REFERENCE_PARSERS: Readonly<Record<string, EventReferenceParser>> =
+  {
+    "": parseEventId,
+    "id:": parseEventId,
+    "title:": parseEventTitle,
+  };
+const EVENT_REFERENCE_PREFIXES = ["id:", "title:"] as const;
+type FindEventReferencePrefix = (value: string) => string;
+const findEventReferencePrefix: FindEventReferencePrefix = (value) =>
+  EVENT_REFERENCE_PREFIXES.find((prefix) => value.startsWith(prefix)) ?? "";
+
+const hasUnsupportedEventReferencePrefix = (value: string): boolean =>
+  value.includes(":") &&
+  !EVENT_REFERENCE_PREFIXES.some((prefix) => value.startsWith(prefix));
+
+type ReadEventReference = (
+  environment: Environment,
+  name: string,
+  fallback: string,
+) => XYOpsEventReference;
+const readEventReference: ReadEventReference = (
+  environment,
+  name,
+  fallback,
+) => {
+  const value = readTrimmedEnvironment(environment, name);
+  if (!value) return { title: fallback };
+  if (hasUnsupportedEventReferencePrefix(value))
+    throw fail("configuration", {
+      nextAction: `${name} must use title:<event-title> or id:<event-id>.`,
+    });
+  const prefix = findEventReferencePrefix(value);
+  return EVENT_REFERENCE_PARSERS[prefix](
+    value.slice(prefix.length).trim(),
+    name,
+  );
+};
+
+type PositiveMilliseconds = (
+  environment: Environment,
+  name: string,
+  fallback: number,
+) => number;
+const positiveMilliseconds: PositiveMilliseconds = (
+  environment,
+  name,
+  fallback,
+) => {
+  const raw = readTrimmedEnvironment(environment, name);
+  return raw ? parseDuration(raw, name) : fallback;
+};
+
+type ValidateDuration = (value: number, name: string) => void;
+const validateDuration: ValidateDuration = (value, name) => {
+  if ([!Number.isFinite(value), value <= 0, value > 3_600_000].some(Boolean))
+    throw fail("configuration", {
+      nextAction: `${name} must be a positive duration.`,
+    });
+};
+
+type ParseDuration = (raw: string, name: string) => number;
+const parseDuration: ParseDuration = (raw, name) => {
+  const value = Number(raw);
+  validateDuration(value, name);
+  return Math.floor(value);
+};
+
+type NormalizeBaseURL = (value: string) => string;
+const normalizeBaseURL: NormalizeBaseURL = (value) => {
+  try {
+    return parseXYOpsURL(value);
+  } catch {
+    throw fail("configuration", {
+      nextAction:
+        "XYOPS_BASE_URL must be a valid HTTP URL without credentials or fragments.",
+    });
+  }
+};
+
+type ReadBaseURL = (environment: Environment) => string;
+const readBaseURL: ReadBaseURL = (environment) =>
+  normalizeBaseURL(
+    readTrimmedEnvironment(environment, "XYOPS_BASE_URL") ||
+      DEFAULT_XYOPS_BASE_URL,
+  );
+
+type ReadEventConfig = (environment: Environment) => XYOpsEventConfig;
+const readEventConfig: ReadEventConfig = (environment) => ({
+  checkSession: readEventReference(
+    environment,
+    "XYOPS_EVENT_CHECK_SESSION",
+    DEFAULT_EVENT_TITLES.checkSession,
+  ),
+  listWorkspaces: readEventReference(
+    environment,
+    "XYOPS_EVENT_LIST_WORKSPACES",
+    DEFAULT_EVENT_TITLES.listWorkspaces,
+  ),
+  listProjects: readEventReference(
+    environment,
+    "XYOPS_EVENT_LIST_PROJECTS",
+    DEFAULT_EVENT_TITLES.listProjects,
+  ),
+  listVersions: readEventReference(
+    environment,
+    "XYOPS_EVENT_LIST_VERSIONS",
+    DEFAULT_EVENT_TITLES.listVersions,
+  ),
+  listFolders: readEventReference(
+    environment,
+    "XYOPS_EVENT_LIST_FOLDERS",
+    DEFAULT_EVENT_TITLES.listFolders,
+  ),
+  createFolder: readEventReference(
+    environment,
+    "XYOPS_EVENT_CREATE_FOLDER",
+    DEFAULT_EVENT_TITLES.createFolder,
+  ),
+  planMigration: readEventReference(
+    environment,
+    "XYOPS_EVENT_PLAN_MIGRATION",
+    DEFAULT_EVENT_TITLES.planMigration,
+  ),
+  executeMigration: readEventReference(
+    environment,
+    "XYOPS_EVENT_EXECUTE_MIGRATION",
+    DEFAULT_EVENT_TITLES.executeMigration,
+  ),
+});
+
+type ReadDurations = (environment: Environment) => Readonly<{
+  httpTimeoutMs: number;
+  pollIntervalMs: number;
+  pollTimeoutMs: number;
+  streamMaxBytes: number;
+  streamMaxFrameBytes: number;
+}>;
+const readDurations: ReadDurations = (environment) => ({
+  httpTimeoutMs: positiveMilliseconds(
+    environment,
+    "XYOPS_HTTP_TIMEOUT_MS",
+    DEFAULT_HTTP_TIMEOUT_MS,
+  ),
+  pollIntervalMs: positiveMilliseconds(
+    environment,
+    "XYOPS_POLL_INTERVAL_MS",
+    DEFAULT_POLL_INTERVAL_MS,
+  ),
+  pollTimeoutMs: positiveMilliseconds(
+    environment,
+    "XYOPS_POLL_TIMEOUT_MS",
+    DEFAULT_POLL_TIMEOUT_MS,
+  ),
+  streamMaxBytes: positiveMilliseconds(
+    environment,
+    "XYOPS_STREAM_MAX_BYTES",
+    DEFAULT_STREAM_MAX_BYTES,
+  ),
+  streamMaxFrameBytes: positiveMilliseconds(
+    environment,
+    "XYOPS_STREAM_MAX_FRAME_BYTES",
+    DEFAULT_STREAM_MAX_FRAME_BYTES,
+  ),
+});
+
+type ReadXYOpsConfig = (environment?: Environment) => XYOpsConfig;
+export const readXYOpsConfig: ReadXYOpsConfig = (
+  environment = process.env,
+) => ({
+  baseURL: readBaseURL(environment),
+  apiKey: requiredEnvironment(environment, "XYOPS_API_KEY"),
+  events: readEventConfig(environment),
+  ...readDurations(environment),
+});
+
+
+type ValidateConfigArguments = () => void;
+const validateConfigArguments: ValidateConfigArguments = () => {
+  const legacyArgument = process.argv.find((argument) =>
+    argument.startsWith("--secrets="),
+  );
+  if (legacyArgument)
+    throw fail("configuration", {
+      nextAction:
+        "--secrets is unsupported; provide secrets in --config=<path>.",
+    });
+};
+
+type ReadConfigArgument = () => string | undefined;
+const readConfigArgument: ReadConfigArgument = () =>
+  process.argv.find((argument) => argument.startsWith("--config="))?.slice(9);
+
+type ConfigFieldParser = (value: unknown) => string;
+
+type ParseResourcePath = (value: unknown) => string;
+const parseResourcePath: ParseResourcePath = (value) => {
+  if (typeof value !== "string")
+    throw new Error("path must be a string");
+  const segments = value.split("/").map((segment) => segment.trim());
+  if (segments.some((segment) => {
+    try {
+      parseResourceSelection(segment);
+      return false;
+    } catch {
+      return true;
+    }
+  }))
+    throw new Error("path contains an invalid segment");
+  return value.trim();
+};
+
+type ReadConfiguredSecrets = (value: unknown) => string | SecretEntries;
+const readConfiguredSecrets: ReadConfiguredSecrets = (value) => {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    try {
+      return parseSecretEntries(value);
+    } catch {
+      throw fail("configuration", {
+        nextAction: "The inline secrets must be a valid secret entry array.",
+      });
+    }
+  }
+  throw fail("configuration", {
+    nextAction: "secrets must be a file path or a secret entry array.",
+  });
+};
+
+type MigrationStringField = readonly [
+  input: keyof Omit<MigrationFileConfigInput, "secrets">,
+  output: keyof Omit<MigrationFileConfig, "secrets">,
+];
+const MIGRATION_STRING_FIELDS: readonly MigrationStringField[] = [
+  ["source_workspace", "sourceWorkspaceID"],
+  ["source_folder", "sourceFolderID"],
+  ["source_project", "sourceProjectID"],
+  ["source_path", "sourcePath"],
+  ["source_version", "sourceVersionID"],
+  ["destination_workspace", "destinationWorkspaceID"],
+  ["destination_folder", "destinationFolderID"],
+  ["destination_path", "destinationPath"],
+  ["target_schema_version", "targetSchemaVersion"],
+];
+
+type ParseConfiguredStrings = (
+  value: MigrationFileConfigInput,
+) => Partial<Omit<MigrationFileConfig, "secrets">>;
+const parseConfiguredStrings: ParseConfiguredStrings = (value) =>
+  MIGRATION_STRING_FIELDS.reduce(
+    (config, [input, output]) =>
+      value[input] === undefined
+        ? config
+        : { ...config, [output]: value[input] },
+    {},
+  );
+
+type ParseMigrationFileConfig = (value: unknown) => MigrationFileConfig;
+const parseMigrationFileConfig: ParseMigrationFileConfig = (value) => {
+  const shape = MigrationFileConfigSchema.safeParse(value);
+  if (!shape.success)
+    throw fail("configuration", {
+      nextAction: "The migration config contains invalid field values.",
+    });
+  const parsed = shape.data;
+  return {
+    ...parseConfiguredStrings(parsed),
+    ...(parsed.secrets === undefined
+      ? {}
+      : { secrets: readConfiguredSecrets(parsed.secrets) }),
+  };
+};
+
+type ValidateMigrationFileConfig = (
+  config: MigrationFileConfig | undefined,
+) => void;
+export const validateMigrationFileConfig: ValidateMigrationFileConfig = (
+  config,
+) => {
+  if (config === undefined) return;
+  const fields: readonly (readonly [
+    keyof MigrationFileConfig,
+    string,
+    ConfigFieldParser,
+  ])[] = [
+    ["sourceWorkspaceID", "source_workspace", parseResourceSelection],
+    ["sourceFolderID", "source_folder", parseResourceSelection],
+    ["sourceProjectID", "source_project", parseResourceSelection],
+    ["sourcePath", "source_path", parseResourcePath],
+    ["sourceVersionID", "source_version", parseResourceSelection],
+    ["destinationWorkspaceID", "destination_workspace", parseResourceSelection],
+    ["destinationFolderID", "destination_folder", parseResourceSelection],
+    ["destinationPath", "destination_path", parseResourcePath],
+    ["targetSchemaVersion", "target_schema_version", parseSchemaVersion],
+  ];
+  fields.forEach(([property, name, parser]) => {
+    const value = config[property];
+    if (value === undefined) return;
+    try {
+      parser(value);
+    } catch {
+      throw fail("configuration", {
+        nextAction: `${name} must be a non-empty path-safe string, with no control characters or excessive length.`,
+      });
+    }
+  });
+};
+
+type ReadMigrationFileConfig = (
+  path?: string,
+) => Promise<MigrationFileConfig | undefined>;
+export const readMigrationFileConfig: ReadMigrationFileConfig = async (
+  path,
+) => {
+  validateConfigArguments();
+  const configPath = path ?? readConfigArgument();
+  if (configPath === undefined || configPath.trim() === "") return undefined;
+  let contents: string;
+  try {
+    contents = await readFile(
+      resolveConfiguredFilePath(configPath, process.platform),
+      "utf8",
+    );
+  } catch {
+    throw fail("configuration", {
+      nextAction: "Unable to read the migration config file.",
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch {
+    throw fail("configuration", {
+      nextAction: "The configuration JSON cannot be parsed.",
+    });
+  }
+  return parseMigrationFileConfig(parsed);
+};
+===== END xyops/cli/config.ts =====
+
+===== BEGIN xyops/cli/diagnostics.ts =====
+import { VoiceflowRegex } from "../voiceflow/regex";
+import type { CliDiagnostic, CliDiagnosticCode } from "./types";
+import type { Diagnostic } from "../diagnostics/types";
+export type { CliDiagnostic, CliDiagnosticCode } from "./types";
+
+type SafeEndpoint = (endpoint: string) => string;
+const safeEndpoint: SafeEndpoint = (endpoint) =>
+  endpoint.replace(VoiceflowRegex.safeEndpoint, "").slice(0, 80) || "xyops";
+
+type CreateCliError = (
+  diagnostic: Omit<CliDiagnostic, "endpoint"> & { endpoint?: string },
+) => CliError;
+const createCliError: CreateCliError = (diagnostic) =>
+  new CliError({
+    ...diagnostic,
+    endpoint: safeEndpoint(diagnostic.endpoint ?? "xyops"),
+  });
+
+export class CliError extends Error {
+  constructor(readonly diagnostic: CliDiagnostic) {
+    super(diagnostic.code);
+    this.name = "CliError";
+  }
+}
+
+type DiagnosticOptions = Readonly<{
+  endpoint?: string;
+  retryable?: boolean;
+  status?: number;
+  nextAction?: string;
+  diagnostic?: Diagnostic;
+}>;
+
+type Fail = (code: CliDiagnosticCode, options?: DiagnosticOptions) => CliError;
+const defaultNextAction = (retryable: boolean | undefined): string =>
+  retryable
+    ? "Retry the operation."
+    : "Check configuration and migration inputs.";
+const resolveNextAction = (options: DiagnosticOptions): string =>
+  options.nextAction ?? defaultNextAction(options.retryable);
+const resolveRetryable = (options: DiagnosticOptions): boolean =>
+  options.retryable ?? false;
+export const fail: Fail = (code, options = {}) =>
+  createCliError({
+    code,
+    endpoint: options.endpoint,
+    retryable: resolveRetryable(options),
+    status: options.status,
+    nextAction: resolveNextAction(options),
+    ...(options.diagnostic === undefined ? {} : { diagnostic: options.diagnostic }),
+  });
+
+type AsCliError = (error: unknown) => CliError;
+export const asCliError: AsCliError = (error) =>
+  error instanceof CliError ? error : fail("network", { retryable: false });
+
+type CliErrorOutput = (error: unknown) => Readonly<Record<string, unknown>>;
+export const cliErrorOutput: CliErrorOutput = (error) => {
+  const diagnostic = asCliError(error).diagnostic;
+  return {
+    code: diagnostic.code,
+    endpoint: diagnostic.endpoint,
+    retryable: diagnostic.retryable,
+    ...(diagnostic.status === undefined ? {} : { status: diagnostic.status }),
+    nextAction: diagnostic.nextAction,
+    ...(diagnostic.diagnostic === undefined ? {} : { diagnostic: diagnostic.diagnostic }),
+  };
+};
+===== END xyops/cli/diagnostics.ts =====
+
+===== BEGIN xyops/cli/file-path.ts =====
+type ResolveConfiguredFilePath = (
+  configuredPath: string,
+  platform: NodeJS.Platform,
+) => string;
+
+/** Converts shared Windows paths to their mounted macOS volume when needed. */
+export const resolveConfiguredFilePath: ResolveConfiguredFilePath = (
+  configuredPath,
+  platform,
+) => {
+  if (platform !== "darwin") return configuredPath;
+  const normalizedPath = configuredPath.replaceAll("\\", "/");
+  const match = normalizedPath.match(/^\/\/[^/]+\/([^/]+)(\/.*)?$/);
+  return match === null
+    ? configuredPath
+    : `/Volumes/${match[1]}${match[2] ?? ""}`;
+};
+===== END xyops/cli/file-path.ts =====
+
+===== BEGIN xyops/cli/guards.ts =====
+import { z } from "zod";
+import {
+  XYOpsJobResponseSchema,
+  XYOpsJobSchema,
+  XYOpsLaunchResponseSchema,
+  XYOpsResponseSchema,
+  XYOpsStreamEventSchema,
+  XYOpsWaitJobSchema,
+  XYOpsWaitResponseSchema,
+  JobLaunchSchema,
+  NativePluginDataSchema,
+  NativePluginResponseSchema,
+} from "./schemas/xyops-responses";
+import { createVoiceflowEnvelopeSchemaFromGuard } from "./schemas/voiceflow-envelope";
+import {
+  CatalogOptionResultSchema,
+  CatalogOptionSchema,
+  CreatedFolderResultSchema,
+} from "./schemas/catalog-results";
+import { CheckSessionResultSchema } from "./schemas/session";
+import {
+  ExecuteResultSchema,
+  MigrationPlanSchema,
+} from "./schemas/migration-results";
+import { SecretEntrySchema } from "../voiceflow/schemas/secret_entry";
+import type {
+  EventParameterValue,
+  ExecuteResult,
+  MigrationPlan,
+  NativePluginResponse,
+  Option,
+  ResponseGuard,
+  VoiceflowEnvelope,
+  XYOpsJob,
+  XYOpsJobResponse,
+  XYOpsLaunchResponse,
+  XYOpsResponse,
+  XYOpsWaitJob,
+  XYOpsWaitResponse,
+  XYOpsStreamEvent,
+} from "./types";
+
+type IsNonEmptyString = (value: unknown) => value is string;
+const nonEmptyStringSchema = z.string().trim().min(1);
+export const isNonEmptyString: IsNonEmptyString = (value): value is string =>
+  nonEmptyStringSchema.safeParse(value).success;
+
+type IsOption = (value: unknown) => value is Option;
+export const isOption: IsOption = (value): value is Option =>
+  CatalogOptionSchema.safeParse(value).success;
+
+type IsCreatedFolderResult = (
+  value: unknown,
+) => value is Readonly<{ folder: Option }>;
+export const isCreatedFolderResult: IsCreatedFolderResult = (
+  value,
+): value is Readonly<{ folder: Option }> =>
+  CreatedFolderResultSchema.safeParse(value).success;
+
+type IsOptionResult = (
+  value: unknown,
+) => value is Readonly<{ options: readonly Option[] }>;
+export const isOptionResult: IsOptionResult = (
+  value,
+): value is Readonly<{ options: readonly Option[] }> =>
+  CatalogOptionResultSchema.safeParse(value).success;
+
+type IsXYOpsResponse = (value: unknown) => value is XYOpsResponse;
+export const isXYOpsResponse: IsXYOpsResponse = (
+  value,
+): value is XYOpsResponse => XYOpsResponseSchema.safeParse(value).success;
+
+type IsNativePluginResponse = (value: unknown) => value is NativePluginResponse;
+export const isNativePluginResponse: IsNativePluginResponse = (
+  value,
+): value is NativePluginResponse =>
+  NativePluginResponseSchema.safeParse(value).success;
+
+type IsNativePluginData = (
+  value: unknown,
+) => value is Readonly<{ voiceflow: unknown }>;
+const isNativePluginData: IsNativePluginData = (
+  value,
+): value is Readonly<{ voiceflow: unknown }> =>
+  NativePluginDataSchema.safeParse(value).success;
+
+type NormalizeVoiceflowResponse = (value: unknown) => unknown;
+const nativeNormalizers: readonly ((value: unknown) => unknown | undefined)[] =
+  [
+    (value) =>
+      isNativePluginResponse(value) ? value.data.voiceflow : undefined,
+    (value) => (isNativePluginData(value) ? value.voiceflow : undefined),
+  ];
+
+export const normalizeVoiceflowResponse: NormalizeVoiceflowResponse = (value) =>
+  nativeNormalizers
+    .map((normalize) => normalize(value))
+    .find((result) => result !== undefined) ?? value;
+
+type IsXYOpsLaunchResponse = (value: unknown) => value is XYOpsLaunchResponse;
+export const isXYOpsLaunchResponse: IsXYOpsLaunchResponse = (
+  value,
+): value is XYOpsLaunchResponse =>
+  XYOpsLaunchResponseSchema.safeParse(value).success;
+
+type IsXYOpsStreamEvent = (value: unknown) => value is XYOpsStreamEvent;
+export const isXYOpsStreamEvent: IsXYOpsStreamEvent = (
+  value,
+): value is XYOpsStreamEvent => XYOpsStreamEventSchema.safeParse(value).success;
+
+type IsJobLaunch = (value: unknown) => value is Readonly<{ id: string }>;
+export const isJobLaunch: IsJobLaunch = (
+  value,
+): value is Readonly<{ id: string }> => JobLaunchSchema.safeParse(value).success;
+
+type IsXYOpsJob = (value: unknown) => value is XYOpsJob;
+export const isXYOpsJob: IsXYOpsJob = (value): value is XYOpsJob =>
+  XYOpsJobSchema.safeParse(value).success;
+
+type IsXYOpsJobResponse = (value: unknown) => value is XYOpsJobResponse;
+export const isXYOpsJobResponse: IsXYOpsJobResponse = (
+  value,
+): value is XYOpsJobResponse => XYOpsJobResponseSchema.safeParse(value).success;
+
+type IsXYOpsWaitJob = (value: unknown) => value is XYOpsWaitJob;
+export const isXYOpsWaitJob: IsXYOpsWaitJob = (
+  value,
+): value is XYOpsWaitJob => XYOpsWaitJobSchema.safeParse(value).success;
+
+type IsXYOpsWaitResponse = (value: unknown) => value is XYOpsWaitResponse;
+export const isXYOpsWaitResponse: IsXYOpsWaitResponse = (
+  value,
+): value is XYOpsWaitResponse =>
+  XYOpsWaitResponseSchema.safeParse(value).success;
+
+type IsVoiceflowEnvelope = <T>(
+  resultGuard: ResponseGuard<T>,
+) => ResponseGuard<VoiceflowEnvelope<T>>;
+export const isVoiceflowEnvelope: IsVoiceflowEnvelope =
+  <T>(resultGuard: ResponseGuard<T>) =>
+  (value): value is VoiceflowEnvelope<T> =>
+    createVoiceflowEnvelopeSchemaFromGuard(resultGuard).safeParse(value).success;
+
+type IsCheckSessionResult = (
+  value: unknown,
+) => value is Readonly<{ active: boolean }>;
+export const isCheckSessionResult: IsCheckSessionResult = (
+  value,
+): value is Readonly<{ active: boolean }> =>
+  CheckSessionResultSchema.safeParse(value).success;
+
+type IsMigrationPlan = (value: unknown) => value is MigrationPlan;
+export const isMigrationPlan: IsMigrationPlan = (value): value is MigrationPlan =>
+  MigrationPlanSchema.safeParse(value).success;
+
+type IsExecuteResult = (value: unknown) => value is ExecuteResult;
+export const isExecuteResult: IsExecuteResult = (value): value is ExecuteResult =>
+  ExecuteResultSchema.safeParse(value).success;
+
+type IsSecretEntries = (value: unknown) => boolean;
+const isSecretEntries: IsSecretEntries = (value) => {
+  if (!Array.isArray(value)) return false;
+  const names = new Set<string>();
+  return value.every((entry) => {
+    const parsed = SecretEntrySchema.safeParse(entry);
+    if (!parsed.success || names.has(parsed.data.key)) return false;
+    names.add(parsed.data.key);
+    return true;
+  });
+};
+
+const isPrimitiveEventParameter = (value: unknown): value is string | boolean =>
+  typeof value === "string" || typeof value === "boolean";
+
+type IsEventParameterEntry = (
+  entry: readonly [string, EventParameterValue | undefined],
+) => entry is [string, EventParameterValue];
+export const isEventParameterEntry: IsEventParameterEntry = (
+  entry,
+): entry is [string, EventParameterValue] =>
+  isPrimitiveEventParameter(entry[1]) || isSecretEntries(entry[1]);
+
+type IsRetryableStatus = (status: number) => boolean;
+export const isRetryableStatus: IsRetryableStatus = (status) =>
+  [status === 408, status === 429, status >= 500].some(Boolean);
+
+type IsSuccessfulCode = (code: number | string) => boolean;
+export const isSuccessfulCode: IsSuccessfulCode = (code) =>
+  [0, 200, "0", "200", "OK", "ok"].includes(code);
+
+type IsCompletedJob = (
+  completed: boolean | number | null | undefined,
+) => boolean;
+export const isCompletedJob: IsCompletedJob = (completed) =>
+  [completed === true, typeof completed === "number" && completed > 0].some(
+    Boolean,
+  );
+
+type IsInvalidDuration = (value: number) => boolean;
+export const isInvalidDuration: IsInvalidDuration = (value) =>
+  [!Number.isFinite(value), value <= 0, value > 3_600_000].some(Boolean);
+
+type IsHTTPURL = (url: URL) => boolean;
+export const isHTTPURL: IsHTTPURL = (url) =>
+  [url.protocol === "http:", url.protocol === "https:"].some(Boolean);
+===== END xyops/cli/guards.ts =====
+
+===== BEGIN xyops/cli/index.ts =====
+#!/usr/bin/env bun
+import { asCliError, cliErrorOutput } from "./diagnostics";
+import { run } from "./migration";
+
+export { run } from "./migration";
+
+if (import.meta.main) {
+  run().catch((error: unknown) => {
+    process.exitCode = 1;
+    console.error(
+      JSON.stringify({ migrationFailed: cliErrorOutput(asCliError(error)) }),
+    );
+  });
+}
+===== END xyops/cli/index.ts =====
+
+===== BEGIN xyops/cli/progress.ts =====
+type ProgressTask<T> = () => Promise<T>;
+
+type ProgressReporter = {
+  readonly run: <T>(label: string, task: ProgressTask<T>) => Promise<T>;
+  readonly pause: () => void;
+  readonly resume: () => void;
+};
+
+type ProgressLifecycle = Readonly<{
+  pause: () => void;
+  resume: () => void;
+}>;
+
+const BAR_WIDTH = 10;
+const TICK_MS = 200;
+
+const progressLine = (label: string, tick: number): string => {
+  const filled = tick % (BAR_WIDTH + 1);
+  const bar = `${"#".repeat(filled)}${"_".repeat(BAR_WIDTH - filled)}`;
+  return `${label} [${bar}]`;
+};
+
+const createProgressReporter = (): ProgressReporter => {
+  let lifecycle: ProgressLifecycle | undefined;
+
+  const pause = (): void => lifecycle?.pause();
+  const resume = (): void => lifecycle?.resume();
+
+  const run = <T>(label: string, task: ProgressTask<T>): Promise<T> => {
+    if (!process.stderr.isTTY) return task();
+    const name = label
+      .split("_")
+      .map((w, i) => `${w[0].toUpperCase()}${w.slice(1)}${i ? "" : "ing"}`)
+      .join(" ");
+
+    let tick = 0;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    let finished = false;
+    let paused = false;
+    const render = (): void => {
+      process.stderr.write(`\r${progressLine(name, tick++)}`);
+    };
+    const startTimer = (): void => {
+      if (!paused && !finished && timer === undefined) {
+        timer = setInterval(render, TICK_MS);
+      }
+    };
+    const stopTimer = (): void => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const currentLifecycle: ProgressLifecycle = {
+      pause: () => {
+        paused = true;
+        stopTimer();
+      },
+      resume: () => {
+        paused = false;
+        if (!finished) {
+          render();
+          startTimer();
+        }
+      },
+    };
+    lifecycle = currentLifecycle;
+    render();
+    startTimer();
+    const finish = (status: "done" | "failed"): void => {
+      if (finished) return;
+      finished = true;
+      stopTimer();
+      process.stderr.write(`\r${name} [${"#".repeat(BAR_WIDTH)}] ${status}\n`);
+      if (lifecycle === currentLifecycle) lifecycle = undefined;
+    };
+    let taskResult: Promise<T>;
+    try {
+      taskResult = task();
+    } catch (error: unknown) {
+      finish("failed");
+      return Promise.reject(error);
+    }
+    return taskResult.then(
+      (result) => {
+        finish("done");
+        return result;
+      },
+      (error: unknown) => {
+        finish("failed");
+        return Promise.reject(error);
+      },
+    );
+  };
+
+  return { run, pause, resume };
+};
+
+export const progress = createProgressReporter();
+===== END xyops/cli/progress.ts =====
+
+===== BEGIN xyops/cli/prompt.ts =====
+import type { Option } from "./types";
+
+export type PromptLifecycle = Readonly<{
+  beforeAsk: () => void;
+  afterAsk: () => void;
+}>;
+
+export type PromptReader = Readonly<{
+  ask: (question: string) => Promise<string>;
+  close: () => void;
+}>;
+
+type ReadStringChunk = (chunk: unknown) => string | undefined;
+const readStringChunk: ReadStringChunk = (chunk) =>
+  typeof chunk === "string" ? chunk : undefined;
+
+type ReadBytesChunk = (
+  chunk: unknown,
+  decoder: TextDecoder,
+) => string | undefined;
+const readBytesChunk: ReadBytesChunk = (chunk, decoder) =>
+  chunk instanceof Uint8Array
+    ? decoder.decode(chunk, { stream: true })
+    : undefined;
+
+type FirstDefined = (values: readonly (string | undefined)[]) => string;
+const firstDefined: FirstDefined = (values) =>
+  values.find((value) => value !== undefined) ?? "";
+
+type ReadChunk = (chunk: unknown, decoder: TextDecoder) => string;
+const readChunk: ReadChunk = (chunk, decoder) =>
+  firstDefined([readStringChunk(chunk), readBytesChunk(chunk, decoder)]);
+
+type Newline = Readonly<{
+  index: number;
+  end: number;
+}>;
+
+type NewlineEnd = (buffer: string, index: number) => number;
+const newlineEnd: NewlineEnd = (buffer, index) =>
+  index + (Number(buffer.startsWith("\r\n", index)) + 1);
+
+type FindNewline = (buffer: string) => Newline | undefined;
+const findNewline: FindNewline = (buffer) => {
+  const indices = [buffer.indexOf("\r"), buffer.indexOf("\n")].filter(
+    (index) => index >= 0,
+  );
+
+  if (!indices.length) return undefined;
+
+  const index = Math.min(...indices);
+
+  return {
+    index,
+    end: newlineEnd(buffer, index),
+  };
+};
+
+type CreatePromptReader = (lifecycle?: PromptLifecycle) => PromptReader;
+export const CreatePromptReader: CreatePromptReader = (lifecycle) => {
+  const input = process.stdin;
+  const decoder = new TextDecoder();
+
+  let buffer = "";
+  let waiting: ((line: string) => void) | undefined;
+  let listening = false;
+
+  type ResolveWaitingLine = (resolve: (line: string) => void) => void;
+  const resolveWaitingLine: ResolveWaitingLine = (resolve) => {
+    const newline = findNewline(buffer);
+
+    if (newline === undefined) return;
+
+    const line = buffer.slice(0, newline.index);
+
+    buffer = buffer.slice(newline.end);
+    waiting = undefined;
+
+    lifecycle?.afterAsk();
+    resolve(line);
+  };
+
+  type ResolveLineIfReady = () => void;
+  const resolveLineIfReady: ResolveLineIfReady = () => {
+    const resolve = waiting;
+
+    if (!resolve) return;
+
+    resolveWaitingLine(resolve);
+  };
+
+  type OnData = (chunk: unknown) => void;
+  const onData: OnData = (chunk) => {
+    buffer += readChunk(chunk, decoder);
+    resolveLineIfReady();
+  };
+
+  type Ask = (question: string) => Promise<string>;
+  const ask: Ask = (question) => {
+    if (waiting) {
+      return Promise.reject(
+        new Error("\nA prompt is already waiting for input"),
+      );
+    }
+
+    lifecycle?.beforeAsk();
+    process.stdout.write(question);
+
+    return new Promise((resolve) => {
+      waiting = resolve;
+      resolveLineIfReady();
+    });
+  };
+
+  type Close = () => void;
+  const close: Close = () => {
+    if (listening) input.off("data", onData);
+
+    listening = false;
+    input.pause();
+  };
+
+  input.on("data", onData);
+  listening = true;
+  input.resume();
+
+  return {
+    ask,
+    close,
+  };
+};
+
+type Bounded = (value: unknown, max?: number) => string;
+export const bounded: Bounded = (value, max = 200) =>
+  truncateText(sanitizeText(stringifyValue(value)), max);
+
+type IsControlCharacter = (character: string) => boolean;
+const isControlCharacter: IsControlCharacter = (character) => {
+  const code = character.charCodeAt(0);
+
+  return code < 32 || code === 127;
+};
+
+type StringifyFallback = (value: unknown) => string;
+const stringifyFallback: StringifyFallback = (value) =>
+  JSON.stringify(value) ?? String(value);
+
+type StringifyValue = (value: unknown) => string;
+const stringifyValue: StringifyValue = (value) =>
+  typeof value === "string" ? value : stringifyFallback(value);
+
+type SanitizeText = (text: string) => string;
+const sanitizeText: SanitizeText = (text) =>
+  [...text]
+    .map((character) => (isControlCharacter(character) ? " " : character))
+    .join("");
+
+type TruncateText = (text: string, max: number) => string;
+const truncateText: TruncateText = (text, max) =>
+  text.length > max ? `${text.slice(0, max)}…` : text;
+
+type IsOptionNumber = (number: number, length: number) => boolean;
+const isOptionNumber: IsOptionNumber = (number, length) =>
+  number >= 1 && number <= length;
+
+type RequireOptions = (
+  title: string,
+  options: readonly Option[],
+) => readonly Option[];
+const requireOptions: RequireOptions = (title, options) => {
+  if (!options.length) {
+    throw new Error(`\nNo ${title.toLowerCase()} options were returned.`);
+  }
+
+  return options;
+};
+
+type ReadOption = (
+  reader: PromptReader,
+  title: string,
+  options: readonly Option[],
+) => Promise<string>;
+const readOption: ReadOption = (reader, title, options) =>
+  reader.ask("Select number: ").then((answer) => {
+    const number = Number.parseInt(answer, 10);
+
+    if (isOptionNumber(number, options.length)) {
+      return options[number - 1].value;
+    }
+
+    console.log("\nPlease select one of the displayed numbers.");
+
+    return chooseOption(reader, title, options);
+  });
+
+type FormatOptionForPrompt = (option: Option) => string;
+const formatOptionForPrompt: FormatOptionForPrompt = (option) =>
+  option.label.endsWith(` (${option.value})`)
+    ? bounded(option.label)
+    : `${bounded(option.label)} (${bounded(option.value, 100)})`;
+
+type ChooseOption = (
+  reader: PromptReader,
+  title: string,
+  options: readonly Option[],
+) => Promise<string>;
+export const chooseOption: ChooseOption = async (reader, title, options) => {
+  const validOptions = requireOptions(title, options);
+
+  console.log(`\n${title}:`);
+
+  validOptions.forEach((option, index) =>
+    console.log(`${index + 1}. ${formatOptionForPrompt(option)}`),
+  );
+
+  return readOption(reader, title, validOptions);
+};
+===== END xyops/cli/prompt.ts =====
+
+===== BEGIN xyops/cli/schemas/catalog-results.ts =====
+import { z } from "zod";
+
+/** Structural option records used by workspace, project, version, and folder catalogs. */
+export const CatalogOptionSchema = z
+  .object({
+    value: z.string().refine((value) => value.trim() !== ""),
+    label: z.string().refine((value) => value.trim() !== ""),
+  })
+  .loose();
+
+export const CatalogOptionResultSchema = z
+  .object({
+    options: z.array(CatalogOptionSchema),
+  })
+  .loose();
+
+export const CreatedFolderResultSchema = z
+  .object({
+    folder: CatalogOptionSchema,
+  })
+  .loose();
+===== END xyops/cli/schemas/catalog-results.ts =====
+
+===== BEGIN xyops/cli/schemas/migration-config.ts =====
+import { z } from "zod";
+
+const ConfigSecretEntrySchema = z
+  .object({
+    key: z.string().trim().min(1),
+    value: z.string(),
+    type: z.enum(["projectId", "", "url"]),
+  })
+  .strict();
+const ConfigStringSchema = z.string().trim().min(1);
+
+/** Structural shape only; resource and secret policies remain named functions. */
+export const MigrationFileConfigSchema = z
+  .object({
+    source_workspace: ConfigStringSchema.optional(),
+    source_folder: ConfigStringSchema.optional(),
+    source_project: ConfigStringSchema.optional(),
+    source_path: ConfigStringSchema.optional(),
+    source_version: ConfigStringSchema.optional(),
+    destination_workspace: ConfigStringSchema.optional(),
+    destination_folder: ConfigStringSchema.optional(),
+    destination_path: ConfigStringSchema.optional(),
+    target_schema_version: ConfigStringSchema.optional(),
+    secrets: z
+      .union([z.string(), z.array(ConfigSecretEntrySchema)])
+      .optional(),
+  })
+  .strict();
+===== END xyops/cli/schemas/migration-config.ts =====
+
+===== BEGIN xyops/cli/schemas/migration-results.ts =====
+import { z } from "zod";
+
+const nonEmptyString = z.string().refine((value) => value.trim() !== "");
+
+export const MigrationSelectionSchema = z
+  .object({
+    sourceWorkspaceID: nonEmptyString,
+    sourceProjectID: nonEmptyString,
+    sourceVersionID: nonEmptyString,
+    destinationWorkspaceID: nonEmptyString,
+    destinationFolderID: nonEmptyString,
+    targetSchemaVersion: nonEmptyString.optional(),
+  })
+  .loose();
+
+export const MigrationPlanSchema = z
+  .object({
+    planID: nonEmptyString,
+    selection: MigrationSelectionSchema,
+    labels: z
+      .object({
+        sourceWorkspace: nonEmptyString,
+        sourceProject: nonEmptyString,
+        sourceVersion: nonEmptyString,
+        destinationWorkspace: nonEmptyString,
+        destinationFolder: nonEmptyString,
+      })
+      .loose(),
+  })
+  .loose();
+
+export const ExecuteResultSchema = z
+  .object({
+    planID: nonEmptyString,
+    selected: MigrationSelectionSchema,
+    exportStatus: z.number(),
+    exportBytes: z.number(),
+    importStatus: z.number(),
+    importBytes: z.number(),
+    imported: z
+      .object({ projectID: nonEmptyString })
+      .loose(),
+    apiKeyRetrieved: z.boolean().optional(),
+  })
+  .loose();
+===== END xyops/cli/schemas/migration-results.ts =====
+
+===== BEGIN xyops/cli/schemas/session.ts =====
+import { z } from "zod";
+
+export const CheckSessionResultSchema = z
+  .object({
+    active: z.boolean(),
+  })
+  .loose();
+===== END xyops/cli/schemas/session.ts =====
+
+===== BEGIN xyops/cli/schemas/voiceflow-envelope.ts =====
+import { z } from "zod";
+import type { ResponseGuard } from "../types";
+import { ErrorCode, VoiceflowOperation, WarningCode } from "../../voiceflow/types";
+
+const operationSchema = z.string().refine((value) =>
+  Object.values(VoiceflowOperation).some((operation) => operation === value),
+);
+const errorCodeSchema = z.string().refine((value) =>
+  Object.values(ErrorCode).some((code) => code === value),
+);
+const warningCodeSchema = z.string().refine((value) =>
+  Object.values(WarningCode).some((code) => code === value),
+);
+const operationIDSchema = z.string().refine((value) => value.trim() !== "");
+const warningSchema = z
+  .object({
+    code: warningCodeSchema,
+    message: z.string().refine((value) => value.trim() !== ""),
+  })
+  .loose();
+const failureSchema = z
+  .object({
+    code: errorCodeSchema,
+    message: z.string(),
+    retryable: z.boolean(),
+  })
+  .loose();
+
+type ResultSchemaOrGuard<T> = z.ZodType<T> | ResponseGuard<T>;
+type CreateVoiceflowEnvelopeSchema = <T>(
+  result: ResultSchemaOrGuard<T>,
+) => z.ZodType;
+export const createVoiceflowEnvelopeSchema: CreateVoiceflowEnvelopeSchema = <T>(
+  result: ResultSchemaOrGuard<T>,
+) => {
+  const resultSchema = typeof result === "function" ? z.custom<T>(result) : result;
+  return z.union([
+    z
+      .object({
+        ok: z.literal(true),
+        operation: operationSchema,
+        operationID: operationIDSchema,
+        result: resultSchema,
+        warnings: z.array(warningSchema),
+      })
+      .loose(),
+    z
+      .object({
+        ok: z.literal(false),
+        operation: operationSchema,
+        operationID: operationIDSchema,
+        error: failureSchema,
+      })
+      .loose(),
+  ]);
+};
+
+/** Compatibility adapter for consumers that still expose ResponseGuard APIs. */
+export const createVoiceflowEnvelopeSchemaFromGuard = <T>(
+  resultGuard: ResponseGuard<T>,
+): z.ZodType => createVoiceflowEnvelopeSchema(z.custom<T>(resultGuard));
+===== END xyops/cli/schemas/voiceflow-envelope.ts =====
+
+===== BEGIN xyops/cli/schemas/xyops-responses.ts =====
+import { z } from "zod";
+import { XYOpsStreamEventType } from "../types";
+
+const responseCodeSchema = z.union([z.number(), z.string()]);
+const responseDescriptionSchema = z.string().optional();
+const responseIDSchema = z.string().optional();
+const completedSchema = z.union([z.boolean(), z.number(), z.null()]).optional();
+const outputSchema = z.union([z.string(), z.null()]).optional();
+
+export const XYOpsResponseSchema = z
+  .object({
+    code: responseCodeSchema.optional(),
+    description: responseDescriptionSchema,
+    id: responseIDSchema,
+    job: z.unknown().optional(),
+    data: z.unknown().optional(),
+  })
+  .loose();
+
+export const XYOpsLaunchResponseSchema = XYOpsResponseSchema.extend({
+  id: z.string().refine((value) => value.trim() !== ""),
+});
+
+export const JobLaunchSchema = z
+  .object({ id: z.string().refine((value) => value.trim() !== "") })
+  .loose();
+
+export const NativePluginDataSchema = z
+  .object({ voiceflow: z.unknown() })
+  .loose();
+
+export const NativePluginResponseSchema = z
+  .object({
+    xy: z.literal(1),
+    complete: z.literal(true),
+    data: NativePluginDataSchema,
+  })
+  .loose();
+
+export const XYOpsStreamEventSchema = z
+  .object({
+    type: z.enum([
+      XYOpsStreamEventType.Start,
+      XYOpsStreamEventType.Update,
+      XYOpsStreamEventType.End,
+    ]),
+    data: z.record(z.string(), z.unknown()),
+  })
+  .loose();
+
+const XYOpsJobSchemaBase = z
+  .object({
+    id: z.string().optional(),
+    state: z.string().optional(),
+    progress: z.number().optional(),
+    completed: completedSchema,
+    code: responseCodeSchema.optional(),
+    description: responseDescriptionSchema,
+    output: outputSchema,
+    data: z.unknown().optional(),
+  })
+  .loose();
+
+export const XYOpsJobSchema = XYOpsJobSchemaBase.refine(
+  (value) => value.code !== undefined || value.state !== undefined,
+);
+
+export const XYOpsJobResponseSchema = XYOpsResponseSchema.extend({
+  job: XYOpsJobSchemaBase.extend({
+    id: z.string().refine((value) => value.trim() !== ""),
+  }).refine((value) => value.code !== undefined || value.state !== undefined),
+});
+
+export const XYOpsWaitJobSchema = z
+  .object({
+    id: z.string().refine((value) => value.trim() !== ""),
+    code: responseCodeSchema,
+    description: responseDescriptionSchema,
+    output: outputSchema,
+    completed: completedSchema,
+    data: z.unknown().optional(),
+  })
+  .loose();
+
+export const XYOpsWaitResponseSchema = z
+  .object({
+    code: responseCodeSchema,
+    description: responseDescriptionSchema,
+    job: XYOpsWaitJobSchema,
+  })
+  .loose();
+===== END xyops/cli/schemas/xyops-responses.ts =====
+
+===== BEGIN xyops/cli/secrets.ts =====
+import { readFile } from "node:fs/promises";
+import { parseSecretEntriesJSON } from "../voiceflow/secrets";
+import type { ConfigSecret } from "./types";
+
+type ReadSecretFile = (path: string) => Promise<readonly ConfigSecret[]>;
+export const readSecretFile: ReadSecretFile = (path) =>
+  readFile(path, "utf8").then(parseSecretEntriesJSON);
+===== END xyops/cli/secrets.ts =====
+
+===== BEGIN xyops/cli/state.ts =====
+import type {
+  EventParameterValue,
+  EventParameters,
+  MigrationSelection,
+  Option,
+  SecretEntries,
+} from "./types";
+import {
+  buildExecuteMigrationParameters,
+  buildPlanMigrationParameters,
+  MigrationParameterName,
+} from "../migration-parameters";
+import { VoiceflowOperation } from "../voiceflow/types";
+import type { VoiceflowOperation as VoiceflowOperationType } from "../voiceflow/types";
+import { isEventParameterEntry } from "./guards";
+import { fail } from "./diagnostics";
+import type { MigrationState } from "./types";
+export type { MigrationState } from "./types";
+
+type InitialMigrationState = () => MigrationState;
+export const initialMigrationState: InitialMigrationState = () => ({});
+
+type SetStateValue = <K extends keyof MigrationState>(
+  state: MigrationState,
+  key: K,
+  value: MigrationState[K],
+) => MigrationState;
+export const setStateValue: SetStateValue = (state, key, value) => ({
+  ...state,
+  [key]: value,
+});
+
+const isPresentStateValue = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== "";
+
+const CONFIGURATION_NAMES: Readonly<Record<keyof MigrationState, string>> = {
+  sourceWorkspaceID: "source_workspace",
+  sourceProjectID: "source_project",
+  sourceVersionID: "source_version",
+  destinationWorkspaceID: "destination_workspace",
+  destinationFolderID: "destination_folder",
+  targetSchemaVersion: "target_schema_version",
+  planID: "plan_id",
+};
+
+type RequireStateValue = (
+  state: MigrationState,
+  key: keyof MigrationState,
+) => string;
+export const requireStateValue: RequireStateValue = (state, key) => {
+  const value = state[key];
+  if (!isPresentStateValue(value))
+    throw fail("invalid-input", {
+      nextAction: `Required migration field '${CONFIGURATION_NAMES[key]}' is missing.`,
+    });
+  return value;
+};
+
+type StateSelection = (state: MigrationState) => MigrationSelection;
+export const stateSelection: StateSelection = (state) => ({
+  sourceWorkspaceID: requireStateValue(state, "sourceWorkspaceID"),
+  sourceProjectID: requireStateValue(state, "sourceProjectID"),
+  sourceVersionID: requireStateValue(state, "sourceVersionID"),
+  destinationWorkspaceID: requireStateValue(state, "destinationWorkspaceID"),
+  destinationFolderID: requireStateValue(state, "destinationFolderID"),
+  ...(state.targetSchemaVersion === undefined
+    ? {}
+    : { targetSchemaVersion: state.targetSchemaVersion }),
+});
+
+type ChooseOptionValue = (
+  options: readonly Option[],
+  index: number,
+) => string | undefined;
+export const chooseOptionValue: ChooseOptionValue = (options, index) =>
+  options[index]?.value;
+
+type DebugParameter = () => string | true | undefined;
+const debugParameter: DebugParameter = () => {
+  const argument = process.argv.find((value) => value === "--debug" || value.startsWith("--debug="));
+  if (argument === "--debug") return true;
+  if (argument?.startsWith("--debug=")) return argument.slice("--debug=".length);
+  return undefined;
+};
+
+type MigrationParameterValues = Readonly<
+  Partial<Record<MigrationParameterName, EventParameterValue | undefined>>
+>;
+
+type EventParametersFor = (
+  operation: VoiceflowOperationType,
+  values?: MigrationParameterValues,
+) => EventParameters;
+export const eventParametersFor: EventParametersFor = (
+  operation,
+  values = {},
+) =>
+  Object.fromEntries(
+    Object.entries({
+      [MigrationParameterName.operation]: operation,
+      ...values,
+      [MigrationParameterName.debug]: debugParameter(),
+    } as Record<string, EventParameterValue | undefined>).filter(
+      isEventParameterEntry,
+    ),
+  );
+
+type ListWorkspacesParameters = () => EventParameters;
+export const listWorkspacesParameters: ListWorkspacesParameters = () =>
+  eventParametersFor(VoiceflowOperation.ListWorkspaces);
+
+type ListProjectsParameters = (sourceWorkspaceID: string) => EventParameters;
+export const listProjectsParameters: ListProjectsParameters = (
+  sourceWorkspaceID,
+) =>
+  eventParametersFor(VoiceflowOperation.ListProjects, {
+    [MigrationParameterName.sourceWorkspaceID]: sourceWorkspaceID,
+  });
+
+type ListVersionsParameters = (
+  sourceWorkspaceID: string,
+  sourceProjectID: string,
+) => EventParameters;
+export const listVersionsParameters: ListVersionsParameters = (
+  sourceWorkspaceID,
+  sourceProjectID,
+) =>
+  eventParametersFor(VoiceflowOperation.ListVersions, {
+    [MigrationParameterName.sourceWorkspaceID]: sourceWorkspaceID,
+    [MigrationParameterName.sourceProjectID]: sourceProjectID,
+  });
+
+type CreateFolderParameters = (
+  destinationWorkspaceID: string,
+  folderName: string,
+) => EventParameters;
+export const createFolderParameters: CreateFolderParameters = (
+  destinationWorkspaceID,
+  folderName,
+) =>
+  eventParametersFor(VoiceflowOperation.CreateFolder, {
+    [MigrationParameterName.destinationWorkspaceID]: destinationWorkspaceID,
+    [MigrationParameterName.destinationFolderID]: folderName,
+  });
+
+type ListFoldersParameters = (
+  destinationWorkspaceID: string,
+) => EventParameters;
+export const listFoldersParameters: ListFoldersParameters = (
+  destinationWorkspaceID,
+) =>
+  eventParametersFor(VoiceflowOperation.ListFolders, {
+    [MigrationParameterName.destinationWorkspaceID]: destinationWorkspaceID,
+  });
+
+type PlanParameters = (selection: MigrationSelection) => EventParameters;
+export const planParameters: PlanParameters = (selection) =>
+  buildPlanMigrationParameters(selection);
+
+type ExecuteParameters = (
+  selection: MigrationSelection,
+  planID: string,
+  secretFileContents?: SecretEntries,
+) => EventParameters;
+export const executeParameters: ExecuteParameters = (
+  selection,
+  planID,
+  secretFileContents,
+) => buildExecuteMigrationParameters(selection, planID, secretFileContents);
+===== END xyops/cli/state.ts =====
+
+===== BEGIN xyops/cli/types.ts =====
+import type { Diagnostic } from "../diagnostics/types";
+
+export type Option = Readonly<{ value: string; label: string }>;
+export type MigrationSelection = Readonly<{
+  sourceWorkspaceID: string;
+  sourceProjectID: string;
+  sourceVersionID: string;
+  destinationWorkspaceID: string;
+  destinationFolderID: string;
+  targetSchemaVersion?: string;
+}>;
+export type MigrationPlan = Readonly<{
+  planID: string;
+  selection: MigrationSelection;
+  labels: Readonly<{
+    sourceWorkspace: string;
+    sourceProject: string;
+    sourceVersion: string;
+    destinationWorkspace: string;
+    destinationFolder: string;
+  }>;
+}>;
+export type VoiceflowWarning = Readonly<{ code: string; message: string }>;
+export type VoiceflowSuccess<T> = Readonly<{
+  ok: true;
+  operation: string;
+  operationID: string;
+  result: T;
+  warnings: readonly VoiceflowWarning[];
+}>;
+export type VoiceflowFailure = Readonly<{
+  ok: false;
+  operation: string;
+  operationID: string;
+  error: Readonly<{
+    code: string;
+    message: string;
+    retryable: boolean;
+    diagnostic?: Diagnostic;
+  }>;
+}>;
+export type VoiceflowEnvelope<T> = VoiceflowSuccess<T> | VoiceflowFailure;
+export type ResponseGuard<T> = (value: unknown) => value is T;
+export type XYOpsResponse = Readonly<{
+  code: number | string;
+  description?: string;
+  id?: string;
+  job?: unknown;
+  data?: unknown;
+}>;
+export type NativePluginResponse = Readonly<{
+  xy: 1;
+  complete: true;
+  code: number | string;
+  data: Readonly<{ voiceflow: unknown }>;
+}>;
+export type XYOpsLaunchResponse = XYOpsResponse & Readonly<{ id: string }>;
+export const XYOpsStreamEventType = {
+  Start: "start",
+  Update: "update",
+  End: "end",
+} as const;
+export type XYOpsStreamEventType =
+  (typeof XYOpsStreamEventType)[keyof typeof XYOpsStreamEventType];
+export type XYOpsStreamEvent = Readonly<{
+  type: XYOpsStreamEventType;
+  data: Record<string, unknown>;
+}>;
+export type XYOpsStreamLimits = Readonly<{
+  maxBytes?: number;
+  maxFrameBytes?: number;
+}>;
+export type XYOpsStreamJob = (
+  fetcher: typeof fetch,
+  baseURL: string,
+  apiKey: string,
+  jobID: string,
+  timeoutMs: number,
+  limits?: XYOpsStreamLimits,
+) => Promise<XYOpsStreamResult>;
+export type XYOpsStreamResult =
+  | Readonly<{
+      kind: "success";
+      jobID: string;
+      code: number | string;
+      data: Record<string, unknown>;
+      requiresJobResponse: true;
+    }>
+  | Readonly<{
+      kind: "failure";
+      jobID: string;
+      code: number | string;
+      data: Record<string, unknown>;
+      requiresJobResponse: true;
+    }>;
+// These are the states currently documented by XYOps; unknown server states remain strings and are ignored safely.
+export const XYOpsJobState = {
+  Active: "active",
+  Complete: "complete",
+} as const;
+export type XYOpsJobState = (typeof XYOpsJobState)[keyof typeof XYOpsJobState];
+
+export type XYOpsJob = Readonly<{
+  id?: string;
+  state?: string;
+  progress?: number;
+  completed?: boolean | number | null;
+  code?: number | string;
+  description?: string;
+  output?: string | null;
+  data?: unknown;
+}>;
+export type XYOpsJobResponse = XYOpsResponse &
+  Readonly<{ job: XYOpsJob & Readonly<{ id: string }> }>;
+export type XYOpsWaitJob = Readonly<{
+  id: string;
+  code: number | string;
+  description?: string;
+  output?: string | null;
+  data?: unknown;
+  completed?: boolean | number | null;
+}>;
+export type XYOpsWaitResponse = Readonly<{
+  code: number | string;
+  description?: string;
+  job: XYOpsWaitJob;
+}>;
+export type ExecuteResult = Readonly<{
+  planID: string;
+  exportStatus: number;
+  exportBytes: number;
+  importStatus: number;
+  importBytes: number;
+  selected: MigrationSelection;
+  imported: Readonly<{ projectID: string; [key: string]: unknown }>;
+  apiKeyRetrieved?: boolean;
+}>;
+export type ConfigSecret = Readonly<{
+  key: string;
+  value: string;
+  type: "projectId" | "" | "url";
+}>;
+export type SecretEntry = Readonly<{ name: string; value: string }>;
+export type SecretEntries = readonly ConfigSecret[];
+export type EventParameterValue = string | boolean | SecretEntries;
+export type EventParameters = Readonly<Record<string, EventParameterValue>>;
+export type XYOpsEventConfig = Readonly<{
+  checkSession: XYOpsEventReference;
+  listWorkspaces: XYOpsEventReference;
+  listProjects: XYOpsEventReference;
+  listVersions: XYOpsEventReference;
+  listFolders: XYOpsEventReference;
+  createFolder: XYOpsEventReference;
+  planMigration: XYOpsEventReference;
+  executeMigration: XYOpsEventReference;
+}>;
+export type XYOpsEventReference =
+  | string
+  | Readonly<{ id: string }>
+  | Readonly<{ title: string }>;
+export type XYOpsConfig = Readonly<{
+  baseURL: string;
+  apiKey: string;
+  events: XYOpsEventConfig;
+  httpTimeoutMs: number;
+  pollIntervalMs: number;
+  pollTimeoutMs: number;
+  streamMaxBytes: number;
+  streamMaxFrameBytes: number;
+}>;
+export type MigrationState = Readonly<{
+  sourceWorkspaceID?: string;
+  sourceProjectID?: string;
+  sourceVersionID?: string;
+  destinationWorkspaceID?: string;
+  destinationFolderID?: string;
+  targetSchemaVersion?: string;
+  planID?: string;
+}>;
+export const CliDiagnosticCode = {
+  Configuration: "configuration",
+  Network: "network",
+  Timeout: "timeout",
+  Http: "http",
+  Api: "api",
+  Envelope: "envelope",
+  Job: "job",
+  ExecuteOutcomeUnknown: "execute-outcome-unknown",
+  InvalidInput: "invalid-input",
+  Stream: "stream",
+} as const;
+export type CliDiagnosticCode =
+  (typeof CliDiagnosticCode)[keyof typeof CliDiagnosticCode];
+export type CliDiagnostic = Readonly<{
+  code: CliDiagnosticCode;
+  endpoint: string;
+  retryable: boolean;
+  status?: number;
+  nextAction: string;
+  diagnostic?: Diagnostic;
+}>;
+export type XYOpsClient = Readonly<{
+  readEvent: <T>(
+    eventReference: XYOpsEventReference,
+    params: EventParameters,
+    envelopeGuard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ) => Promise<VoiceflowEnvelope<T>>;
+  executeEvent: <T>(
+    eventReference: XYOpsEventReference,
+    params: EventParameters,
+    envelopeGuard: ResponseGuard<VoiceflowEnvelope<T>>,
+  ) => Promise<VoiceflowEnvelope<T>>;
+}>;
+===== END xyops/cli/types.ts =====
+
+===== BEGIN xyops/cli/validation.ts =====
+import { fail } from "./diagnostics";
+import { isVoiceflowEnvelope } from "./guards";
+import type { ResponseGuard } from "./types";
+type RequireEnvelopeResult = <T>(
+  value: unknown,
+  operation: string,
+  resultGuard: ResponseGuard<T>,
+) => T;
+const requireSuccessfulEnvelope = <T>(
+  value: import("./types").VoiceflowEnvelope<T>,
+  operation: string,
+): T => {
+  if (value.ok === false)
+    throw fail("envelope", {
+      nextAction:
+        value.error.diagnostic?.nextAction ??
+        `${operation} was rejected by the migration runner.`,
+      diagnostic: value.error.diagnostic,
+    });
+  return value.result;
+};
+export const requireEnvelopeResult: RequireEnvelopeResult = <T>(
+  value: unknown,
+  operation: string,
+  resultGuard: ResponseGuard<T>,
+): T => {
+  if (!isVoiceflowEnvelope(resultGuard)(value))
+    throw fail("envelope", {
+      nextAction: `${operation} returned an invalid response.`,
+    });
+  return requireSuccessfulEnvelope(value, operation);
+};
+===== END xyops/cli/validation.ts =====

@@ -1,0 +1,701 @@
+# Notebook bundle: 06-voiceflow-catalog_refactored.txt
+# Source snapshot: 6 TypeScript files
+# Split using the explicit path markers below.
+
+===== BEGIN xyops/voiceflow/catalog/index.ts =====
+export {
+  loadFolders,
+  loadProjects,
+  loadWorkspaces,
+  folderOptions,
+  listFolders,
+  listProjects,
+  listVersions,
+  listWorkspaces,
+  projectOptions,
+  versionOptions,
+  workspaceOptions,
+} from "./options";
+export type {
+  EnvironmentRecord,
+  FolderRecord,
+  Option,
+  ProjectRecord,
+  WorkspaceRecord,
+} from "../types";
+===== END xyops/voiceflow/catalog/index.ts =====
+
+===== BEGIN xyops/voiceflow/catalog/options.ts =====
+import type { AuthContext } from "../types";
+import { syncCatalog } from "../logux";
+import { OperationFault } from "../contracts";
+import { requireVoiceflowString } from "../validation";
+import { isNumericFolderID } from "../guards";
+import type {
+  EnvironmentRecord,
+  FolderRecord,
+  Option,
+  ProjectRecord,
+  WorkspaceRecord,
+} from "../types";
+import {
+  parseFolder,
+  parseProject,
+  parseWorkspace,
+  projectRows,
+} from "./record-parsers";
+
+type RawRow = Readonly<Record<string, unknown>>;
+type VersionField = "draftVersionID" | "publishedVersionID";
+type VersionKind = readonly [VersionField, string];
+const VERSION_KINDS: readonly VersionKind[] = [
+  ["draftVersionID", "[Draft]"],
+  ["publishedVersionID", "[Published]"],
+];
+
+type NormalizeIDAsync = (value: string) => Promise<string>;
+const normalizeIDAsync: NormalizeIDAsync = (value) =>
+  Promise.resolve().then(() => requireVoiceflowString(value));
+
+type ProjectOptionValues = (
+  rows: readonly ProjectRecord[],
+  folders: readonly FolderRecord[],
+) => Option[];
+const projectOptionValues: ProjectOptionValues = (rows, folders) =>
+  rows.map((row) => {
+    const folder = folders.find((candidate) => candidate.id === row.folderID);
+    const path = folder === undefined ? row.label : `${folderPath(folder, folders)}/${row.label}`;
+    return { value: row.id, label: `${path} (${row.id})` };
+  });
+
+const folderPath = (
+  folder: FolderRecord,
+  folders: readonly FolderRecord[],
+): string => {
+  const parent = folders.find((candidate) => candidate.id === folder.parentID);
+  return parent === undefined ? folder.label : `${folderPath(parent, folders)}/${folder.label}`;
+};
+
+type OptionValues = (
+  rows: readonly Readonly<{ id: string; label: string }>[],
+) => Option[];
+const optionValues: OptionValues = (rows) =>
+  rows.map((row) => ({ value: row.id, label: row.label }));
+
+type SortOptionsByLabel = (options: readonly Option[]) => Option[];
+const sortOptionsByLabel: SortOptionsByLabel = (options) =>
+  [...options].sort((left, right) => left.label.localeCompare(right.label));
+
+type BuildOptions = (
+  rows: readonly Readonly<{ id: string; label: string }>[],
+) => Option[];
+const buildOptions: BuildOptions = (rows) => sortOptionsByLabel(optionValues(rows));
+
+type SelectProjectsInWorkspace = (
+  rows: readonly ProjectRecord[],
+  workspaceID: string,
+) => readonly ProjectRecord[];
+const selectProjectsInWorkspace: SelectProjectsInWorkspace = (
+  rows,
+  workspaceID,
+) => rows.filter((row) => row.workspaceID === workspaceID);
+
+type SelectFoldersInWorkspace = (
+  rows: readonly FolderRecord[],
+  workspaceID: string,
+) => readonly FolderRecord[];
+const selectFoldersInWorkspace: SelectFoldersInWorkspace = (
+  rows,
+  workspaceID,
+) =>
+  rows.filter(
+    (row) => row.workspaceID === workspaceID && isNumericFolderID(row.id),
+  );
+
+type LoadCatalogRows = (
+  auth: AuthContext,
+  wanted: readonly string[],
+) => (workspaceID: string) => Promise<readonly RawRow[]>;
+const loadCatalogRows: LoadCatalogRows = (auth, wanted) => (workspaceID) =>
+  syncCatalog(auth, `workspace/${workspaceID}`, wanted);
+
+type BuildVersionOptions = (
+  project: ProjectRecord,
+  environment: EnvironmentRecord,
+) => Option[];
+const buildVersionOptions: BuildVersionOptions = (project, environment) =>
+  VERSION_KINDS.flatMap(([key, prefix]) => {
+    const value = environment[key];
+    return value === undefined
+      ? []
+      : [
+          {
+            value,
+            label: `${prefix} ${project.label} — ${environment.label}`,
+          },
+        ];
+  });
+
+type LoadWorkspaces = (
+  auth: AuthContext,
+) => Promise<readonly WorkspaceRecord[]>;
+export const loadWorkspaces: LoadWorkspaces = (auth) =>
+  syncCatalog(auth, `creator/${auth.creatorID}`, [
+    "workspace.CRUD:REPLACE",
+  ]).then(projectRows(parseWorkspace));
+
+type LoadProjects = (
+  auth: AuthContext,
+  workspaceID: string,
+) => Promise<readonly ProjectRecord[]>;
+type ReconcileProjectFolders = (
+  projects: readonly ProjectRecord[],
+  assistants: readonly ProjectRecord[],
+) => readonly ProjectRecord[];
+const reconcileProjectFolders: ReconcileProjectFolders = (projects, assistants) => {
+  const folderIDs = new Map(
+    assistants
+      .filter((assistant) => assistant.folderID !== undefined)
+      .map((assistant) => [assistant.id, assistant.folderID]),
+  );
+  return projects.map((project) => {
+    const folderID = folderIDs.get(project.id);
+    return folderID === undefined ? project : { ...project, folderID };
+  });
+};
+export const loadProjects: LoadProjects = (auth, workspaceID) =>
+  normalizeIDAsync(workspaceID).then((id) =>
+    Promise.all([
+      loadCatalogRows(auth, ["project.CRUD:REPLACE"])(id).then(
+        projectRows(parseProject),
+      ),
+      loadCatalogRows(auth, ["assistant.REPLACE"])(id).then(
+        projectRows(parseProject),
+      ),
+    ]).then(([projects, assistants]) =>
+      reconcileProjectFolders(projects, assistants),
+    ),
+  );
+
+type LoadFolders = (
+  auth: AuthContext,
+  workspaceID: string,
+) => Promise<readonly FolderRecord[]>;
+export const loadFolders: LoadFolders = (auth, workspaceID) =>
+  normalizeIDAsync(workspaceID)
+    .then(loadCatalogRows(auth, ["workspace-folder.REPLACE"]))
+    .then(projectRows(parseFolder));
+
+type WorkspaceOptions = (rows: readonly WorkspaceRecord[]) => Option[];
+export const workspaceOptions: WorkspaceOptions = buildOptions;
+
+type ProjectOptions = (
+  workspaceID: string,
+  folders?: readonly FolderRecord[],
+) => (rows: readonly ProjectRecord[]) => Option[];
+export const projectOptions: ProjectOptions = (workspaceID, folders = []) => (rows) => {
+  const id = requireVoiceflowString(workspaceID);
+  const projects = selectProjectsInWorkspace(rows, id);
+  return sortOptionsByLabel(projectOptionValues(projects, folders));
+};
+
+type FolderOptions = (
+  workspaceID: string,
+) => (rows: readonly FolderRecord[]) => Option[];
+export const folderOptions: FolderOptions = (workspaceID) => (rows) => {
+  const id = requireVoiceflowString(workspaceID);
+  return buildOptions(selectFoldersInWorkspace(rows, id));
+};
+
+type VersionOptions = (
+  workspaceID: string,
+  projectID: string,
+) => (rows: readonly ProjectRecord[]) => Option[];
+export const versionOptions: VersionOptions =
+  (workspaceID, projectID) => (rows) => {
+    const workspace = requireVoiceflowString(workspaceID);
+    const id = requireVoiceflowString(projectID);
+    const project = rows.find(
+      (row) => row.id === id && row.workspaceID === workspace,
+    );
+    if (!project) throw new OperationFault("NOT_FOUND");
+    const options = project.environments.flatMap((environment) =>
+      buildVersionOptions(project, environment),
+    );
+    return sortOptionsByLabel(options);
+  };
+
+type ListWorkspaces = (auth: AuthContext) => Promise<Option[]>;
+export const listWorkspaces: ListWorkspaces = (auth) =>
+  loadWorkspaces(auth).then(buildOptions);
+
+type ListProjects = (
+  auth: AuthContext,
+  workspaceID: string,
+) => Promise<Option[]>;
+export const listProjects: ListProjects = (auth, workspaceID) =>
+  Promise.all([loadProjects(auth, workspaceID), loadFolders(auth, workspaceID)])
+    .then(([projects, folders]) => projectOptions(workspaceID, folders)(projects));
+
+type ListFolders = (
+  auth: AuthContext,
+  workspaceID: string,
+) => Promise<Option[]>;
+export const listFolders: ListFolders = (auth, workspaceID) =>
+  loadFolders(auth, workspaceID).then(folderOptions(workspaceID));
+
+type ListVersions = (
+  auth: AuthContext,
+  workspaceID: string,
+  projectID: string,
+) => Promise<Option[]>;
+export const listVersions: ListVersions = (auth, workspaceID, projectID) =>
+  loadProjects(auth, workspaceID).then(versionOptions(workspaceID, projectID));
+===== END xyops/voiceflow/catalog/options.ts =====
+
+===== BEGIN xyops/voiceflow/catalog/record-parsers.ts =====
+import { VoiceflowRegex } from "../regex";
+import { CatalogRecordSchema } from "./schemas/catalog_record";
+import type {
+  EnvironmentRecord,
+  FolderRecord,
+  ProjectRecord,
+  WorkspaceRecord,
+} from "../types";
+
+export type RawCatalogRow = Readonly<Record<string, unknown>>;
+export type CatalogParseResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly reason: "invalid-row" };
+
+type VersionField = "draftVersionID" | "publishedVersionID";
+type ProjectRows = <T>(
+  parser: (value: unknown) => CatalogParseResult<T>,
+) => (rows: readonly unknown[]) => readonly T[];
+
+const invalidRow: CatalogParseResult<never> = {
+  ok: false,
+  reason: "invalid-row",
+};
+
+const validRow = <T>(value: T): CatalogParseResult<T> => ({ ok: true, value });
+
+const parseCatalogRecord = (
+  value: unknown,
+): RawCatalogRow | undefined => {
+  const parsed = CatalogRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+};
+
+// Runtime validation intentionally handles multiple external representations.
+const isIDValue = (value: unknown): value is string | number =>
+  typeof value === "string" || typeof value === "number";
+const normalizeOptionalID = (value: unknown): string | undefined =>
+  isIDValue(value) ? nonEmptyID(String(value).trim()) : undefined;
+const nonEmptyID = (value: string): string | undefined =>
+  value === "" ? undefined : value;
+
+const readID = (row: RawCatalogRow): string | undefined =>
+  normalizeOptionalID(row.id ?? row._id);
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== "";
+
+// Voiceflow has historically emitted several label aliases.
+const readLabel = (row: RawCatalogRow, fallback: string): string => {
+  const candidate = [row.name, row.title, row.label].find(isNonEmptyString);
+  return candidate === undefined ? fallback : candidate.trim();
+};
+
+// Catalog environments arrive as either arrays or keyed objects.
+const readEnvironmentRows = (value: unknown): readonly RawCatalogRow[] =>
+  (Array.isArray(value) ? value : Object.values(value ?? {})).flatMap((entry) => {
+    const parsed = parseCatalogRecord(entry);
+    return parsed === undefined ? [] : [parsed];
+  });
+
+const isVersionValue = (value: unknown): value is string | number =>
+  typeof value === "string" || typeof value === "number";
+
+const readOptionalVersion = (
+  key: VersionField,
+  value: unknown,
+): Partial<EnvironmentRecord> =>
+  isVersionValue(value) ? { [key]: String(value) } : {};
+
+const readEnvironment = (row: RawCatalogRow): EnvironmentRecord => ({
+  label: readLabel(row, "Environment"),
+  ...readOptionalVersion("draftVersionID", row.draftVersionID),
+  ...readOptionalVersion("publishedVersionID", row.publishedVersionID),
+});
+
+const readEnvironments = (value: unknown): readonly EnvironmentRecord[] =>
+  readEnvironmentRows(value).map(readEnvironment);
+
+type ParseWorkspace = (value: unknown) => CatalogParseResult<WorkspaceRecord>;
+// Runtime validation establishes the WorkspaceRecord contract before catalog options are built.
+export const parseWorkspace: ParseWorkspace = (value) => {
+  const parsed = parseCatalogRecord(value);
+  return parsed === undefined ? invalidRow : parseWorkspaceRow(parsed);
+};
+const parseWorkspaceRow = (value: RawCatalogRow): CatalogParseResult<WorkspaceRecord> => {
+  const id = readID(value);
+  return id === undefined ? invalidRow : validRow({ id, label: readLabel(value, id) });
+};
+
+const parseProject: (value: unknown) => CatalogParseResult<ProjectRecord> = (
+  value,
+) => {
+  const parsed = parseCatalogRecord(value);
+  return parsed === undefined ? invalidRow : parseProjectRow(parsed);
+};
+const parseProjectRow = (value: RawCatalogRow): CatalogParseResult<ProjectRecord> => {
+  const identity = projectIdentity(readID(value), normalizeOptionalID(value.workspaceID));
+  if (identity === undefined) return invalidRow;
+  const folderID = normalizeOptionalID(
+    value.folderID ?? value.folderId ?? value.parentFolderID,
+  );
+  return validRow({
+    id: identity.id,
+    label: readLabel(value, identity.id),
+    workspaceID: identity.workspaceID,
+    ...(folderID === undefined ? {} : { folderID }),
+    environments: readEnvironments(value.environments),
+  });
+};
+type ProjectIdentity = Readonly<{ id: string; workspaceID: string }>;
+const projectIdentity = (
+  id: string | undefined,
+  workspaceID: string | undefined,
+): ProjectIdentity | undefined =>
+  id === undefined ? undefined : withProjectWorkspace(id, workspaceID);
+const withProjectWorkspace = (
+  id: string,
+  workspaceID: string | undefined,
+): ProjectIdentity | undefined =>
+  workspaceID === undefined ? undefined : { id, workspaceID };
+
+const parseFolder: (value: unknown) => CatalogParseResult<FolderRecord> = (
+  value,
+) => {
+  const parsed = parseCatalogRecord(value);
+  return parsed === undefined ? invalidRow : parseFolderRow(parsed);
+};
+const parseFolderRow = (value: RawCatalogRow): CatalogParseResult<FolderRecord> => {
+  const id = readID(value);
+  const workspaceID = normalizeOptionalID(value.workspaceID);
+  const identity = folderIdentity(id, workspaceID);
+  if (identity === undefined) return invalidRow;
+  const parentID = normalizeOptionalID(
+    value.parentID ?? value.parentId ?? value.parentFolderID,
+  );
+  return validRow({
+    id: identity.id,
+    label: readLabel(value, identity.id),
+    workspaceID: identity.workspaceID,
+    ...(parentID === undefined ? {} : { parentID }),
+  });
+};
+type FolderIdentity = Readonly<{ id: string; workspaceID: string }>;
+const folderIdentity = (
+  id: string | undefined,
+  workspaceID: string | undefined,
+): FolderIdentity | undefined =>
+  id === undefined ? undefined : numericFolderIdentity(id, workspaceID);
+const numericFolderIdentity = (
+  id: string,
+  workspaceID: string | undefined,
+): FolderIdentity | undefined =>
+  VoiceflowRegex.numericID.test(id) ? withFolderWorkspace(id, workspaceID) : undefined;
+const withFolderWorkspace = (
+  id: string,
+  workspaceID: string | undefined,
+): FolderIdentity | undefined =>
+  workspaceID === undefined ? undefined : { id, workspaceID };
+
+export const projectRows: ProjectRows = (parser) => (rows) =>
+  rows.flatMap((row) => {
+    const result = parser(row);
+    return result.ok ? [result.value] : [];
+  });
+
+export { parseFolder, parseProject };
+===== END xyops/voiceflow/catalog/record-parsers.ts =====
+
+===== BEGIN xyops/voiceflow/catalog/rename-barrier.ts =====
+/* oxlint-disable complexity -- bounded retry orchestration is explicit. */
+import type { AuthContext, ProjectRecord } from "../types";
+import { OperationFault } from "../contracts";
+import { createUUID } from "../uuid";
+import { loadProjects } from "./options";
+import {
+  createRenameDurabilityState,
+  scheduleRenameDurabilityRetry,
+  transitionRenameDurability,
+  type RenameDurabilityContext,
+  type RenameDurabilityState,
+} from "./rename-durability-state-machine";
+
+export const MAX_CONFIRMATION_ATTEMPTS = 5;
+export const CONFIRMATION_INTERVAL_MS = 250;
+export const CONFIRMATION_DEADLINE_MS = 15_000;
+const MAX_DIAGNOSTIC_LENGTH = 240;
+
+type ProjectState = RenameDurabilityContext;
+type LoadProjects = (auth: AuthContext, workspaceID: string) => Promise<readonly ProjectRecord[]>;
+type Sleep = (milliseconds: number) => Promise<void>;
+
+type ConfirmProjectRenameOptions = Readonly<{
+  readonly signal?: AbortSignal;
+  readonly now?: () => number;
+  readonly sleep?: Sleep;
+  readonly load?: LoadProjects;
+}>;
+
+const defaultSleep: Sleep = (milliseconds) =>
+  new Promise<void>((resolve, reject) => {
+    try {
+      const timer = setTimeout(resolve, milliseconds);
+      if (timer === undefined) reject(new Error("timer-setup-failed"));
+    } catch {
+      reject(new Error("timer-setup-failed"));
+    }
+  });
+const isCancelled = (signal: AbortSignal | undefined): boolean => signal?.aborted === true;
+const isPermanentFailure = (error: unknown): error is OperationFault =>
+  error instanceof OperationFault &&
+  ["AUTHENTICATION_FAILED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(error.code);
+const safeFailureCategory = (error: unknown): string => {
+  if (error instanceof OperationFault) return error.code.toLowerCase();
+  return "dependency-failure";
+};
+const boundedDiagnostic = (value: string): string => value.slice(0, MAX_DIAGNOSTIC_LENGTH);
+const exhaustedDiagnostic = (attempt: number, reason: string): string =>
+  boundedDiagnostic(`archive-durability confirmation attempt ${attempt} of ${MAX_CONFIRMATION_ATTEMPTS} failed (${reason})`);
+const cancellationError = (): OperationFault =>
+  new OperationFault("INTERNAL_ERROR", false, "rename-durability-cancelled");
+const timeoutError = (diagnostic: string): OperationFault =>
+  new OperationFault("DEPENDENCY_TIMEOUT", true, boundedDiagnostic(diagnostic));
+
+const projectMatches = (
+  projects: readonly ProjectRecord[],
+  expected: ProjectState,
+): ProjectRecord | undefined => {
+  const candidates = projects.filter((project) => project.id === expected.projectID);
+  if (candidates.length !== 1) return undefined;
+  const project = candidates[0];
+  return project !== undefined &&
+    project.workspaceID === expected.workspaceID &&
+    project.folderID === expected.folderID &&
+    project.label === expected.name
+    ? project
+    : undefined;
+};
+
+const readWithDeadline = <T>(
+  operation: Promise<T>,
+  remainingMilliseconds: number,
+): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (result: () => void): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      result();
+    };
+    try {
+      timer = setTimeout(
+        () => finish(() => reject(new OperationFault("DEPENDENCY_TIMEOUT", true))),
+        remainingMilliseconds,
+      );
+      operation.then(
+        (value) => finish(() => resolve(value)),
+        (error: unknown) => finish(() => reject(error)),
+      );
+    } catch (error) {
+      finish(() => reject(error));
+    }
+  });
+
+export type ConfirmProjectRename = (
+  auth: AuthContext,
+  state: ProjectState,
+  options?: ConfirmProjectRenameOptions,
+) => Promise<void>;
+export const confirmProjectRename: ConfirmProjectRename = async (
+  auth,
+  expected,
+  options = {},
+) => {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? defaultSleep;
+  const readProjects = options.load ?? loadProjects;
+  const deadline = now() + CONFIRMATION_DEADLINE_MS;
+  let state: RenameDurabilityState = createRenameDurabilityState(expected);
+  let attempt = 1;
+  let attemptID = createUUID();
+
+  while (attempt <= MAX_CONFIRMATION_ATTEMPTS) {
+    if (isCancelled(options.signal)) throw cancellationError();
+    const remaining = deadline - now();
+    if (remaining <= 0)
+      throw timeoutError(exhaustedDiagnostic(attempt - 1, "deadline-exceeded"));
+    state = transitionRenameDurability(state, {
+      kind: "start-attempt",
+      attempt,
+      attemptID,
+      limit: MAX_CONFIRMATION_ATTEMPTS,
+      deadline,
+    }).state;
+    try {
+      const projects = await readWithDeadline(readProjects(auth, expected.workspaceID), remaining);
+      if (isCancelled(options.signal)) throw cancellationError();
+      const project = projectMatches(projects, expected);
+      if (now() <= deadline && project !== undefined) {
+        state = transitionRenameDurability(state, {
+          kind: "catalog-result",
+          attemptID,
+          matches: true,
+          project: {
+            id: project.id,
+            workspaceID: project.workspaceID,
+            folderID: project.folderID ?? "",
+            name: project.label,
+          },
+        }).state;
+        if (state.kind === "CONFIRMED") return;
+      }
+    } catch (error) {
+      if (isCancelled(options.signal)) throw cancellationError();
+      if (isPermanentFailure(error))
+        throw new OperationFault(error.code, error.retryable, boundedDiagnostic(`archive-durability ${safeFailureCategory(error)}`));
+      if (now() >= deadline)
+        throw timeoutError(exhaustedDiagnostic(attempt, safeFailureCategory(error)));
+    }
+    if (now() >= deadline || attempt === MAX_CONFIRMATION_ATTEMPTS)
+      throw timeoutError(exhaustedDiagnostic(attempt, safeFailureCategory(undefined)));
+    const retryDeadline = Math.min(now() + CONFIRMATION_INTERVAL_MS, deadline);
+    state = scheduleRenameDurabilityRetry(
+      state as Extract<RenameDurabilityState, { readonly kind: "ATTEMPTING" }>,
+      retryDeadline,
+    );
+    try {
+      await sleep(Math.max(0, retryDeadline - now()));
+    } catch {
+      state = transitionRenameDurability(state, { kind: "timer-failure", diagnostic: "archive-durability retry timer failed" }).state;
+      throw new OperationFault("DEPENDENCY_FAILURE", true, "archive-durability retry timer failed");
+    }
+    if (isCancelled(options.signal)) throw cancellationError();
+    state = transitionRenameDurability(state, {
+      kind: "retry-timer",
+      attemptID: state.kind === "WAITING_TO_RETRY" ? state.attemptID : attemptID,
+      nextAttemptID: createUUID(),
+      deadline: retryDeadline,
+    }).state;
+    attemptID = state.kind === "ATTEMPTING" ? state.attemptID : createUUID();
+    attempt += 1;
+  }
+  throw timeoutError(exhaustedDiagnostic(MAX_CONFIRMATION_ATTEMPTS, "attempt-limit"));
+};
+===== END xyops/voiceflow/catalog/rename-barrier.ts =====
+
+===== BEGIN xyops/voiceflow/catalog/rename-durability-state-machine.ts =====
+export type RenameDurabilityContext = Readonly<{
+  readonly projectID: string;
+  readonly workspaceID: string;
+  readonly folderID: string;
+  readonly name: string;
+}>;
+
+type FailureCode = "AUTHENTICATION_FAILED" | "DEPENDENCY_FAILURE" | "DEPENDENCY_TIMEOUT" | "INVALID_ARGUMENT" | "NOT_FOUND";
+export type RenameDurabilityState =
+  | { readonly kind: "READY"; readonly context: RenameDurabilityContext }
+  | { readonly kind: "ATTEMPTING"; readonly context: RenameDurabilityContext; readonly attempt: number; readonly attemptID: string; readonly limit: number; readonly deadline: number }
+  | { readonly kind: "WAITING_TO_RETRY"; readonly context: RenameDurabilityContext; readonly attempt: number; readonly attemptID: string; readonly nextRetryDeadline: number; readonly limit: number; readonly deadline: number }
+  | { readonly kind: "CONFIRMED"; readonly context: RenameDurabilityContext; readonly project: Readonly<{ id: string; workspaceID: string; folderID: string; name: string }> }
+  | { readonly kind: "FAILED"; readonly context: RenameDurabilityContext; readonly code: FailureCode; readonly diagnostic: string; readonly retryable: boolean }
+  | { readonly kind: "EXHAUSTED"; readonly context: RenameDurabilityContext; readonly diagnostic: string; readonly retryable: true }
+  | { readonly kind: "CANCELLED"; readonly context: RenameDurabilityContext; readonly diagnostic: string; readonly retryable: false };
+
+export type RenameDurabilityEvent =
+  | { readonly kind: "start-attempt"; readonly attempt: number; readonly attemptID: string; readonly limit: number; readonly deadline: number }
+  | { readonly kind: "catalog-result"; readonly attemptID: string; readonly project?: Readonly<{ id: string; workspaceID: string; folderID: string; name: string }>; readonly matches: boolean }
+  | { readonly kind: "transient-failure"; readonly attemptID: string; readonly diagnostic: string }
+  | { readonly kind: "permanent-failure"; readonly code: FailureCode; readonly diagnostic: string; readonly retryable: boolean }
+  | { readonly kind: "retry-timer"; readonly attemptID: string; readonly nextAttemptID: string; readonly deadline: number }
+  | { readonly kind: "timer-failure"; readonly diagnostic: string }
+  | { readonly kind: "cancel" };
+
+export type RenameDurabilityTransition = Readonly<{ readonly state: RenameDurabilityState; readonly accepted: boolean }>;
+
+type CreateRenameDurabilityState = (context: RenameDurabilityContext) => RenameDurabilityState;
+export const createRenameDurabilityState: CreateRenameDurabilityState = (context) => ({ kind: "READY", context });
+const terminal = (state: RenameDurabilityState): boolean => ["CONFIRMED", "FAILED", "EXHAUSTED", "CANCELLED"].includes(state.kind);
+const ignored = (state: RenameDurabilityState): RenameDurabilityTransition => ({ state, accepted: false });
+const accepted = (state: RenameDurabilityState): RenameDurabilityTransition => ({ state, accepted: true });
+
+/* oxlint-disable complexity -- exhaustive durability transitions are intentional. */
+export const transitionRenameDurability = (state: RenameDurabilityState, event: RenameDurabilityEvent): RenameDurabilityTransition => {
+  if (terminal(state)) return ignored(state);
+  if (event.kind === "start-attempt" && (state.kind === "READY" || state.kind === "WAITING_TO_RETRY"))
+    return accepted({ kind: "ATTEMPTING", context: state.context, attempt: event.attempt, attemptID: event.attemptID, limit: event.limit, deadline: event.deadline });
+  if (event.kind === "catalog-result" && state.kind === "ATTEMPTING" && event.attemptID === state.attemptID)
+    return event.matches && event.project !== undefined
+      ? accepted({ kind: "CONFIRMED", context: state.context, project: event.project })
+      : ignored(state);
+  if (event.kind === "transient-failure" && state.kind === "ATTEMPTING" && event.attemptID === state.attemptID)
+    return ignored(state);
+  if (event.kind === "permanent-failure" && state.kind === "ATTEMPTING")
+    return accepted({ kind: "FAILED", context: state.context, code: event.code, diagnostic: event.diagnostic, retryable: event.retryable });
+  if (event.kind === "retry-timer" && state.kind === "WAITING_TO_RETRY" && event.attemptID === state.attemptID)
+    return accepted({ kind: "ATTEMPTING", context: state.context, attempt: state.attempt + 1, attemptID: event.nextAttemptID, limit: state.limit, deadline: state.deadline });
+  if (event.kind === "timer-failure" && state.kind === "WAITING_TO_RETRY")
+    return accepted({ kind: "FAILED", context: state.context, code: "DEPENDENCY_FAILURE", diagnostic: event.diagnostic, retryable: true });
+  if (event.kind === "cancel")
+    return accepted({ kind: "CANCELLED", context: state.context, diagnostic: "rename-durability-cancelled", retryable: false });
+  return ignored(state);
+};
+
+export const scheduleRenameDurabilityRetry = (state: Extract<RenameDurabilityState, { readonly kind: "ATTEMPTING" }>, nextRetryDeadline: number): RenameDurabilityState => ({
+  kind: "WAITING_TO_RETRY",
+  context: state.context,
+  attempt: state.attempt,
+  attemptID: state.attemptID,
+  nextRetryDeadline,
+  limit: state.limit,
+  deadline: state.deadline,
+});
+
+export const exhaustRenameDurability = (state: Extract<RenameDurabilityState, { readonly kind: "ATTEMPTING" }>, diagnostic: string): RenameDurabilityState => ({
+  kind: "EXHAUSTED",
+  context: state.context,
+  diagnostic,
+  retryable: true,
+});
+===== END xyops/voiceflow/catalog/rename-durability-state-machine.ts =====
+
+===== BEGIN xyops/voiceflow/catalog/schemas/catalog_record.ts =====
+import { z } from "zod";
+
+const catalogIDSchema = z.union([z.string(), z.number()]).optional();
+
+/** Structural catalog row shape; identity and alias policies remain projections. */
+export const CatalogRecordSchema = z
+  .object({
+    id: catalogIDSchema,
+    _id: catalogIDSchema,
+    workspaceID: catalogIDSchema,
+    folderID: catalogIDSchema,
+    folderId: catalogIDSchema,
+    parentID: catalogIDSchema,
+    parentId: catalogIDSchema,
+    parentFolderID: catalogIDSchema,
+    environments: z.unknown().optional(),
+    name: z.unknown().optional(),
+    title: z.unknown().optional(),
+    label: z.unknown().optional(),
+  })
+  .loose();
+===== END xyops/voiceflow/catalog/schemas/catalog_record.ts =====

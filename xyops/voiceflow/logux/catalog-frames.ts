@@ -28,6 +28,7 @@ export const normalizeCatalogFrame: NormalizeCatalogFrame = (
     return syncID === undefined ? undefined : { kind: "subscription-synced", syncID };
   }
   if (frame[0] === "error") return errorEvent(frame);
+  if (frame[0] !== "sync") return undefined;
   const action = LoguxActionSchema.safeParse(frame[2]);
   if (!action.success) return undefined;
   const type = action.data.type;

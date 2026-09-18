@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { resolveConfiguredFilePath } from "./file-path";
 import { fail } from "./diagnostics";
-import { isInvalidDuration } from "./guards";
+import { z } from "zod";
 import { parseXYOpsURL } from "../voiceflow/urls";
 import { parseSecretEntries } from "../voiceflow/secrets";
 import { MigrationFileConfigSchema } from "./schemas/migration-config";
@@ -22,6 +22,7 @@ export type {
 } from "./types";
 
 /** The file contract deliberately uses snake_case to match the CLI config file. */
+export type MigrationFileConfigInput = z.infer<typeof MigrationFileConfigSchema>;
 export type MigrationFileConfig = Readonly<{
   sourceWorkspaceID?: string;
   sourceFolderID?: string;
@@ -145,7 +146,7 @@ const positiveMilliseconds: PositiveMilliseconds = (
 
 type ValidateDuration = (value: number, name: string) => void;
 const validateDuration: ValidateDuration = (value, name) => {
-  if (isInvalidDuration(value))
+  if ([!Number.isFinite(value), value <= 0, value > 3_600_000].some(Boolean))
     throw fail("configuration", {
       nextAction: `${name} must be a positive duration.`,
     });
@@ -266,23 +267,6 @@ export const readXYOpsConfig: ReadXYOpsConfig = (
   ...readDurations(environment),
 });
 
-type ConfigFileRecord = Record<string, unknown>;
-const CONFIG_KEYS = new Set([
-  "source_workspace",
-  "source_folder",
-  "source_project",
-  "source_path",
-  "source_version",
-  "destination_workspace",
-  "destination_folder",
-  "destination_path",
-  "target_schema_version",
-  "secrets",
-]);
-
-type IsRecord = (value: unknown) => value is ConfigFileRecord;
-const isRecord: IsRecord = (value): value is ConfigFileRecord =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 type ValidateConfigArguments = () => void;
 const validateConfigArguments: ValidateConfigArguments = () => {
@@ -299,15 +283,6 @@ const validateConfigArguments: ValidateConfigArguments = () => {
 type ReadConfigArgument = () => string | undefined;
 const readConfigArgument: ReadConfigArgument = () =>
   process.argv.find((argument) => argument.startsWith("--config="))?.slice(9);
-
-type ParseConfigString = (value: unknown, key: string) => string;
-const parseConfigString: ParseConfigString = (value, key) => {
-  if (typeof value !== "string" || !value.trim())
-    throw fail("configuration", {
-      nextAction: `${key} must be a non-empty string.`,
-    });
-  return value.trim();
-};
 
 type ConfigFieldParser = (value: unknown) => string;
 
@@ -330,7 +305,7 @@ const parseResourcePath: ParseResourcePath = (value) => {
 
 type ReadConfiguredSecrets = (value: unknown) => string | SecretEntries;
 const readConfiguredSecrets: ReadConfiguredSecrets = (value) => {
-  if (typeof value === "string") return parseConfigString(value, "secrets");
+  if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     try {
       return parseSecretEntries(value);
@@ -346,7 +321,7 @@ const readConfiguredSecrets: ReadConfiguredSecrets = (value) => {
 };
 
 type MigrationStringField = readonly [
-  input: string,
+  input: keyof Omit<MigrationFileConfigInput, "secrets">,
   output: keyof Omit<MigrationFileConfig, "secrets">,
 ];
 const MIGRATION_STRING_FIELDS: readonly MigrationStringField[] = [
@@ -362,38 +337,30 @@ const MIGRATION_STRING_FIELDS: readonly MigrationStringField[] = [
 ];
 
 type ParseConfiguredStrings = (
-  value: ConfigFileRecord,
+  value: MigrationFileConfigInput,
 ) => Partial<Omit<MigrationFileConfig, "secrets">>;
 const parseConfiguredStrings: ParseConfiguredStrings = (value) =>
   MIGRATION_STRING_FIELDS.reduce(
     (config, [input, output]) =>
       value[input] === undefined
         ? config
-        : { ...config, [output]: parseConfigString(value[input], input) },
+        : { ...config, [output]: value[input] },
     {},
   );
 
 type ParseMigrationFileConfig = (value: unknown) => MigrationFileConfig;
 const parseMigrationFileConfig: ParseMigrationFileConfig = (value) => {
-  if (!isRecord(value))
-    throw fail("configuration", {
-      nextAction: "The migration config must contain one JSON object.",
-    });
   const shape = MigrationFileConfigSchema.safeParse(value);
   if (!shape.success)
     throw fail("configuration", {
       nextAction: "The migration config contains invalid field values.",
     });
-  const unknownKey = Object.keys(value).find((key) => !CONFIG_KEYS.has(key));
-  if (unknownKey)
-    throw fail("configuration", {
-      nextAction: `The migration config contains unsupported field '${unknownKey}'.`,
-    });
+  const parsed = shape.data;
   return {
-    ...parseConfiguredStrings(value),
-    ...(value.secrets === undefined
+    ...parseConfiguredStrings(parsed),
+    ...(parsed.secrets === undefined
       ? {}
-      : { secrets: readConfiguredSecrets(value.secrets) }),
+      : { secrets: readConfiguredSecrets(parsed.secrets) }),
   };
 };
 

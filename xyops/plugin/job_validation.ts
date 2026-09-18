@@ -1,8 +1,9 @@
 import { PluginValidationFault } from "./validation_fault";
-import { isNonEmptyString, isPluginOperation } from "./guards";
+import { z } from "zod";
 import { MigrationParameterName } from "../migration-parameters";
 import {
   NativePluginJobSchema,
+  PluginOperationSchema,
   type ParsedNativePluginJob,
 } from "./schemas/native_plugin_job";
 import type {
@@ -10,24 +11,24 @@ import type {
   PluginOperation,
   PluginParameters,
 } from "./types";
-export { isPluginOperation } from "./guards";
-
 const requireOperationName = (value: unknown): string => {
-  if (!isNonEmptyString(value))
+  const parsed = z.string().trim().min(1).safeParse(value);
+  if (!parsed.success)
     throw new PluginValidationFault(
       "INVALID_INPUT",
       "An operation parameter is required.",
     );
-  return value;
+  return parsed.data;
 };
 
 const requireSupportedOperation = (value: string): PluginOperation => {
-  if (!isPluginOperation(value))
+  const parsed = PluginOperationSchema.safeParse(value);
+  if (!parsed.success)
     throw new PluginValidationFault(
       "UNKNOWN_OPERATION",
       "The requested operation is not supported.",
     );
-  return value;
+  return parsed.data;
 };
 
 type SelectOperation = (params: PluginParameters) => PluginOperation;
@@ -74,7 +75,8 @@ type ReadVoiceflowJWT = (
 ) => string;
 export const readVoiceflowJWT: ReadVoiceflowJWT = (environment) => {
   const environmentSecret = environment.VOICEFLOW_JWT;
-  if (isNonEmptyString(environmentSecret)) return environmentSecret;
+  const parsed = z.string().min(1).safeParse(environmentSecret);
+  if (parsed.success && parsed.data.trim() !== "") return parsed.data;
   throw new PluginValidationFault(
     "MISSING_SECRET",
     "The Voiceflow JWT secret is not configured.",

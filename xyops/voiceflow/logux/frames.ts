@@ -1,5 +1,6 @@
 import { OperationFault } from "../contracts";
 import { isObject, isRowArray } from "../guards";
+import { parseLoguxFrame } from "./frame-contract";
 
 type Row = Readonly<Record<string, unknown>>;
 const MAX_INCOMING_ROWS = 100_000;
@@ -44,17 +45,8 @@ const frameTooLarge = (
   context: IncomingContext,
 ): boolean =>
   frameBytes > context.maxFrameBytes || incomingBytes > context.maxBytes;
-const parseFrame = (data: string): readonly unknown[] | undefined => {
-  const frame = parseJSON(data);
-  return Array.isArray(frame) ? frame : undefined;
-};
-const parseJSON = (data: string): unknown => {
-  try {
-    return JSON.parse(data);
-  } catch {
-    return undefined;
-  }
-};
+const parseFrame = (data: string): readonly unknown[] | undefined =>
+  parseLoguxFrame(data);
 type FrameHandler = (frame: readonly unknown[], context: FrameContext) => void;
 type FrameContext = {
   channel: string;

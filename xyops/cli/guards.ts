@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   XYOpsJobResponseSchema,
   XYOpsJobSchema,
@@ -39,19 +40,10 @@ import type {
   XYOpsStreamEvent,
 } from "./types";
 
-type IsObject = (value: unknown) => value is object;
-const isObject: IsObject = (value): value is object =>
-  typeof value === "object" && value !== null;
-
-type IsRecord = (value: unknown) => value is Readonly<Record<string, unknown>>;
-export const isRecord: IsRecord = (
-  value,
-): value is Readonly<Record<string, unknown>> =>
-  isObject(value) && !Array.isArray(value);
-
 type IsNonEmptyString = (value: unknown) => value is string;
+const nonEmptyStringSchema = z.string().trim().min(1);
 export const isNonEmptyString: IsNonEmptyString = (value): value is string =>
-  typeof value === "string" && value.trim().length > 0;
+  nonEmptyStringSchema.safeParse(value).success;
 
 type IsOption = (value: unknown) => value is Option;
 export const isOption: IsOption = (value): value is Option =>

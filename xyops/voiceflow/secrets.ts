@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   AuthContext,
   ConfigSecret,
@@ -13,6 +14,10 @@ import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
 import { OperationFault } from "./contracts";
 import { SecretEntrySchema } from "./schemas/secret_entry";
 import { ExistingSecretSchema } from "./schemas/existing_secret";
+
+const ExistingSecretsResponseSchema = z.object({
+  secrets: z.array(ExistingSecretSchema),
+}).loose();
 
 export type { ExistingSecret } from "./types";
 
@@ -37,18 +42,12 @@ export const loadExistingSecrets: LoadExistingSecrets = async (auth, versionID) 
 const parseExistingSecrets = (bytes: ArrayBuffer): readonly ExistingSecret[] => {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    if (!isRecord(value) || !Array.isArray(value.secrets))
-      throw new Error();
-    return value.secrets.map(parseExistingSecret);
+    const parsed = ExistingSecretsResponseSchema.safeParse(value);
+    if (!parsed.success) throw new Error();
+    return parsed.data.secrets;
   } catch {
     throw new OperationFault("DEPENDENCY_FAILURE", true, "secret-list-invalid");
   }
-};
-
-const parseExistingSecret = (value: unknown): ExistingSecret => {
-  const parsed = ExistingSecretSchema.safeParse(value);
-  if (!parsed.success) throw new Error();
-  return parsed.data;
 };
 
 type ParseSecretsFile = (contents: string) => readonly ConfigSecret[];
@@ -196,7 +195,4 @@ export const resolveConfiguredSecretValues: ResolveConfiguredSecretValues =
       });
   };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  [value !== null, typeof value === "object", !Array.isArray(value)].every(
-    Boolean,
-  );
+

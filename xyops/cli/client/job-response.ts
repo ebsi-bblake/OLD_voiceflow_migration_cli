@@ -2,7 +2,6 @@ import { fail } from "../diagnostics";
 import { VoiceflowRegex } from "../../voiceflow/regex";
 import {
   isJobLaunch,
-  isRecord,
   isSuccessfulCode,
   isXYOpsJob,
   isXYOpsJobResponse,
@@ -16,12 +15,15 @@ import type {
   XYOpsResponse,
 } from "../types";
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 const hasResponseData = (
   response: XYOpsResponse,
 ): response is XYOpsResponse & { data: unknown } => "data" in response;
 
 const recordChildren = (value: unknown): readonly unknown[] =>
-  isRecord(value) ? [value.job, value.data] : [];
+  isPlainRecord(value) ? [value.job, value.data] : [];
 
 const readJobValue = (value: unknown): XYOpsJob | undefined =>
   isXYOpsJob(value) ? value : undefined;
@@ -70,7 +72,7 @@ const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
 const redactResponseDTO = (value: unknown, key = ""): unknown => {
   if (sensitiveField.test(key)) return "[redacted]";
   if (Array.isArray(value)) return value.map((item) => redactResponseDTO(item));
-  if (!isRecord(value)) return value;
+  if (!isPlainRecord(value)) return value;
   return Object.fromEntries(
     Object.entries(value).map(([entryKey, entryValue]) => [
       entryKey,
