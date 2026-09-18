@@ -7,6 +7,7 @@ import {
   startLoguxConnection,
   type LoguxConnection,
   type LoguxFrame,
+  type LoguxTransportEvent,
 } from "./connection";
 
 type UpdateSecret = (
@@ -28,7 +29,80 @@ const traceFrame = (direction: "in" | "out", frame: LoguxFrame): void => {
         : undefined,
   });
 };
-/* oxlint-disable complexity -- protocol lifecycle branches are explicit. */
+type SecretUpdateRuntime = Readonly<{
+  readonly subscriptionID: number;
+  readonly mutationSyncID: number;
+  readonly settle: (error?: OperationFault) => void;
+  readonly send: (frame: LoguxFrame) => void;
+}>;
+
+const secretFailure = (
+  code: "DEPENDENCY_FAILURE" | "DEPENDENCY_TIMEOUT",
+  diagnostic: string,
+): OperationFault => new OperationFault(code, true, diagnostic);
+
+const handleSecretFrame = (
+  frame: LoguxFrame,
+  runtime: SecretUpdateRuntime,
+  mutationFrame: LoguxFrame,
+): void => {
+  traceFrame("in", frame);
+  if (frame[0] === "error")
+    return runtime.settle(
+      secretFailure("DEPENDENCY_FAILURE", "logux-secret-update-error-frame"),
+    );
+  if (frame[0] === "connected") return;
+  if (frame[0] === "synced" && frame[1] === runtime.subscriptionID)
+    return runtime.send(mutationFrame);
+  if (frame[0] === "synced" && frame[1] === runtime.mutationSyncID)
+    return runtime.settle();
+};
+
+const handleSecretTransportEvent = (
+  event: LoguxTransportEvent,
+  runtime: SecretUpdateRuntime,
+  mutationFrame: LoguxFrame,
+): void => {
+  if (event.kind === "connection-opened") return;
+  if (event.kind === "connection-interrupted")
+    return runtime.settle(
+      event.reason === "timeout"
+        ? secretFailure("DEPENDENCY_TIMEOUT", "logux-secret-update-timeout")
+        : secretFailure("DEPENDENCY_FAILURE", "logux-secret-update-close"),
+    );
+  if (event.kind === "transport-failure")
+    return runtime.settle(
+      secretFailure("DEPENDENCY_FAILURE", "logux-secret-update-error"),
+    );
+  handleSecretFrame(event.frame, runtime, mutationFrame);
+};
+
+const createMutationFrame = (
+  origin: string,
+  actionID: string,
+  assistantID: string,
+  existing: ExistingSecret,
+  secret: SecretEntry,
+  mutationSyncID: number,
+): LoguxFrame => [
+  "sync",
+  mutationSyncID,
+  {
+    type: "secret.PATCH_ONE_WITH_VALUE",
+    payload: {
+      context: { assistantID },
+      id: existing.id,
+      patch: {
+        name: secret.name,
+        visibility: existing.visibility,
+        defaultValue: secret.value,
+      },
+    },
+    meta: { origin, actionID },
+  },
+  { id: 2, time: 2 },
+];
+
 export const updateSecret: UpdateSecret = (
   auth,
   assistantID,
@@ -50,6 +124,20 @@ export const updateSecret: UpdateSecret = (
       traceFrame("out", frame);
       connection?.send(frame);
     };
+    const runtime = {
+      subscriptionID,
+      mutationSyncID,
+      settle,
+      send,
+    } satisfies SecretUpdateRuntime;
+    const mutationFrame = createMutationFrame(
+      origin,
+      actionID,
+      assistantID,
+      existing,
+      secret,
+      mutationSyncID,
+    );
     connection = startLoguxConnection({
       token: auth.token,
       origin,
@@ -65,67 +153,7 @@ export const updateSecret: UpdateSecret = (
           { id: 1, time: 1 },
         ],
       },
-      onEvent: (event) => {
-        if (event.kind === "connection-opened") return;
-        if (
-          event.kind === "connection-interrupted" &&
-          event.reason === "timeout"
-        )
-          return settle(
-            new OperationFault(
-              "DEPENDENCY_TIMEOUT",
-              true,
-              "logux-secret-update-timeout",
-            ),
-          );
-        if (event.kind === "connection-interrupted")
-          return settle(
-            new OperationFault(
-              "DEPENDENCY_FAILURE",
-              true,
-              "logux-secret-update-close",
-            ),
-          );
-        if (event.kind === "transport-failure")
-          return settle(
-            new OperationFault(
-              "DEPENDENCY_FAILURE",
-              true,
-              "logux-secret-update-error",
-            ),
-          );
-        const frame = event.frame;
-        traceFrame("in", frame);
-        if (frame[0] === "error")
-          return settle(
-            new OperationFault(
-              "DEPENDENCY_FAILURE",
-              true,
-              "logux-secret-update-error-frame",
-            ),
-          );
-        if (frame[0] === "connected") return;
-        if (frame[0] === "synced" && frame[1] === subscriptionID)
-          return send([
-            "sync",
-            mutationSyncID,
-            {
-              type: "secret.PATCH_ONE_WITH_VALUE",
-              payload: {
-                context: { assistantID },
-                id: existing.id,
-                patch: {
-                  name: secret.name,
-                  visibility: existing.visibility,
-                  defaultValue: secret.value,
-                },
-              },
-              meta: { origin, actionID },
-            },
-            { id: 2, time: 2 },
-          ]);
-        if (frame[0] === "synced" && frame[1] === mutationSyncID)
-          return settle();
-      },
+      onEvent: (event) =>
+        handleSecretTransportEvent(event, runtime, mutationFrame),
     });
   });
