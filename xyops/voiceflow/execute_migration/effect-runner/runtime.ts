@@ -14,11 +14,7 @@ import {
   type MigrationRuntimeDependencies,
 } from "./dependencies";
 import { createMigrationEffectHandlers } from "./handlers";
-import {
-  addFailureStage,
-  reducerFailureCode,
-  workflowFailure,
-} from "./failure-mapping";
+import { addFailureStage, workflowFailure } from "./failure-mapping";
 import type { EffectHandlerMap, EffectResult } from "./types";
 
 export type RunMigrationWorkflow = (
@@ -56,30 +52,12 @@ const failureEvent = (
   workflowError: MigrationWorkflowFailure,
 ): MigrationWorkflowEvent => {
   if (isImportOutcomeUnknown(diagnostic))
-    return {
-      kind: "import-unknown",
-      diagnostic: diagnostic.diagnostic,
-      failure: workflowError,
-    };
+    return { kind: "import-unknown", failure: workflowError };
   if (isArchiveDurabilityUnknown(runtime.state, diagnostic))
-    return {
-      kind: "archive-durability-unknown",
-      diagnostic: diagnostic.diagnostic,
-      failure: workflowError,
-    };
+    return { kind: "archive-durability-unknown", failure: workflowError };
   if (isSecretOutcomeUnknown(runtime.state, diagnostic))
-    return {
-      kind: "secret-unknown",
-      diagnostic: diagnostic.diagnostic,
-      failure: workflowError,
-    };
-  return {
-    kind: "dependency-failure",
-    code: reducerFailureCode(diagnostic),
-    diagnostic:
-      diagnostic instanceof OperationFault ? diagnostic.diagnostic : undefined,
-    failure: workflowError,
-  };
+    return { kind: "secret-unknown", failure: workflowError };
+  return { kind: "dependency-failure", failure: workflowError };
 };
 
 type DispatchWorkflowEvent = (

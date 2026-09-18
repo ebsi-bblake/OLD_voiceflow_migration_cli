@@ -101,7 +101,7 @@ defineStep("no runner-local assignment can reorder or skip the reducer lifecycle
 // Settlement
 
 defineStep("a workflow has entered a terminal state", function () { this.value = { ...workflow.createMigrationWorkflow(identity), stage: "COMPLETED" }; });
-defineStep("an in-flight effect later resolves, rejects, or dispatches a duplicate result", function () { this.result = reduce(this.value, { kind: "import-succeeded", importedProjectID: "late" }); });
+defineStep("an in-flight effect later resolves, rejects, or dispatches a duplicate result", function () { this.result = reduce(this.value, { kind: "import-succeeded", imported: { importStatus: 200, importBytes: 0, projectID: "late" } }); });
 defineStep("the event is rejected by the reducer", function () { assert.equal(this.result.accepted, false); });
 defineStep("workflow context remains unchanged", function () { assert.deepEqual(this.result.state.context, {}); });
 defineStep("no new effect is executed", function () { assert.deepEqual(this.result.effects, []); });
@@ -122,7 +122,7 @@ defineStep("migration stage ordering remains unchanged", function () { assert.de
 defineStep("BDD19 parameter serialization remains unchanged", function () { assert.equal(this.value.result.selected.sourceWorkspaceID, "source"); });
 defineStep("BDD21 diagnostic identifiers and redaction remain unchanged", function () { assert.equal(this.value.operation, "execute_migration"); });
 defineStep("BDD22 state transitions and terminal outcomes remain unchanged", function () { assert.equal(this.value.ok, true); });
-defineStep("unknown import or execute outcomes are never automatically redispatched", function () { const state = { ...workflow.createMigrationWorkflow(identity), stage: "UNKNOWN_OUTCOME", code: "IMPORT_OUTCOME_UNKNOWN" }; assert.deepEqual(reduce(state, { kind: "import-succeeded", importedProjectID: "late" }).effects, []); });
+defineStep("unknown import or execute outcomes are never automatically redispatched", function () { const state = { ...workflow.createMigrationWorkflow(identity), stage: "UNKNOWN_OUTCOME", code: "IMPORT_OUTCOME_UNKNOWN" }; assert.deepEqual(reduce(state, { kind: "import-succeeded", imported: { importStatus: 200, importBytes: 0, projectID: "late" } }).effects, []); });
 
 // Verification and acceptance
 

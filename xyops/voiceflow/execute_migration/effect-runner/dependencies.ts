@@ -2,24 +2,24 @@ import { exportVersion } from "../../export";
 import { importVersion } from "../../import";
 import { resolveVoiceflowAuth } from "../../auth";
 import { loadProjects } from "../../catalog";
-import { resolveConfiguredSecretValues } from "../../secrets";
-import { reconcileProjectSecrets } from "../../logux";
+import { resolveConfiguredSecretValues as resolveSecrets } from "../../secrets";
+import { reconcileProjectSecrets as reconcileSecrets } from "../../logux";
 import { renameProject } from "../../logux/rename-project";
-import { confirmProjectRename } from "../../catalog/rename-barrier";
-import { buildMigrationPlan } from "../../planning";
+import { confirmProjectRename as confirmRename } from "../../catalog/rename-barrier";
+import { buildMigrationPlan as buildPlan } from "../../planning";
 import type { MigrationSelection } from "../../types";
 import type { MigrationWorkflowState } from "../../execute-migration-state-machine";
 
 type EffectDependencies = Readonly<{
   readonly authenticate: typeof resolveVoiceflowAuth;
   readonly exportVersion: typeof exportVersion;
-  readonly buildPlan: typeof buildMigrationPlan;
+  readonly buildPlan: typeof buildPlan;
   readonly loadProjects: typeof loadProjects;
   readonly renameProject: typeof renameProject;
-  readonly confirmRename: typeof confirmProjectRename;
+  readonly confirmRename: typeof confirmRename;
   readonly importVersion: typeof importVersion;
-  readonly resolveSecrets: typeof resolveConfiguredSecretValues;
-  readonly reconcileSecrets: typeof reconcileProjectSecrets;
+  readonly resolveSecrets: typeof resolveSecrets;
+  readonly reconcileSecrets: typeof reconcileSecrets;
   readonly abortActiveOperation?: () => void | Promise<void>;
   readonly observeState?: (state: MigrationWorkflowState) => void;
 }>;
@@ -38,11 +38,11 @@ export const defaultMigrationRuntimeDependencies: MigrationRuntimeDependencies =
   {
     authenticate: resolveVoiceflowAuth,
     exportVersion,
-    buildPlan: buildMigrationPlan,
+    buildPlan,
     loadProjects,
     renameProject,
-    confirmRename: confirmProjectRename,
+    confirmRename,
     importVersion,
-    resolveSecrets: resolveConfiguredSecretValues,
-    reconcileSecrets: reconcileProjectSecrets,
+    resolveSecrets,
+    reconcileSecrets,
   };

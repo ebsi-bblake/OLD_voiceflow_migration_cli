@@ -60,71 +60,43 @@ export type MigrationWorkflowState = WorkflowIdentity & {
   readonly diagnostic?: string;
 };
 
+export type ArchivePreflightEvent =
+  | { readonly kind: "archive-not-needed" }
+  | { readonly kind: "archive-required"; readonly archive: ArchiveCandidate };
+
+export type SecretResolutionEvent =
+  | { readonly kind: "secret-resolution-empty" }
+  | {
+      readonly kind: "secret-resolution-completed";
+      readonly secrets: readonly SecretEntry[];
+    };
+
 export type MigrationWorkflowEvent =
   | { readonly kind: "start" }
-  | { readonly kind: "authentication-succeeded"; readonly auth?: AuthContext }
-  | { readonly kind: "export-succeeded"; readonly artifact?: ExportArtifact }
+  | { readonly kind: "authentication-succeeded"; readonly auth: AuthContext }
+  | { readonly kind: "export-succeeded"; readonly artifact: ExportArtifact }
   | {
       readonly kind: "plan-succeeded";
       readonly planID: string;
-      readonly plan?: MigrationPlan;
+      readonly plan: MigrationPlan;
     }
   | { readonly kind: "plan-mismatch" }
-  | {
-      readonly kind: "archive-preflight-result";
-      readonly collision: boolean;
-      readonly archive?: ArchiveCandidate;
-    }
-  | { readonly kind: "archive-renamed"; readonly archive?: ArchiveCandidate }
+  | ArchivePreflightEvent
+  | { readonly kind: "archive-renamed"; readonly archive: ArchiveCandidate }
   | { readonly kind: "archive-durability-confirmed" }
   | {
       readonly kind: "archive-durability-unknown";
-      readonly diagnostic?: string;
-      readonly failure?: MigrationWorkflowFailure;
+      readonly failure: MigrationWorkflowFailure;
     }
-  | {
-      readonly kind: "import-succeeded";
-      readonly importedProjectID: string;
-      readonly imported?: ImportedReceipt;
-    }
-  | {
-      readonly kind: "import-failed";
-      readonly diagnostic?: string;
-      readonly failure?: MigrationWorkflowFailure;
-    }
-  | {
-      readonly kind: "import-unknown";
-      readonly diagnostic?: string;
-      readonly failure?: MigrationWorkflowFailure;
-    }
+  | { readonly kind: "import-succeeded"; readonly imported: ImportedReceipt }
+  | { readonly kind: "import-failed"; readonly failure: MigrationWorkflowFailure }
+  | { readonly kind: "import-unknown"; readonly failure: MigrationWorkflowFailure }
   | { readonly kind: "secret-input-resolved" }
-  | {
-      readonly kind: "secret-resolution-completed";
-      readonly secrets?: readonly SecretEntry[];
-      readonly empty?: boolean;
-    }
-  | { readonly kind: "secret-completed"; readonly remaining?: number }
-  | {
-      readonly kind: "secret-failed";
-      readonly diagnostic?: string;
-      readonly failure?: MigrationWorkflowFailure;
-    }
-  | {
-      readonly kind: "secret-unknown";
-      readonly diagnostic?: string;
-      readonly failure?: MigrationWorkflowFailure;
-    }
-  | {
-      readonly kind: "dependency-failure";
-      readonly diagnostic?: string;
-      readonly code?:
-        | "AUTHENTICATION_FAILED"
-        | "DEPENDENCY_FAILURE"
-        | "INTERNAL_ERROR"
-        | "NOT_FOUND"
-        | "INVALID_ARGUMENT";
-      readonly failure?: MigrationWorkflowFailure;
-    }
+  | SecretResolutionEvent
+  | { readonly kind: "secret-completed"; readonly remaining: number }
+  | { readonly kind: "secret-failed"; readonly failure: MigrationWorkflowFailure }
+  | { readonly kind: "secret-unknown"; readonly failure: MigrationWorkflowFailure }
+  | { readonly kind: "dependency-failure"; readonly failure: MigrationWorkflowFailure }
   | { readonly kind: "timeout" }
   | { readonly kind: "cancellation" }
   | { readonly kind: "late-event" };
@@ -293,7 +265,7 @@ const unknownOutcome = (
         ? "DEPENDENCY_TIMEOUT"
         : "DEPENDENCY_FAILURE",
     true,
-    `stage=${state.stage} ${event.diagnostic ?? "outcome-unknown"}`,
+    `stage=${state.stage} ${event.failure.diagnostic ?? "outcome-unknown"}`,
   );
 };
 
@@ -307,15 +279,15 @@ const failure = (
   const code =
     event.kind === "timeout"
       ? "DEPENDENCY_TIMEOUT"
-      : event.kind === "dependency-failure" && event.code !== undefined
-        ? event.code
+      : event.kind === "dependency-failure"
+        ? event.failure.code
         : "DEPENDENCY_FAILURE";
   return terminal(
     state,
     "FAILED",
     code,
     code !== "AUTHENTICATION_FAILED" && event.kind !== "import-failed",
-    `stage=${state.stage} ${"diagnostic" in event ? (event.diagnostic ?? "dependency-failure") : "dependency-failure"}`,
+    `stage=${state.stage} ${event.kind === "timeout" ? "dependency-failure" : event.failure.diagnostic ?? "dependency-failure"}`,
   );
 };
 
@@ -364,11 +336,11 @@ const archivePreflightResult = (
   state: MigrationWorkflowState,
   event: Extract<
     MigrationWorkflowEvent,
-    { readonly kind: "archive-preflight-result" }
+    { readonly kind: "archive-required" | "archive-not-needed" }
   >,
 ): MigrationWorkflowTransition => {
   if (state.stage !== "ARCHIVE_PREFLIGHT") return ignored(state);
-  return event.collision
+  return event.kind === "archive-required"
     ? transition(
         state,
         "ARCHIVE",
@@ -386,7 +358,7 @@ const archiveRenamed = (
     ? transition(
         state,
         "ARCHIVE",
-        { ...state.context, archive: event.archive ?? state.context.archive },
+        { ...state.context, archive: event.archive },
         [{ kind: "confirm-archive-durability" }],
       )
     : ignored(state);
@@ -408,11 +380,7 @@ const importSucceeded = (
         "SECRET_INPUT",
         {
           ...state.context,
-          imported: event.imported ?? {
-            importStatus: 0,
-            importBytes: 0,
-            projectID: event.importedProjectID,
-          },
+          imported: event.imported,
         },
         [{ kind: "resolve-secrets", phase: "input" }],
       )
@@ -431,11 +399,11 @@ const secretResolutionCompleted = (
   state: MigrationWorkflowState,
   event: Extract<
     MigrationWorkflowEvent,
-    { readonly kind: "secret-resolution-completed" }
+    { readonly kind: "secret-resolution-empty" | "secret-resolution-completed" }
   >,
 ): MigrationWorkflowTransition => {
   if (state.stage !== "SECRET_RESOLUTION") return ignored(state);
-  return event.empty === true
+  return event.kind === "secret-resolution-empty"
     ? terminal(state, "COMPLETED", "", false, undefined, [
         { kind: "settle-success" },
       ])
@@ -475,7 +443,7 @@ const handleExportSucceeded: MigrationEventHandler = (state, event) =>
 const handlePlanSucceeded: MigrationEventHandler = (state, event) =>
   event.kind === "plan-succeeded" ? planSucceeded(state, event) : undefined;
 const handleArchivePreflightResult: MigrationEventHandler = (state, event) =>
-  event.kind === "archive-preflight-result"
+  event.kind === "archive-required" || event.kind === "archive-not-needed"
     ? archivePreflightResult(state, event)
     : undefined;
 const handleArchiveRenamed: MigrationEventHandler = (state, event) =>
@@ -504,6 +472,7 @@ const handleSecretResolutionCompleted: MigrationEventHandler = (
   state,
   event,
 ) =>
+  event.kind === "secret-resolution-empty" ||
   event.kind === "secret-resolution-completed"
     ? secretResolutionCompleted(state, event)
     : undefined;
