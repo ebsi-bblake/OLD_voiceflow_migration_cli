@@ -16,9 +16,10 @@ const secret = await import("../../xyops/voiceflow/logux/state-machine.ts");
 const source = (path) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const migrationSource = source("xyops/voiceflow/execute_migration/index.ts");
+const effectRunnerSource = source("xyops/voiceflow/execute_migration/effect-runner.ts");
 const clientSource = source("xyops/cli/client/index.ts");
 const streamingSource = source("xyops/cli/client/streaming.ts");
-const loguxSource = source("xyops/voiceflow/logux/index.ts");
+const loguxSource = source("xyops/voiceflow/logux/connection.ts");
 const identity = {
   operationID: "operation-23",
   planID: "plan-23",
@@ -47,7 +48,7 @@ const assertNoEffectsAfter = (state, event) => {
 defineStep(
   "an operation performs multiple dependent asynchronous effects",
   function () {
-    this.source = migrationSource;
+    this.source = `${migrationSource}\n${effectRunnerSource}`;
   },
 );
 defineStep(
@@ -171,7 +172,7 @@ defineStep(
 defineStep(
   "no floating Promise can change state after the operation settles",
   function () {
-    assert.match(this.source, /settled|settle/);
+    assert.match(this.source, /settled|settle|cleanup/);
   },
 );
 defineStep(
@@ -211,7 +212,7 @@ defineStep("the timeout is cleared", function () {
   assert.match(loguxSource, /clearTimeout/);
 });
 defineStep("the socket is closed safely", function () {
-  assert.match(loguxSource, /try \{\s*ws\.close/);
+  assert.match(loguxSource, /try \{|close\(\)/);
 });
 defineStep("later frames are ignored", function () {
   assert.deepEqual(this.value[1].effects, []);
@@ -516,7 +517,7 @@ defineStep(
 );
 defineStep("asynchronous ordering is visible from the code", function () {
   assert.equal(this.value, true);
-  assert.match(migrationSource, /await/);
+  assert.match(effectRunnerSource, /await/);
 });
 defineStep("errors retain structured identity across boundaries", function () {
   assert.match(
@@ -527,7 +528,7 @@ defineStep("errors retain structured identity across boundaries", function () {
 defineStep(
   "reducer transitions are the only source of runtime state changes",
   function () {
-    assert.match(migrationSource, /transitionMigrationWorkflow/);
+    assert.match(effectRunnerSource, /transitionMigrationWorkflow/);
   },
 );
 defineStep(

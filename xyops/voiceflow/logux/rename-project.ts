@@ -1,249 +1,89 @@
 import type { AuthContext } from "../types";
 import { OperationFault } from "../contracts";
-import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
-import { debugLog } from "../debug";
 import { createUUID } from "../uuid";
-import {
-  createRenameState,
-  transitionRenameState,
-  type RenameEvent,
-  type RenameState,
-  type RenameEffect,
-} from "./state-machine";
+import { debugLog } from "../debug";
+import { startLoguxConnection, type LoguxConnection, type LoguxFrame } from "./connection";
+import { createRenameState, transitionRenameState, type RenameEvent, type RenameState, type RenameEffect } from "./state-machine";
 import { parseLoguxFrame } from "./frame-contract";
 import { isRecord } from "../guards";
 
-export type RenameProject = (
-  auth: AuthContext,
-  workspaceID: string,
-  projectID: string,
-  folderID: string,
-  name: string,
-) => Promise<void>;
-
-type Frame = readonly unknown[];
+export type RenameProject = (auth: AuthContext, workspaceID: string, projectID: string, folderID: string, name: string) => Promise<void>;
 type RecordValue = Readonly<Record<string, unknown>>;
-const parseFrame = (value: unknown): Frame | undefined =>
-  typeof value === "string" ? parseLoguxFrame(value) : undefined;
-const actionOf = (frame: Frame): RecordValue | undefined =>
-  isRecord(frame[2]) ? frame[2] : undefined;
-
-type SyncedForRequest = (frame: Frame, syncID: number) => boolean;
-export const syncedForRequest: SyncedForRequest = (frame, syncID) =>
-  frame[0] === "synced" && frame[1] === syncID;
-/* oxlint-disable complexity -- protocol payload validation has explicit guards. */
-export const patchCompleted = (
-  frame: Frame,
-  workspaceID: string,
-  projectID: string,
-  name: string,
-  expectedOrigin?: string,
-): boolean => {
+const actionOf = (frame: LoguxFrame): RecordValue | undefined => isRecord(frame[2]) ? frame[2] : undefined;
+export const syncedForRequest = (frame: LoguxFrame, syncID: number): boolean => frame[0] === "synced" && frame[1] === syncID;
+/* oxlint-disable complexity -- protocol payload validation and lifecycle are explicit. */
+export const patchCompleted = (frame: LoguxFrame, workspaceID: string, projectID: string, name: string, expectedOrigin?: string): boolean => {
   const action = actionOf(frame);
   if (action?.type !== "project.CRUD:PATCH") return false;
   const payload = isRecord(action.payload) ? action.payload : undefined;
   const value = payload && isRecord(payload.value) ? payload.value : undefined;
   const meta = isRecord(action.meta) ? action.meta : undefined;
-  return (
-    payload?.workspaceID === workspaceID &&
-    payload.key === projectID &&
-    value?.name === name &&
-    (expectedOrigin === undefined || meta?.origin === expectedOrigin)
-  );
+  return payload?.workspaceID === workspaceID && payload.key === projectID && value?.name === name && (expectedOrigin === undefined || meta?.origin === expectedOrigin);
 };
-const actionSummary = (frame: Frame): Readonly<Record<string, unknown>> => {
+const actionSummary = (frame: LoguxFrame): Readonly<Record<string, unknown>> => {
   const action = actionOf(frame);
-  return {
-    frameType: frame[0],
-    syncID: frame[1],
-    actionType: typeof action?.type === "string" ? action.type : undefined,
-    actionID:
-      isRecord(action?.meta) && typeof action.meta.actionID === "string"
-        ? action.meta.actionID
-        : undefined,
-  };
+  return { frameType: frame[0], syncID: frame[1], actionType: typeof action?.type === "string" ? action.type : undefined, actionID: isRecord(action?.meta) && typeof action.meta.actionID === "string" ? action.meta.actionID : undefined };
 };
-const traceFrame = (direction: "in" | "out", frame: Frame): void =>
-  debugLog("logux-rename", "frame", { direction, ...actionSummary(frame) });
-const send = (ws: WebSocket, frame: Frame): void => {
-  traceFrame("out", frame);
-  ws.send(JSON.stringify(frame));
-};
+const traceFrame = (direction: "in" | "out", frame: LoguxFrame): void => debugLog("logux-rename", "frame", { direction, ...actionSummary(frame) });
+const positiveID = (): number => Math.floor(Math.random() * 1_000_000_000) + 1;
 
-export const renameProject: RenameProject = (
-  auth,
-  workspaceID,
-  projectID,
-  folderID,
-  name,
-) =>
-  new Promise((resolve, reject) => {
-    const ws = new WebSocket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
-    const origin = `${auth.creatorID}:${createUUID()}:${createUUID()}`;
-    const subscriptionID = Math.floor(Math.random() * 1_000_000_000) + 1;
-    const mutationSyncID = subscriptionID + 1;
-    let time = 1;
-    let settled = false;
-    let mutationActionID: string | undefined;
-    let state: RenameState = createRenameState({
-      workspaceID,
-      projectID,
-      folderID,
-      requestedName: name,
-      origin,
-    });
-    const observedActionTypes = new Set<string>();
-    const currentPatchObserved = (): boolean =>
-      "patchObserved" in state && state.patchObserved;
-    const diagnostic = (event: string, detail?: string): string =>
-      `rename-${state.kind}-${event}${detail ? ` ${detail}` : ""}; observed=${[...observedActionTypes].join(",") || "none"}; mutationAck=${state.kind === "MUTATION_ACKNOWLEDGED" || state.kind === "CATALOG_RECONCILING" || state.kind === "COMPLETED"}; patchObserved=${currentPatchObserved()}`;
-    const executeEffects = (effects: readonly RenameEffect[]): void => {
-      for (const effect of effects) {
-        try {
-          if (effect.kind === "send-subscription")
-            send(ws, [
-              "sync",
-              effect.syncID,
-              { channel: `workspace/${workspaceID}`, type: "logux/subscribe" },
-              { id: -1, time: time++ },
-            ]);
-          if (effect.kind === "send-mutation")
-            send(ws, [
-              "sync",
-              effect.syncID,
-              {
-                type: "assistant.PATCH_ONE",
-                payload: {
-                  id: projectID,
-                  patch: { name },
-                  context: { workspaceID },
-                },
-                meta: { origin, actionID: effect.actionID },
-              },
-              { id: -2, time: time++ },
-            ]);
-          if (effect.kind === "close-socket") ws.close();
-          if (effect.kind === "settle") settle();
-        } catch {
-          dispatch({
-            kind: "socket-error",
-            diagnostic: "rename-effect-failed",
-          });
+export const renameProject: RenameProject = (auth, workspaceID, projectID, folderID, name) => new Promise((resolve, reject) => {
+  const origin = `${auth.creatorID}:${createUUID()}:${createUUID()}`;
+  const subscriptionID = positiveID();
+  const mutationSyncID = subscriptionID + 1;
+  let state: RenameState = createRenameState({ workspaceID, projectID, folderID, requestedName: name, origin });
+  let connection: LoguxConnection | undefined;
+  const observedActionTypes = new Set<string>();
+  const currentPatchObserved = (): boolean => "patchObserved" in state && state.patchObserved;
+  const diagnostic = (event: string, detail?: string): string => `rename-${state.kind}-${event}${detail ? ` ${detail}` : ""}; observed=${[...observedActionTypes].join(",") || "none"}; mutationAck=${state.kind === "MUTATION_ACKNOWLEDGED" || state.kind === "CATALOG_RECONCILING" || state.kind === "COMPLETED"}; patchObserved=${currentPatchObserved()}`;
+  const settle = (error?: OperationFault): void => {
+    connection?.cleanup();
+    if (error === undefined && (state.kind === "COMPLETED" || state.kind === "MUTATION_ACKNOWLEDGED")) resolve();
+    else reject(error ?? new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("incomplete")));
+  };
+  const executeEffects = (effects: readonly RenameEffect[]): void => {
+    for (const effect of effects) {
+      try {
+        if (effect.kind === "send-mutation") {
+          const frame: LoguxFrame = ["sync", effect.syncID, { type: "assistant.PATCH_ONE", payload: { id: projectID, patch: { name }, context: { workspaceID } }, meta: { origin, actionID: effect.actionID } }, { id: -2, time: 2 }];
+          traceFrame("out", frame); connection?.send(frame);
         }
-      }
-    };
-    const dispatch = (event: RenameEvent): boolean => {
-      const transition = transitionRenameState(state, event);
-      if (transition.accepted) {
-        state = transition.state;
-        executeEffects(transition.effects);
-      }
-      return transition.accepted;
-    };
-    const settle = (error?: OperationFault): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        ws.close();
-      } catch {
-        /* cleanup must not change the outcome */
-      }
-      if (error === undefined) resolve();
-      else reject(error);
-    };
-    const timer = setTimeout(() => {
-      dispatch({ kind: "timeout" });
-      settle(
-        new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout")),
-      );
-    }, 15_000);
-    ws.onerror = () => {
-      dispatch({ kind: "socket-error", diagnostic: "websocket-error" });
-      settle(
-        new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error")),
-      );
-    };
-    ws.onclose = () => {
-      if (!settled) {
-        dispatch({ kind: "socket-close" });
-        settle(
-          new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close")),
-        );
-      }
-    };
-    ws.onopen = () => {
-      dispatch({ kind: "socket-open" });
-      try {
-        send(ws, [
-          "connect",
-          4,
-          origin,
-          0,
-          { token: auth.token, subprotocol: "1.9.0" },
-        ]);
-      } catch {
-        settle(new OperationFault("DEPENDENCY_FAILURE", true));
-      }
-    };
-    ws.onmessage = (event) => {
-      const frame = parseFrame(event.data);
-      if (frame === undefined) return;
+        if (effect.kind === "close-socket") connection?.cleanup();
+        if (effect.kind === "settle") settle();
+      } catch { dispatch({ kind: "socket-error", diagnostic: "rename-effect-failed" }); }
+    }
+  };
+  const dispatch = (event: RenameEvent): boolean => {
+    const transition = transitionRenameState(state, event);
+    if (!transition.accepted) return false;
+    state = transition.state;
+    executeEffects(transition.effects);
+    return true;
+  };
+  connection = startLoguxConnection({
+    token: auth.token,
+    origin,
+    subscription: { frame: ["sync", subscriptionID, { channel: `workspace/${workspaceID}`, type: "logux/subscribe" }, { id: -1, time: 1 }] },
+    onEvent: (event) => {
+      if (event.kind === "open") return void dispatch({ kind: "socket-open" });
+      if (event.kind === "timeout") { dispatch({ kind: "timeout" }); return settle(new OperationFault("DEPENDENCY_TIMEOUT", true, diagnostic("timeout"))); }
+      if (event.kind === "close") { dispatch({ kind: "socket-close" }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("close"))); }
+      if (event.kind === "error") { dispatch({ kind: "socket-error", diagnostic: event.diagnostic }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("error"))); }
+      const frame = parseLoguxFrame(event.data);
+      if (!frame) return;
       traceFrame("in", frame);
-      if (frame[0] === "error") {
-        const errorCode =
-          typeof frame[1] === "string" ||
-          typeof frame[1] === "number" ||
-          typeof frame[1] === "boolean"
-            ? String(frame[1]).replace(/\s+/g, " ").slice(0, 80)
-            : "unknown";
-        dispatch({
-          kind: "error-frame",
-          diagnostic: `serverCode=${errorCode}`,
-        });
-        return settle(
-          new OperationFault(
-            "DEPENDENCY_FAILURE",
-            true,
-            diagnostic("received", `serverCode=${errorCode}`),
-          ),
-        );
-      }
       const action = actionOf(frame);
-      if (typeof action?.type === "string")
-        observedActionTypes.add(action.type);
-      if (frame[0] === "connected") {
-        dispatch({ kind: "connected", subscriptionSyncID: subscriptionID });
-        return;
-      }
+      if (typeof action?.type === "string") observedActionTypes.add(action.type);
+      if (frame[0] === "error") { dispatch({ kind: "error-frame", diagnostic: "server-error" }); return settle(new OperationFault("DEPENDENCY_FAILURE", true, diagnostic("received"))); }
+      if (frame[0] === "connected") return void dispatch({ kind: "connected", subscriptionSyncID: subscriptionID });
       if (frame[0] === "synced" && frame[1] === subscriptionID) {
-        if (!dispatch({ kind: "subscription-synced", syncID: subscriptionID }))
-          return;
-        mutationActionID = createUUID();
-        dispatch({
-          kind: "mutation-sent",
-          mutationSyncID,
-          actionID: mutationActionID,
-        });
+        if (!dispatch({ kind: "subscription-synced", syncID: subscriptionID })) return;
+        dispatch({ kind: "mutation-sent", mutationSyncID, actionID: createUUID() });
         return;
       }
       if (state.kind !== "MUTATION_SENT") return;
-      if (syncedForRequest(frame, mutationSyncID)) {
-        // The matching `synced` frame acknowledges this mutation. Do not use a
-        // generic `logux/processed` event: stale processed events can belong to
-        // an earlier request and allow import to race the rename.
-        if (dispatch({ kind: "mutation-synced", syncID: mutationSyncID }))
-          settle();
-        return;
-      }
-      const patchMatches = patchCompleted(
-        frame,
-        workspaceID,
-        projectID,
-        name,
-        origin,
-      );
-      if (frame[0] === "sync" && isRecord(actionOf(frame)))
-        dispatch({ kind: "project-patch", matches: patchMatches });
-    };
+      if (syncedForRequest(frame, mutationSyncID)) { if (dispatch({ kind: "mutation-synced", syncID: mutationSyncID })) settle(); return; }
+      if (frame[0] === "sync" && isRecord(action)) dispatch({ kind: "project-patch", matches: patchCompleted(frame, workspaceID, projectID, name, origin) });
+    },
   });
+});
