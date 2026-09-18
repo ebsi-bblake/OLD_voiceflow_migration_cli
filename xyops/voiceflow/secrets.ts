@@ -47,14 +47,16 @@ export const loadExistingSecrets: LoadExistingSecrets = async (
 const parseExistingSecrets = (
   bytes: ArrayBuffer,
 ): readonly ExistingSecret[] => {
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    const parsed = ExistingSecretsResponseSchema.safeParse(value);
-    if (!parsed.success) throw new Error();
-    return parsed.data.secrets;
+    value = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new OperationFault("DEPENDENCY_FAILURE", true, "secret-list-invalid");
   }
+  const parsed = ExistingSecretsResponseSchema.safeParse(value);
+  if (!parsed.success)
+    throw new OperationFault("DEPENDENCY_FAILURE", true, "secret-list-invalid");
+  return parsed.data.secrets;
 };
 
 type ParseSecretsFile = (contents: string) => readonly ConfigSecret[];

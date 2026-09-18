@@ -3,7 +3,6 @@ import {
   DEFAULT_XYOPS_BASE_URL,
   readMigrationFileConfig,
   readXYOpsConfig,
-  validateMigrationFileConfig,
 } from "../config";
 import { createXYOpsClient } from "../client";
 import { CheckSessionResultSchema } from "../schemas/session";
@@ -139,8 +138,6 @@ export const run: Run = async () => {
   const config = readXYOpsConfig();
 
   const migrationConfig = await readMigrationFileConfig();
-
-  validateMigrationFileConfig(migrationConfig);
 
   const client = createXYOpsClient(config);
   const reader = CreatePromptReader({
