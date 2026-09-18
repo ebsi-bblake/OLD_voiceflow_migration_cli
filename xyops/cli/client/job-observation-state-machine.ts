@@ -38,9 +38,21 @@ type TransitionJobObservation = (state: JobObservationState, event: JobObservati
 const ignored = (state: JobObservationState): JobObservationTransition => ({ state, accepted: false, effects: [] });
 export const transitionJobObservation: TransitionJobObservation = (state, event) => {
   if (["SUCCEEDED", "FAILED", "UNKNOWN_OUTCOME"].includes(state.kind)) return ignored(state);
-  if (event.kind === "execute-dispatched" && state.kind === "DISPATCHED")
-    return { state: { kind: "STREAMING", jobID: event.jobID }, accepted: true, effects: [{ kind: "start-stream", jobID: event.jobID }] };
-  if ((event.kind === "stream-failed" || event.kind === "polling-started") && state.kind === "STREAMING")
+  if (
+    event.kind === "execute-dispatched" &&
+    state.kind === "DISPATCHED" &&
+    event.jobID === state.jobID
+  )
+    return { state: { kind: "STREAMING", jobID: state.jobID }, accepted: true, effects: [{ kind: "start-stream", jobID: state.jobID }] };
+  if (
+    event.kind === "polling-started" &&
+    (state.kind === "DISPATCHED" || state.kind === "STREAMING")
+  )
+    return { state: { kind: "POLLING", jobID: state.jobID, attempt: 0 }, accepted: true, effects: [{ kind: "start-polling", jobID: state.jobID, attempt: 0 }] };
+  if (
+    event.kind === "stream-failed" &&
+    state.kind === "STREAMING"
+  )
     return { state: { kind: "POLLING", jobID: state.jobID, attempt: 0 }, accepted: true, effects: [{ kind: "start-polling", jobID: state.jobID, attempt: 0 }] };
   if (event.kind === "stream-succeeded" && state.kind === "STREAMING")
     return { state: { kind: "SUCCEEDED", jobID: state.jobID }, accepted: true, effects: [{ kind: "settle" }] };

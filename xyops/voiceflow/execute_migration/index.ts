@@ -95,14 +95,12 @@ export const executeConfirmedMigration = async (
   let imported: ImportedReceipt | undefined;
   let archive: ReturnType<typeof findArchiveCandidate>;
   let secrets: Awaited<ReturnType<typeof resolveConfiguredSecretValues>> = [];
-  let settled = false;
 
   return new Promise<Envelope<ExecuteResult>>((resolve) => {
     const settle = (result: Envelope<ExecuteResult>): void => {
-      if (!settled) {
-        settled = true;
-        resolve(result);
-      }
+      // The reducer emits settlement effects only from terminal transitions.
+      // Promise resolution is idempotent, so late adapter failures cannot alter the result.
+      resolve(result);
     };
     const failAtCurrentStage = (error: unknown): Promise<void> => {
       const diagnostic = addFailureStage(error, workflow.stage);

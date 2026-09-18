@@ -83,12 +83,6 @@ const pollObservation: PollObservation = async <T>(
   }
 };
 
-const shouldReconcileStreamFailure = (error: unknown): boolean => {
-  const diagnostic = error instanceof CliError ? error.diagnostic : undefined;
-  return (diagnostic !== undefined && diagnostic.code !== "job") ||
-    (error instanceof Error && ["stream-result-invalid", "stream-transport-unknown"].includes(error.message));
-};
-
 // Client construction binds optional infrastructure dependencies once at the boundary.
 export const createXYOpsClient = (
   config: XYOpsConfig,
@@ -185,16 +179,20 @@ export const createXYOpsClient = (
         return result;
       } catch (error) {
         const effects = dispatch({ kind: "stream-failed" });
-        if (shouldReconcileStreamFailure(error) && effects.some((effect) => effect.kind === "start-polling")) return poll();
+        if (effects.some((effect) => effect.kind === "start-polling")) return poll();
         throw error;
       }
     };
     const effects = dispatch({ kind: "execute-dispatched", jobID: id });
     if (!useStreaming) {
-      dispatch({ kind: "polling-started" });
-      return poll();
+      const pollingEffects = dispatch({ kind: "polling-started" });
+      return pollingEffects.some((effect) => effect.kind === "start-polling")
+        ? poll()
+        : Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH }));
     }
-    return effects.some((effect) => effect.kind === "start-stream") ? stream() : poll();
+    return effects.some((effect) => effect.kind === "start-stream")
+      ? stream()
+      : Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH }));
   };
 
   const executeEvent = async <T>(

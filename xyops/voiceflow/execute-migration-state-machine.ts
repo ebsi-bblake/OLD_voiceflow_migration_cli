@@ -167,9 +167,9 @@ export const transitionMigrationWorkflow: TransitionMigrationWorkflow = (
       [{ kind: "abort-active-operation" }, { kind: "settle-failure" }],
     );
   if (
-    event.kind === "archive-durability-unknown" ||
-    event.kind === "import-unknown" ||
-    event.kind === "secret-unknown"
+    (event.kind === "archive-durability-unknown" && state.stage === "ARCHIVE") ||
+    (event.kind === "import-unknown" && state.stage === "IMPORT") ||
+    (event.kind === "secret-unknown" && state.stage === "SECRET_CREATION")
   )
     return terminal(
       state,
