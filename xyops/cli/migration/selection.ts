@@ -5,7 +5,7 @@ import {
   CatalogOptionResultSchema,
   CreatedFolderResultSchema,
 } from "../schemas/catalog-results";
-import { fail } from "../diagnostics";
+import { CliError, fail } from "../diagnostics";
 import type {
   EventParameters,
   MigrationSelection,
@@ -215,16 +215,13 @@ const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = async (
 ) => {
   if (configuredValue === undefined)
     return selectCatalog(reader, client, eventReference, parameters, title);
-  const response = await client.readEvent(
+  const options = await readConfiguredOptions(
+    client,
     eventReference,
     parameters,
-    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
-  );
-  return resolveConfiguredOption(
-    configuredValue,
-    readOptions(response, field),
     field,
   );
+  return resolveConfiguredOption(configuredValue, options, field);
 };
 
 type SelectCatalog = (
@@ -263,6 +260,38 @@ const readOptions = (
     throw fail("envelope", {
       nextAction: `${title} returned no usable options.`,
     });
+  }
+};
+
+type ReadConfiguredOptions = (
+  client: ReturnType<typeof createXYOpsClient>,
+  eventReference: XYOpsEventReference,
+  parameters: EventParameters,
+  field: string,
+) => Promise<readonly { value: string; label: string }[]>;
+const readConfiguredOptions: ReadConfiguredOptions = async (
+  client,
+  eventReference,
+  parameters,
+  field,
+) => {
+  try {
+    const response = await client.readEvent(
+      eventReference,
+      parameters,
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+    );
+    return readOptions(response, field);
+  } catch (error: unknown) {
+    if (
+      error instanceof CliError &&
+      ["timeout", "network", "http"].includes(error.diagnostic.code)
+    )
+      throw fail("configuration", {
+        endpoint: error.diagnostic.endpoint,
+        nextAction: `Unable to validate ${field}; verify that the configured value exists and XYOps is reachable.`,
+      });
+    throw error;
   }
 };
 
