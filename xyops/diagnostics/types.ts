@@ -1,19 +1,12 @@
 export type DiagnosticDomain =
-  | "core"
-  | "plugin"
-  | "cli"
-  | "logux"
-  | "transport"
-  | "protocol";
+  "core" | "plugin" | "cli" | "logux" | "transport" | "protocol";
 
 export type DiagnosticPrimitive = string | number | boolean | null;
 export interface SafeContextObject {
   readonly [key: string]: SafeContextValue;
 }
 export type SafeContextValue =
-  | DiagnosticPrimitive
-  | readonly SafeContextValue[]
-  | SafeContextObject;
+  DiagnosticPrimitive | readonly SafeContextValue[] | SafeContextObject;
 export type SafeContext = Readonly<Record<string, SafeContextValue>>;
 
 export type DiagnosticCause = Readonly<{

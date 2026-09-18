@@ -37,9 +37,7 @@ export const ExecuteResultSchema = z
     exportBytes: z.number(),
     importStatus: z.number(),
     importBytes: z.number(),
-    imported: z
-      .object({ projectID: nonEmptyString })
-      .loose(),
+    imported: z.object({ projectID: nonEmptyString }).loose(),
     apiKeyRetrieved: z.boolean().optional(),
   })
   .loose();

@@ -7,9 +7,7 @@ import type {
 } from "./types";
 
 export type OutcomeState =
-  | "before-dispatch-failure"
-  | "confirmed-rejection"
-  | "unknown-outcome";
+  "before-dispatch-failure" | "confirmed-rejection" | "unknown-outcome";
 
 type FaultShape = Readonly<{
   code: string;
@@ -30,7 +28,9 @@ type CreateDiagnostic = (
   context?: unknown,
 ) => Diagnostic;
 
-const isSafeContext = (value: ReturnType<typeof redactDiagnosticValue>): value is SafeContext =>
+const isSafeContext = (
+  value: ReturnType<typeof redactDiagnosticValue>,
+): value is SafeContext =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 const safeContext = (context: unknown): SafeContext => {
@@ -53,7 +53,8 @@ const causeFromFault = (
 
 const MAX_CAUSES = 32;
 const MAX_FIELD_LENGTH = 120;
-const boundedField = (value: string): string => value.slice(0, MAX_FIELD_LENGTH);
+const boundedField = (value: string): string =>
+  value.slice(0, MAX_FIELD_LENGTH);
 const safeDiagnosticDetail = (value: string): string | undefined =>
   /^[a-z0-9][a-z0-9_-]{0,79}$/i.test(value) ? value : undefined;
 const safeCause = (cause: DiagnosticCause): DiagnosticCause => ({
@@ -88,7 +89,8 @@ export const createDiagnostic: CreateDiagnostic = (
   const safe = safeContext({
     ...safeContext(context),
     ...safeContext(fault.details?.context),
-    ...(fault.diagnostic === undefined || safeDiagnosticDetail(fault.diagnostic) === undefined
+    ...(fault.diagnostic === undefined ||
+    safeDiagnosticDetail(fault.diagnostic) === undefined
       ? {}
       : { detail: safeDiagnosticDetail(fault.diagnostic) }),
   });
@@ -120,10 +122,7 @@ export const appendDiagnosticCause: AppendDiagnosticCause = (
   cause,
 ) => ({
   ...diagnostic,
-  causes: [
-    ...diagnostic.causes,
-    safeCause(cause),
-  ].slice(-MAX_CAUSES),
+  causes: [...diagnostic.causes, safeCause(cause)].slice(-MAX_CAUSES),
 });
 
 type CreateUnexpectedDiagnostic = (

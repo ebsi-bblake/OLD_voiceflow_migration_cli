@@ -58,7 +58,9 @@ const redactRecord = (
       .slice(0, MAX_KEYS)
       .map(([key, entry]) => [
         key,
-        isSensitiveKey(key) ? REDACTED : redactDiagnosticValue(entry, depth + 1),
+        isSensitiveKey(key)
+          ? REDACTED
+          : redactDiagnosticValue(entry, depth + 1),
       ]),
   );
 
@@ -66,9 +68,9 @@ const redactArray = (
   value: readonly unknown[],
   depth: number,
 ): readonly SafeContextValue[] =>
-  value.slice(0, MAX_ITEMS).map((entry) =>
-    redactDiagnosticValue(entry, depth + 1),
-  );
+  value
+    .slice(0, MAX_ITEMS)
+    .map((entry) => redactDiagnosticValue(entry, depth + 1));
 
 const redactMap = (
   value: ReadonlyMap<unknown, unknown>,
@@ -76,10 +78,9 @@ const redactMap = (
 ): Readonly<Record<string, SafeContextValue>> =>
   redactRecord(
     Object.fromEntries(
-      [...value.entries()].slice(0, MAX_KEYS).map(([key, entry]) => [
-        String(key),
-        entry,
-      ]),
+      [...value.entries()]
+        .slice(0, MAX_KEYS)
+        .map(([key, entry]) => [String(key), entry]),
     ),
     depth,
   );

@@ -4,7 +4,10 @@ import { SecretEntryArraySchema } from "../../voiceflow/schemas/secret_entry";
 const ConfigStringSchema = z.string().trim().min(1);
 
 /** Process environment boundary; named variables are interpreted by config policies. */
-export const XYOpsEnvironmentSchema = z.record(z.string(), z.string().optional());
+export const XYOpsEnvironmentSchema = z.record(
+  z.string(),
+  z.string().optional(),
+);
 
 /** Structural shape only; resource and secret policies remain named functions. */
 export const MigrationFileConfigSchema = z

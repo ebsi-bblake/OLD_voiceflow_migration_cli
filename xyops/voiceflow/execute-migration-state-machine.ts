@@ -29,6 +29,19 @@ export type WorkflowIdentity = Readonly<{
 }>;
 
 /** All mutable workflow results live here; the runner only holds the current reducer state. */
+export type MigrationWorkflowFailure = Readonly<{
+  readonly code: string;
+  readonly retryable: boolean;
+  readonly stage: MigrationStage | TerminalMigrationStage;
+  readonly diagnostic?: string;
+}>;
+export type MigrationWorkflowSuccess = Readonly<{
+  readonly planID: string;
+  readonly exportStatus: number;
+  readonly exportBytes: number;
+  readonly importStatus: number;
+  readonly importBytes: number;
+}>;
 export type MigrationWorkflowContext = Readonly<{
   readonly auth?: AuthContext;
   readonly artifact?: ExportArtifact;
@@ -36,6 +49,8 @@ export type MigrationWorkflowContext = Readonly<{
   readonly archive?: ArchiveCandidate;
   readonly imported?: ImportedReceipt;
   readonly secrets?: readonly SecretEntry[];
+  readonly terminalFailure?: MigrationWorkflowFailure;
+  readonly terminalSuccess?: MigrationWorkflowSuccess;
 }>;
 
 export type MigrationWorkflowState = WorkflowIdentity & {
@@ -66,14 +81,23 @@ export type MigrationWorkflowEvent =
   | {
       readonly kind: "archive-durability-unknown";
       readonly diagnostic?: string;
+      readonly failure?: MigrationWorkflowFailure;
     }
   | {
       readonly kind: "import-succeeded";
       readonly importedProjectID: string;
       readonly imported?: ImportedReceipt;
     }
-  | { readonly kind: "import-failed"; readonly diagnostic?: string }
-  | { readonly kind: "import-unknown"; readonly diagnostic?: string }
+  | {
+      readonly kind: "import-failed";
+      readonly diagnostic?: string;
+      readonly failure?: MigrationWorkflowFailure;
+    }
+  | {
+      readonly kind: "import-unknown";
+      readonly diagnostic?: string;
+      readonly failure?: MigrationWorkflowFailure;
+    }
   | { readonly kind: "secret-input-resolved" }
   | {
       readonly kind: "secret-resolution-completed";
@@ -81,8 +105,16 @@ export type MigrationWorkflowEvent =
       readonly empty?: boolean;
     }
   | { readonly kind: "secret-completed"; readonly remaining?: number }
-  | { readonly kind: "secret-failed"; readonly diagnostic?: string }
-  | { readonly kind: "secret-unknown"; readonly diagnostic?: string }
+  | {
+      readonly kind: "secret-failed";
+      readonly diagnostic?: string;
+      readonly failure?: MigrationWorkflowFailure;
+    }
+  | {
+      readonly kind: "secret-unknown";
+      readonly diagnostic?: string;
+      readonly failure?: MigrationWorkflowFailure;
+    }
   | {
       readonly kind: "dependency-failure";
       readonly diagnostic?: string;
@@ -92,6 +124,7 @@ export type MigrationWorkflowEvent =
         | "INTERNAL_ERROR"
         | "NOT_FOUND"
         | "INVALID_ARGUMENT";
+      readonly failure?: MigrationWorkflowFailure;
     }
   | { readonly kind: "timeout" }
   | { readonly kind: "cancellation" }
@@ -146,7 +179,34 @@ const terminal = (
   diagnostic?: string,
   effects: readonly MigrationWorkflowEffect[] = [{ kind: "settle-failure" }],
 ): MigrationWorkflowTransition => ({
-  state: { ...state, stage, code, retryable, diagnostic },
+  state: {
+    ...state,
+    stage,
+    code,
+    retryable,
+    diagnostic,
+    context:
+      stage === "COMPLETED"
+        ? {
+            ...state.context,
+            terminalSuccess: {
+              planID: state.planID,
+              exportStatus: state.context.artifact?.status ?? 0,
+              exportBytes: state.context.artifact?.bytes.byteLength ?? 0,
+              importStatus: state.context.imported?.importStatus ?? 0,
+              importBytes: state.context.imported?.importBytes ?? 0,
+            },
+          }
+        : {
+            ...state.context,
+            terminalFailure: {
+              code,
+              retryable,
+              stage: state.stage,
+              diagnostic,
+            },
+          },
+  },
   accepted: true,
   effects,
 });
@@ -176,9 +236,11 @@ export const transitionMigrationWorkflow: TransitionMigrationWorkflow = (
       [{ kind: "abort-active-operation" }, { kind: "settle-failure" }],
     );
   if (
-    (event.kind === "archive-durability-unknown" && state.stage === "ARCHIVE") ||
+    (event.kind === "archive-durability-unknown" &&
+      state.stage === "ARCHIVE") ||
     (event.kind === "import-unknown" && state.stage === "IMPORT") ||
-    ((event.kind === "secret-failed" || event.kind === "secret-unknown") && state.stage === "SECRET_CREATION")
+    ((event.kind === "secret-failed" || event.kind === "secret-unknown") &&
+      state.stage === "SECRET_CREATION")
   )
     return terminal(
       state,
@@ -215,55 +277,102 @@ export const transitionMigrationWorkflow: TransitionMigrationWorkflow = (
       "FAILED",
       code,
       code !== "AUTHENTICATION_FAILED" && event.kind !== "import-failed",
-      `stage=${state.stage} ${"diagnostic" in event ? event.diagnostic ?? "dependency-failure" : "dependency-failure"}`,
+      `stage=${state.stage} ${"diagnostic" in event ? (event.diagnostic ?? "dependency-failure") : "dependency-failure"}`,
     );
   }
   switch (state.stage) {
     case "AUTHENTICATION":
       return event.kind === "authentication-succeeded"
-        ? transition(state, "EXPORT", { ...state.context, auth: event.auth }, [{ kind: "export" }])
+        ? transition(state, "EXPORT", { ...state.context, auth: event.auth }, [
+            { kind: "export" },
+          ])
         : ignored(state);
     case "EXPORT":
       return event.kind === "export-succeeded"
-        ? transition(state, "PLANNING", { ...state.context, artifact: event.artifact }, [{ kind: "plan" }])
+        ? transition(
+            state,
+            "PLANNING",
+            { ...state.context, artifact: event.artifact },
+            [{ kind: "plan" }],
+          )
         : ignored(state);
     case "PLANNING":
       return event.kind === "plan-succeeded"
         ? event.planID === state.planID
-          ? transition(state, "ARCHIVE_PREFLIGHT", { ...state.context, plan: event.plan }, [{ kind: "load-archive-candidates" }])
+          ? transition(
+              state,
+              "ARCHIVE_PREFLIGHT",
+              { ...state.context, plan: event.plan },
+              [{ kind: "load-archive-candidates" }],
+            )
           : terminal(state, "FAILED", "PLAN_MISMATCH", false, "stage=PLANNING")
         : ignored(state);
     case "ARCHIVE_PREFLIGHT":
       return event.kind === "archive-preflight-result"
         ? event.collision
-          ? transition(state, "ARCHIVE", { ...state.context, archive: event.archive }, [{ kind: "rename" }])
+          ? transition(
+              state,
+              "ARCHIVE",
+              { ...state.context, archive: event.archive },
+              [{ kind: "rename" }],
+            )
           : transition(state, "IMPORT", state.context, [{ kind: "import" }])
         : ignored(state);
     case "ARCHIVE":
       if (event.kind === "archive-renamed")
-        return transition(state, "ARCHIVE", { ...state.context, archive: event.archive ?? state.context.archive }, [{ kind: "confirm-archive-durability" }]);
+        return transition(
+          state,
+          "ARCHIVE",
+          { ...state.context, archive: event.archive ?? state.context.archive },
+          [{ kind: "confirm-archive-durability" }],
+        );
       return event.kind === "archive-durability-confirmed"
         ? transition(state, "IMPORT", state.context, [{ kind: "import" }])
         : ignored(state);
     case "IMPORT":
       return event.kind === "import-succeeded"
-        ? transition(state, "SECRET_INPUT", { ...state.context, imported: event.imported ?? { importStatus: 0, importBytes: 0, projectID: event.importedProjectID } }, [{ kind: "resolve-secrets", phase: "input" }])
+        ? transition(
+            state,
+            "SECRET_INPUT",
+            {
+              ...state.context,
+              imported: event.imported ?? {
+                importStatus: 0,
+                importBytes: 0,
+                projectID: event.importedProjectID,
+              },
+            },
+            [{ kind: "resolve-secrets", phase: "input" }],
+          )
         : ignored(state);
     case "SECRET_INPUT":
       return event.kind === "secret-input-resolved"
-        ? transition(state, "SECRET_RESOLUTION", state.context, [{ kind: "resolve-secrets", phase: "resolution" }])
+        ? transition(state, "SECRET_RESOLUTION", state.context, [
+            { kind: "resolve-secrets", phase: "resolution" },
+          ])
         : ignored(state);
     case "SECRET_RESOLUTION":
       return event.kind === "secret-resolution-completed"
         ? event.empty === true
-          ? terminal(state, "COMPLETED", "", false, undefined, [{ kind: "settle-success" }])
-          : transition(state, "SECRET_CREATION", { ...state.context, secrets: event.secrets }, [{ kind: "create-next-secret" }])
+          ? terminal(state, "COMPLETED", "", false, undefined, [
+              { kind: "settle-success" },
+            ])
+          : transition(
+              state,
+              "SECRET_CREATION",
+              { ...state.context, secrets: event.secrets },
+              [{ kind: "create-next-secret" }],
+            )
         : ignored(state);
     case "SECRET_CREATION":
       return event.kind === "secret-completed"
         ? event.remaining === 0
-          ? terminal(state, "COMPLETED", "", false, undefined, [{ kind: "settle-success" }])
-          : transition(state, "SECRET_CREATION", state.context, [{ kind: "create-next-secret" }])
+          ? terminal(state, "COMPLETED", "", false, undefined, [
+              { kind: "settle-success" },
+            ])
+          : transition(state, "SECRET_CREATION", state.context, [
+              { kind: "create-next-secret" },
+            ])
         : ignored(state);
   }
 };

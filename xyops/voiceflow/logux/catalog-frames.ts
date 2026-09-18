@@ -25,7 +25,9 @@ export const normalizeCatalogFrame: NormalizeCatalogFrame = (
   }
   if (frame[0] === "synced") {
     const syncID = positiveNumber(frame[1]);
-    return syncID === undefined ? undefined : { kind: "subscription-synced", syncID };
+    return syncID === undefined
+      ? undefined
+      : { kind: "subscription-synced", syncID };
   }
   if (frame[0] === "error") return errorEvent(frame);
   if (frame[0] !== "sync") return undefined;
@@ -33,7 +35,8 @@ export const normalizeCatalogFrame: NormalizeCatalogFrame = (
   if (!action.success) return undefined;
   const type = action.data.type;
   const payload = action.data.payload;
-  const rowsValue = payload === undefined ? undefined : payload.values ?? payload.data;
+  const rowsValue =
+    payload === undefined ? undefined : (payload.values ?? payload.data);
   const rows = CatalogRecordSchema.array().safeParse(rowsValue);
   if (type === undefined || !rows.success) return undefined;
   const workspaceID = rows.data
@@ -54,10 +57,16 @@ const positiveNumber = (value: unknown): number | undefined =>
     ? value
     : undefined;
 const errorEvent = (frame: readonly unknown[]): CatalogEvent => {
-  const code = frame[1] === "wrong-credentials" ? "AUTHENTICATION_FAILED" : "DEPENDENCY_FAILURE";
+  const code =
+    frame[1] === "wrong-credentials"
+      ? "AUTHENTICATION_FAILED"
+      : "DEPENDENCY_FAILURE";
   return {
     kind: "error-frame",
     code,
-    diagnostic: code === "AUTHENTICATION_FAILED" ? "logux-authentication-failed" : "logux-dependency-failure",
+    diagnostic:
+      code === "AUTHENTICATION_FAILED"
+        ? "logux-authentication-failed"
+        : "logux-dependency-failure",
   };
 };

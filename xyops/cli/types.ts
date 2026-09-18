@@ -156,9 +156,7 @@ export type XYOpsEventConfig = Readonly<{
   executeMigration: XYOpsEventReference;
 }>;
 export type XYOpsEventReference =
-  | string
-  | Readonly<{ id: string }>
-  | Readonly<{ title: string }>;
+  string | Readonly<{ id: string }> | Readonly<{ title: string }>;
 export type XYOpsConfig = Readonly<{
   baseURL: string;
   apiKey: string;

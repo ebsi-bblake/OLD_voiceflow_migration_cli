@@ -9,7 +9,10 @@ type ReadMigrationPlan = (
   context: MigrationContext,
   selection: MigrationSelection,
 ) => Promise<MigrationPlan>;
-export const readMigrationPlan: ReadMigrationPlan = ({ client, config }, selection) =>
+export const readMigrationPlan: ReadMigrationPlan = (
+  { client, config },
+  selection,
+) =>
   client
     .readEvent(
       config.events.planMigration,
@@ -17,5 +20,9 @@ export const readMigrationPlan: ReadMigrationPlan = ({ client, config }, selecti
       createVoiceflowEnvelopeSchema(MigrationPlanSchema),
     )
     .then((response) =>
-      requireEnvelopeResult(response, "plan_migration", createVoiceflowEnvelopeSchema(MigrationPlanSchema)),
+      requireEnvelopeResult(
+        response,
+        "plan_migration",
+        createVoiceflowEnvelopeSchema(MigrationPlanSchema),
+      ),
     );

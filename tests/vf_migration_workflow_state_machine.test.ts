@@ -54,6 +54,7 @@ test("settles unknown outcomes and ignores late events", () => {
   expect(state).toMatchObject({
     stage: "UNKNOWN_OUTCOME",
     code: "IMPORT_OUTCOME_UNKNOWN",
+    context: { terminalFailure: { code: "IMPORT_OUTCOME_UNKNOWN", stage: "IMPORT" } },
   });
   expect(
     transitionMigrationWorkflow(state, {
@@ -80,6 +81,10 @@ test("completes an empty secret workflow without creating a secret", () => {
   ])
     state = advance(state, event);
   expect(state.stage).toBe("COMPLETED");
+  expect(state.context.terminalSuccess).toMatchObject({
+    planID: "plan",
+    importStatus: 0,
+  });
 });
 
 /* oxlint-disable complexity -- the test exhaustively maps each workflow effect to its next event. */

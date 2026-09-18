@@ -14,8 +14,7 @@ const actions: Readonly<Record<DiagnosticClass, string>> = {
     "Retry only when the diagnostic policy permits it",
   "timeout before dispatch": "Retry the operation when safe",
   "unknown execute outcome": "Reconcile the execute job before retrying",
-  "unknown import outcome":
-    "Reconcile the destination project before retrying",
+  "unknown import outcome": "Reconcile the destination project before retrying",
   "plan mismatch": "Re-run planning and confirm the plan ID",
 };
 

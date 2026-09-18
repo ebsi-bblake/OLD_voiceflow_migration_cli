@@ -46,7 +46,8 @@ const failedApiKeyRetrievalOutcome: FailedApiKeyRetrievalOutcome = () => {
 type KeyCandidates = (value: unknown) => string[];
 const keyCandidates: KeyCandidates = (value) => {
   if (typeof value === "string") return [value.trim()];
-  if (Array.isArray(value)) return value.flatMap((entry) => keyCandidates(entry));
+  if (Array.isArray(value))
+    return value.flatMap((entry) => keyCandidates(entry));
   return recordKeyCandidates(value);
 };
 const recordKeyCandidates = (value: unknown): string[] => {

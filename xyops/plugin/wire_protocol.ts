@@ -3,7 +3,9 @@ import { PluginValidationFault } from "./validation_fault";
 import type { XYOpsPluginResponse, VoiceflowEnvelope } from "./types";
 import { XYOpsPluginResponseSchema } from "./schemas/plugin_response";
 
-type ValidatePluginResponse = (value: XYOpsPluginResponse) => XYOpsPluginResponse;
+type ValidatePluginResponse = (
+  value: XYOpsPluginResponse,
+) => XYOpsPluginResponse;
 const validatePluginResponse: ValidatePluginResponse = (value) => {
   const parsed = XYOpsPluginResponseSchema.safeParse(value);
   if (!parsed.success)

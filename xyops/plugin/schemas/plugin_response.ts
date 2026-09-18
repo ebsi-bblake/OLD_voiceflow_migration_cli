@@ -42,10 +42,7 @@ export const XYOpsPluginResponseSchema = z
     xy: z.literal(1),
     complete: z.literal(true),
     code: z.union([z.literal(0), z.string()]),
-    data: z
-      .object({ voiceflow: VoiceflowEnvelopeSchema })
-      .loose()
-      .optional(),
+    data: z.object({ voiceflow: VoiceflowEnvelopeSchema }).loose().optional(),
     description: z.string().optional(),
   })
   .loose();

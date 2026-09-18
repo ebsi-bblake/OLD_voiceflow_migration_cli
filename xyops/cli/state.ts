@@ -77,9 +77,12 @@ export const chooseOptionValue: ChooseOptionValue = (options, index) =>
 
 type DebugParameter = () => string | true | undefined;
 const debugParameter: DebugParameter = () => {
-  const argument = process.argv.find((value) => value === "--debug" || value.startsWith("--debug="));
+  const argument = process.argv.find(
+    (value) => value === "--debug" || value.startsWith("--debug="),
+  );
   if (argument === "--debug") return true;
-  if (argument?.startsWith("--debug=")) return argument.slice("--debug=".length);
+  if (argument?.startsWith("--debug="))
+    return argument.slice("--debug=".length);
   return undefined;
 };
 

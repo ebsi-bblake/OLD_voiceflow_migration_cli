@@ -36,7 +36,10 @@ type ProjectOptionValues = (
 const projectOptionValues: ProjectOptionValues = (rows, folders) =>
   rows.map((row) => {
     const folder = folders.find((candidate) => candidate.id === row.folderID);
-    const path = folder === undefined ? row.label : `${folderPath(folder, folders)}/${row.label}`;
+    const path =
+      folder === undefined
+        ? row.label
+        : `${folderPath(folder, folders)}/${row.label}`;
     return { value: row.id, label: `${path} (${row.id})` };
   });
 
@@ -45,7 +48,9 @@ const folderPath = (
   folders: readonly FolderRecord[],
 ): string => {
   const parent = folders.find((candidate) => candidate.id === folder.parentID);
-  return parent === undefined ? folder.label : `${folderPath(parent, folders)}/${folder.label}`;
+  return parent === undefined
+    ? folder.label
+    : `${folderPath(parent, folders)}/${folder.label}`;
 };
 
 type OptionValues = (
@@ -61,7 +66,8 @@ const sortOptionsByLabel: SortOptionsByLabel = (options) =>
 type BuildOptions = (
   rows: readonly Readonly<{ id: string; label: string }>[],
 ) => Option[];
-const buildOptions: BuildOptions = (rows) => sortOptionsByLabel(optionValues(rows));
+const buildOptions: BuildOptions = (rows) =>
+  sortOptionsByLabel(optionValues(rows));
 
 type SelectProjectsInWorkspace = (
   rows: readonly ProjectRecord[],
@@ -124,7 +130,10 @@ type ReconcileProjectFolders = (
   projects: readonly ProjectRecord[],
   assistants: readonly ProjectRecord[],
 ) => readonly ProjectRecord[];
-const reconcileProjectFolders: ReconcileProjectFolders = (projects, assistants) => {
+const reconcileProjectFolders: ReconcileProjectFolders = (
+  projects,
+  assistants,
+) => {
   const folderIDs = new Map(
     assistants
       .filter((assistant) => assistant.folderID !== undefined)
@@ -165,11 +174,13 @@ type ProjectOptions = (
   workspaceID: string,
   folders?: readonly FolderRecord[],
 ) => (rows: readonly ProjectRecord[]) => Option[];
-export const projectOptions: ProjectOptions = (workspaceID, folders = []) => (rows) => {
-  const id = requireVoiceflowString(workspaceID);
-  const projects = selectProjectsInWorkspace(rows, id);
-  return sortOptionsByLabel(projectOptionValues(projects, folders));
-};
+export const projectOptions: ProjectOptions =
+  (workspaceID, folders = []) =>
+  (rows) => {
+    const id = requireVoiceflowString(workspaceID);
+    const projects = selectProjectsInWorkspace(rows, id);
+    return sortOptionsByLabel(projectOptionValues(projects, folders));
+  };
 
 type FolderOptions = (
   workspaceID: string,
@@ -206,8 +217,12 @@ type ListProjects = (
   workspaceID: string,
 ) => Promise<Option[]>;
 export const listProjects: ListProjects = (auth, workspaceID) =>
-  Promise.all([loadProjects(auth, workspaceID), loadFolders(auth, workspaceID)])
-    .then(([projects, folders]) => projectOptions(workspaceID, folders)(projects));
+  Promise.all([
+    loadProjects(auth, workspaceID),
+    loadFolders(auth, workspaceID),
+  ]).then(([projects, folders]) =>
+    projectOptions(workspaceID, folders)(projects),
+  );
 
 type ListFolders = (
   auth: AuthContext,

@@ -262,9 +262,7 @@ const readDurations: ReadDurations = (environment) => ({
 });
 
 type ReadXYOpsConfig = (environment?: Environment) => XYOpsConfig;
-export const readXYOpsConfig: ReadXYOpsConfig = (
-  environment = process.env,
-) => {
+export const readXYOpsConfig: ReadXYOpsConfig = (environment = process.env) => {
   const parsed = XYOpsEnvironmentSchema.safeParse(environment);
   if (!parsed.success)
     throw fail("configuration", {

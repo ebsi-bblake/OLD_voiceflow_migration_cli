@@ -7,20 +7,24 @@ const boundedErrorCode = z.string().min(1).max(80);
 
 /** Known Logux tuple shapes; action payload semantics remain operation policies. */
 export const LoguxFrameSchema = z.union([
-  z.tuple([
-    z.literal("connect"),
-    safeInteger,
-    z.string().min(1),
-    safeInteger,
-    recordSchema,
-  ]).rest(frameTail),
-  z.tuple([
-    z.literal("connected"),
-    safeInteger,
-    z.string().min(1),
-    z.array(z.unknown()),
-    recordSchema,
-  ]).rest(frameTail),
+  z
+    .tuple([
+      z.literal("connect"),
+      safeInteger,
+      z.string().min(1),
+      safeInteger,
+      recordSchema,
+    ])
+    .rest(frameTail),
+  z
+    .tuple([
+      z.literal("connected"),
+      safeInteger,
+      z.string().min(1),
+      z.array(z.unknown()),
+      recordSchema,
+    ])
+    .rest(frameTail),
   z.tuple([z.literal("sync"), safeInteger, recordSchema]).rest(frameTail),
   z.tuple([z.literal("synced"), safeInteger]).rest(frameTail),
   z.tuple([z.literal("error"), boundedErrorCode]).rest(frameTail),

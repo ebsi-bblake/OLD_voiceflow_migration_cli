@@ -109,15 +109,18 @@ const performMigration: PerformMigration = async (context) => {
       secretFileContents,
     ),
   );
-  console.log("\n" + JSON.stringify({
-    migrationCompleted: true,
-    planID: plan.planID,
-    exportStatus: execute.exportStatus,
-    exportBytes: execute.exportBytes,
-    importStatus: execute.importStatus,
-    importBytes: execute.importBytes,
-    apiKeyRetrieved: execute.apiKeyRetrieved,
-  }));
+  console.log(
+    "\n" +
+      JSON.stringify({
+        migrationCompleted: true,
+        planID: plan.planID,
+        exportStatus: execute.exportStatus,
+        exportBytes: execute.exportBytes,
+        importStatus: execute.importStatus,
+        importBytes: execute.importBytes,
+        apiKeyRetrieved: execute.apiKeyRetrieved,
+      }),
+  );
 };
 
 type Run = () => Promise<void>;

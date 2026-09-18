@@ -17,7 +17,10 @@ export const CONFIRMATION_DEADLINE_MS = 15_000;
 const MAX_DIAGNOSTIC_LENGTH = 240;
 
 type ProjectState = RenameDurabilityContext;
-type LoadProjects = (auth: AuthContext, workspaceID: string) => Promise<readonly ProjectRecord[]>;
+type LoadProjects = (
+  auth: AuthContext,
+  workspaceID: string,
+) => Promise<readonly ProjectRecord[]>;
 type Sleep = (milliseconds: number) => Promise<void>;
 
 type ConfirmProjectRenameOptions = Readonly<{
@@ -36,17 +39,23 @@ const defaultSleep: Sleep = (milliseconds) =>
       reject(new Error("timer-setup-failed"));
     }
   });
-const isCancelled = (signal: AbortSignal | undefined): boolean => signal?.aborted === true;
+const isCancelled = (signal: AbortSignal | undefined): boolean =>
+  signal?.aborted === true;
 const isPermanentFailure = (error: unknown): error is OperationFault =>
   error instanceof OperationFault &&
-  ["AUTHENTICATION_FAILED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(error.code);
+  ["AUTHENTICATION_FAILED", "INVALID_ARGUMENT", "NOT_FOUND"].includes(
+    error.code,
+  );
 const safeFailureCategory = (error: unknown): string => {
   if (error instanceof OperationFault) return error.code.toLowerCase();
   return "dependency-failure";
 };
-const boundedDiagnostic = (value: string): string => value.slice(0, MAX_DIAGNOSTIC_LENGTH);
+const boundedDiagnostic = (value: string): string =>
+  value.slice(0, MAX_DIAGNOSTIC_LENGTH);
 const exhaustedDiagnostic = (attempt: number, reason: string): string =>
-  boundedDiagnostic(`archive-durability confirmation attempt ${attempt} of ${MAX_CONFIRMATION_ATTEMPTS} failed (${reason})`);
+  boundedDiagnostic(
+    `archive-durability confirmation attempt ${attempt} of ${MAX_CONFIRMATION_ATTEMPTS} failed (${reason})`,
+  );
 const cancellationError = (): OperationFault =>
   new OperationFault("INTERNAL_ERROR", false, "rename-durability-cancelled");
 const timeoutError = (diagnostic: string): OperationFault =>
@@ -56,7 +65,9 @@ const projectMatches = (
   projects: readonly ProjectRecord[],
   expected: ProjectState,
 ): ProjectRecord | undefined => {
-  const candidates = projects.filter((project) => project.id === expected.projectID);
+  const candidates = projects.filter(
+    (project) => project.id === expected.projectID,
+  );
   if (candidates.length !== 1) return undefined;
   const project = candidates[0];
   return project !== undefined &&
@@ -82,7 +93,8 @@ const readWithDeadline = <T>(
     };
     try {
       timer = setTimeout(
-        () => finish(() => reject(new OperationFault("DEPENDENCY_TIMEOUT", true))),
+        () =>
+          finish(() => reject(new OperationFault("DEPENDENCY_TIMEOUT", true))),
         remainingMilliseconds,
       );
       operation.then(
@@ -125,7 +137,10 @@ export const confirmProjectRename: ConfirmProjectRename = async (
       deadline,
     }).state;
     try {
-      const projects = await readWithDeadline(readProjects(auth, expected.workspaceID), remaining);
+      const projects = await readWithDeadline(
+        readProjects(auth, expected.workspaceID),
+        remaining,
+      );
       if (isCancelled(options.signal)) throw cancellationError();
       const project = projectMatches(projects, expected);
       if (now() <= deadline && project !== undefined) {
@@ -145,12 +160,20 @@ export const confirmProjectRename: ConfirmProjectRename = async (
     } catch (error) {
       if (isCancelled(options.signal)) throw cancellationError();
       if (isPermanentFailure(error))
-        throw new OperationFault(error.code, error.retryable, boundedDiagnostic(`archive-durability ${safeFailureCategory(error)}`));
+        throw new OperationFault(
+          error.code,
+          error.retryable,
+          boundedDiagnostic(`archive-durability ${safeFailureCategory(error)}`),
+        );
       if (now() >= deadline)
-        throw timeoutError(exhaustedDiagnostic(attempt, safeFailureCategory(error)));
+        throw timeoutError(
+          exhaustedDiagnostic(attempt, safeFailureCategory(error)),
+        );
     }
     if (now() >= deadline || attempt === MAX_CONFIRMATION_ATTEMPTS)
-      throw timeoutError(exhaustedDiagnostic(attempt, safeFailureCategory(undefined)));
+      throw timeoutError(
+        exhaustedDiagnostic(attempt, safeFailureCategory(undefined)),
+      );
     const retryDeadline = Math.min(now() + CONFIRMATION_INTERVAL_MS, deadline);
     state = scheduleRenameDurabilityRetry(
       state as Extract<RenameDurabilityState, { readonly kind: "ATTEMPTING" }>,
@@ -159,18 +182,28 @@ export const confirmProjectRename: ConfirmProjectRename = async (
     try {
       await sleep(Math.max(0, retryDeadline - now()));
     } catch {
-      state = transitionRenameDurability(state, { kind: "timer-failure", diagnostic: "archive-durability retry timer failed" }).state;
-      throw new OperationFault("DEPENDENCY_FAILURE", true, "archive-durability retry timer failed");
+      state = transitionRenameDurability(state, {
+        kind: "timer-failure",
+        diagnostic: "archive-durability retry timer failed",
+      }).state;
+      throw new OperationFault(
+        "DEPENDENCY_FAILURE",
+        true,
+        "archive-durability retry timer failed",
+      );
     }
     if (isCancelled(options.signal)) throw cancellationError();
     state = transitionRenameDurability(state, {
       kind: "retry-timer",
-      attemptID: state.kind === "WAITING_TO_RETRY" ? state.attemptID : attemptID,
+      attemptID:
+        state.kind === "WAITING_TO_RETRY" ? state.attemptID : attemptID,
       nextAttemptID: createUUID(),
       deadline: retryDeadline,
     }).state;
     attemptID = state.kind === "ATTEMPTING" ? state.attemptID : createUUID();
     attempt += 1;
   }
-  throw timeoutError(exhaustedDiagnostic(MAX_CONFIRMATION_ATTEMPTS, "attempt-limit"));
+  throw timeoutError(
+    exhaustedDiagnostic(MAX_CONFIRMATION_ATTEMPTS, "attempt-limit"),
+  );
 };

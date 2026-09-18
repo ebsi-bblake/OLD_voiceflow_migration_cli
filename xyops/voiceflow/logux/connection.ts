@@ -5,7 +5,10 @@ export type LoguxFrame = readonly unknown[];
 export type LoguxTransportEvent =
   | { readonly kind: "connection-opened" }
   | { readonly kind: "frame"; readonly frame: LoguxFrame }
-  | { readonly kind: "connection-interrupted"; readonly reason: "close" | "timeout" }
+  | {
+      readonly kind: "connection-interrupted";
+      readonly reason: "close" | "timeout";
+    }
   | { readonly kind: "transport-failure"; readonly diagnostic: string };
 
 export type LoguxSubscriptionPolicy = Readonly<{ readonly frame: LoguxFrame }>;
@@ -33,27 +36,50 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const CONNECT_VERSION = 4;
 const SUBPROTOCOL = "1.9.0";
 const closeSocket = (socket: WebSocket | undefined): void => {
-  try { socket?.close(); } catch { /* cleanup must not replace the operation failure */ }
+  try {
+    socket?.close();
+  } catch {
+    /* cleanup must not replace the operation failure */
+  }
 };
 const emitTerminal = (
   resources: ConnectionResources,
-  event: Extract<LoguxTransportEvent, { readonly kind: "connection-interrupted" | "transport-failure" }>,
+  event: Extract<
+    LoguxTransportEvent,
+    { readonly kind: "connection-interrupted" | "transport-failure" }
+  >,
   onEvent: LoguxConnectionInput["onEvent"],
 ): void => {
   if (resources.cleaned || resources.terminal) return;
   resources.terminal = true;
   onEvent(event);
 };
-const sendSerialized = (socket: WebSocket, frame: LoguxFrame): void => socket.send(JSON.stringify(frame));
+const sendSerialized = (socket: WebSocket, frame: LoguxFrame): void =>
+  socket.send(JSON.stringify(frame));
 
 /* oxlint-disable complexity -- socket lifecycle branches are explicit and terminal. */
 /** Owns raw socket mechanics and emits validated transport-boundary events only. */
-export const startLoguxConnection = (input: LoguxConnectionInput): LoguxConnection => {
-  const resources: ConnectionResources = { socket: undefined, timer: undefined, cleaned: false, terminal: false, subscriptionSent: false };
+export const startLoguxConnection = (
+  input: LoguxConnectionInput,
+): LoguxConnection => {
+  const resources: ConnectionResources = {
+    socket: undefined,
+    timer: undefined,
+    cleaned: false,
+    terminal: false,
+    subscriptionSent: false,
+  };
   const send = (frame: LoguxFrame): void => {
     if (resources.cleaned || resources.socket === undefined) return;
-    try { sendSerialized(resources.socket, frame); }
-    catch { emitTerminal(resources, { kind: "transport-failure", diagnostic: "logux-send-failed" }, input.onEvent); }
+    try {
+      sendSerialized(resources.socket, frame);
+    } catch {
+      emitTerminal(
+        resources,
+        { kind: "transport-failure", diagnostic: "logux-send-failed" },
+        input.onEvent,
+      );
+    }
   };
   const onMessage = (data: unknown): void => {
     if (typeof data !== "string" || resources.cleaned) return;
@@ -65,7 +91,11 @@ export const startLoguxConnection = (input: LoguxConnectionInput): LoguxConnecti
     }
     if (frame[0] === "pong") return;
     input.onEvent({ kind: "frame", frame });
-    if (frame[0] === "connected" && input.subscription !== undefined && !resources.subscriptionSent) {
+    if (
+      frame[0] === "connected" &&
+      input.subscription !== undefined &&
+      !resources.subscriptionSent
+    ) {
       resources.subscriptionSent = true;
       send(input.subscription.frame);
     }
@@ -85,7 +115,15 @@ export const startLoguxConnection = (input: LoguxConnectionInput): LoguxConnecti
     }
     closeSocket(socket);
   };
-  resources.timer = setTimeout(() => emitTerminal(resources, { kind: "connection-interrupted", reason: "timeout" }, input.onEvent), input.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  resources.timer = setTimeout(
+    () =>
+      emitTerminal(
+        resources,
+        { kind: "connection-interrupted", reason: "timeout" },
+        input.onEvent,
+      ),
+    input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
   try {
     const Socket = input.webSocket ?? WebSocket;
     const socket = new Socket(VOICEFLOW_REALTIME_WEBSOCKET_URL);
@@ -93,16 +131,49 @@ export const startLoguxConnection = (input: LoguxConnectionInput): LoguxConnecti
     socket.onopen = () => {
       if (resources.cleaned || resources.terminal) return;
       input.onEvent({ kind: "connection-opened" });
-      try { sendSerialized(socket, ["connect", CONNECT_VERSION, input.origin, 0, { token: input.token, subprotocol: SUBPROTOCOL }]); }
-      catch { emitTerminal(resources, { kind: "transport-failure", diagnostic: "logux-connect-send-failed" }, input.onEvent); }
+      try {
+        sendSerialized(socket, [
+          "connect",
+          CONNECT_VERSION,
+          input.origin,
+          0,
+          { token: input.token, subprotocol: SUBPROTOCOL },
+        ]);
+      } catch {
+        emitTerminal(
+          resources,
+          {
+            kind: "transport-failure",
+            diagnostic: "logux-connect-send-failed",
+          },
+          input.onEvent,
+        );
+      }
     };
     socket.onmessage = (event: MessageEvent) => onMessage(event.data);
-    socket.onerror = () => emitTerminal(resources, { kind: "transport-failure", diagnostic: "logux-socket-error" }, input.onEvent);
-    socket.onclose = () => emitTerminal(resources, { kind: "connection-interrupted", reason: "close" }, input.onEvent);
+    socket.onerror = () =>
+      emitTerminal(
+        resources,
+        { kind: "transport-failure", diagnostic: "logux-socket-error" },
+        input.onEvent,
+      );
+    socket.onclose = () =>
+      emitTerminal(
+        resources,
+        { kind: "connection-interrupted", reason: "close" },
+        input.onEvent,
+      );
   } catch {
-    emitTerminal(resources, { kind: "transport-failure", diagnostic: "logux-initialization-failed" }, input.onEvent);
+    emitTerminal(
+      resources,
+      { kind: "transport-failure", diagnostic: "logux-initialization-failed" },
+      input.onEvent,
+    );
   }
   return { send, cleanup };
 };
 
-export const sendSubscriptionOnce = (connection: LoguxConnection, policy: LoguxSubscriptionPolicy): void => connection.send(policy.frame);
+export const sendSubscriptionOnce = (
+  connection: LoguxConnection,
+  policy: LoguxSubscriptionPolicy,
+): void => connection.send(policy.frame);

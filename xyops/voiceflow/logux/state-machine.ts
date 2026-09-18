@@ -376,7 +376,11 @@ export const transitionSecretStateWithEffects = (
   )
     return { state, accepted: false, effects: [] };
   if (event.kind === "connection-established" && state.kind === "CONNECTING")
-    return { state: { ...state, kind: "CONNECTED" }, accepted: true, effects: [] };
+    return {
+      state: { ...state, kind: "CONNECTED" },
+      accepted: true,
+      effects: [],
+    };
   if (event.kind === "connected" && state.kind === "CONNECTED")
     return {
       state: { ...state, kind: "SUBSCRIBING" },
@@ -384,7 +388,11 @@ export const transitionSecretStateWithEffects = (
       effects: [{ kind: "send-subscription" }],
     };
   if (event.kind === "subscription-synced" && state.kind === "SUBSCRIBING")
-    return { state: { ...state, kind: "SUBSCRIBED" }, accepted: true, effects: [] };
+    return {
+      state: { ...state, kind: "SUBSCRIBED" },
+      accepted: true,
+      effects: [],
+    };
   if (event.kind === "mutation-sent" && state.kind === "SUBSCRIBED")
     return {
       state: {

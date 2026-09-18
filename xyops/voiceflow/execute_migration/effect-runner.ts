@@ -27,6 +27,7 @@ import {
   transitionMigrationWorkflow,
   type MigrationWorkflowEffect,
   type MigrationWorkflowEvent,
+  type MigrationWorkflowFailure,
   type MigrationWorkflowState,
 } from "../execute-migration-state-machine";
 
@@ -124,10 +125,16 @@ const draftVersionID = (project: ProjectRecord): string | undefined =>
     .map((environment) => environment.draftVersionID)
     .find((versionID): versionID is string => versionID !== undefined && versionID !== "");
 
+const workflowFailure = (error: unknown, stage: MigrationWorkflowState["stage"]): MigrationWorkflowFailure =>
+  error instanceof OperationFault
+    ? { code: error.code, retryable: error.retryable, stage, diagnostic: error.diagnostic }
+    : { code: "INTERNAL_ERROR", retryable: false, stage };
+
+/* oxlint-disable complexity -- failure translation exhaustively preserves terminal reducer data. */
 const failureForState = (
   state: MigrationWorkflowState,
 ): OperationFault => {
-  const code = state.code;
+  const code = state.context.terminalFailure?.code ?? state.code;
   const supported = [
     "IMPORT_OUTCOME_UNKNOWN",
     "INTERNAL_ERROR",
@@ -142,12 +149,13 @@ const failureForState = (
   const resolvedCode = supported.includes(code as (typeof supported)[number])
     ? (code as (typeof supported)[number])
     : "DEPENDENCY_FAILURE";
-  const stage = state.diagnostic?.match(/stage=([A-Z_]+)/)?.[1];
+  const diagnostic = state.context.terminalFailure?.diagnostic ?? state.diagnostic;
+  const stage = state.context.terminalFailure?.stage ?? state.stage;
   return new OperationFault(
     resolvedCode,
-    state.retryable,
-    state.diagnostic,
-    stage === undefined ? undefined : { stage },
+    state.context.terminalFailure?.retryable ?? state.retryable ?? false,
+    diagnostic,
+    { stage },
   );
 };
 
@@ -185,6 +193,7 @@ const reducerFailureCode = (error: unknown): ReducerFailureCode => {
   }
 };
 
+/* oxlint-disable complexity -- the typed handler map owns each dependent workflow effect. */
 export const createMigrationEffectHandlers = (
   input: ExecuteMigrationInput,
   dependencies: MigrationRuntimeDependencies,
@@ -296,13 +305,14 @@ export const createMigrationEffectHandlers = (
     const artifact = requireArtifact(state);
     const plan = requirePlan(state);
     const imported = requireImported(state);
+    const summary = state.context.terminalSuccess;
     return settledResult(
       success("execute_migration", input.operationID, {
-        planID: input.planID,
-        exportStatus: artifact.status,
-        exportBytes: artifact.bytes.byteLength,
-        importStatus: imported.importStatus,
-        importBytes: imported.importBytes,
+        planID: summary?.planID ?? input.planID,
+        exportStatus: summary?.exportStatus ?? artifact.status,
+        exportBytes: summary?.exportBytes ?? artifact.bytes.byteLength,
+        importStatus: summary?.importStatus ?? imported.importStatus,
+        importBytes: summary?.importBytes ?? imported.importBytes,
         selected: plan.selection,
         imported,
       }),
@@ -361,8 +371,9 @@ export const runMigrationWorkflow: RunMigrationWorkflow = async (
   };
   const dispatchFailure = async (error: unknown): Promise<void> => {
     const diagnostic = addFailureStage(error, state.stage);
+    const failure = workflowFailure(diagnostic, state.stage);
     if (diagnostic instanceof OperationFault && diagnostic.code === "IMPORT_OUTCOME_UNKNOWN") {
-      await dispatch({ kind: "import-unknown", diagnostic: diagnostic.diagnostic });
+      await dispatch({ kind: "import-unknown", diagnostic: diagnostic.diagnostic, failure });
       return;
     }
     if (
@@ -370,7 +381,7 @@ export const runMigrationWorkflow: RunMigrationWorkflow = async (
       diagnostic instanceof OperationFault &&
       ["DEPENDENCY_FAILURE", "DEPENDENCY_TIMEOUT"].includes(diagnostic.code)
     ) {
-      await dispatch({ kind: "archive-durability-unknown", diagnostic: diagnostic.diagnostic });
+      await dispatch({ kind: "archive-durability-unknown", diagnostic: diagnostic.diagnostic, failure });
       return;
     }
     if (
@@ -378,13 +389,14 @@ export const runMigrationWorkflow: RunMigrationWorkflow = async (
       diagnostic instanceof OperationFault &&
       diagnostic.code === "DEPENDENCY_TIMEOUT"
     ) {
-      await dispatch({ kind: "secret-unknown", diagnostic: diagnostic.diagnostic });
+      await dispatch({ kind: "secret-unknown", diagnostic: diagnostic.diagnostic, failure });
       return;
     }
     await dispatch({
       kind: "dependency-failure",
       code: reducerFailureCode(diagnostic),
       diagnostic: diagnostic instanceof OperationFault ? diagnostic.diagnostic : undefined,
+      failure,
     });
   };
 

@@ -3,11 +3,7 @@ import {
   NativePluginResponseSchema,
 } from "./schemas/xyops-responses";
 import { SecretEntryArraySchema } from "../voiceflow/schemas/secret_entry";
-import type {
-  EventParameterValue,
-} from "./types";
-
-
+import type { EventParameterValue } from "./types";
 
 type NormalizeVoiceflowResponse = (value: unknown) => unknown;
 const nativeNormalizers: readonly ((value: unknown) => unknown | undefined)[] =

@@ -79,11 +79,16 @@ const pollObservation: PollObservation = async <T>(
     return result;
   } catch (error) {
     const diagnostic = error instanceof CliError ? error.diagnostic : undefined;
-    dispatch(diagnostic?.code === "job" ? { kind: "job-failed" } : { kind: "poll-timeout" });
+    dispatch(
+      diagnostic?.code === "job"
+        ? { kind: "job-failed" }
+        : { kind: "poll-timeout" },
+    );
     if (useStreaming && diagnostic?.code === "job")
       throw fail("execute-outcome-unknown", {
         endpoint: JOB_PATH,
-        nextAction: "The execute job outcome is unknown; reconcile before retrying.",
+        nextAction:
+          "The execute job outcome is unknown; reconcile before retrying.",
         ...(diagnostic.diagnostic === undefined
           ? {}
           : { diagnostic: diagnostic.diagnostic }),
@@ -178,7 +183,9 @@ export const createXYOpsClient = (
     useStreaming: boolean,
   ): Promise<VoiceflowEnvelope<T>> => {
     let state: JobObservationState = createJobObservationState(id);
-    const dispatch = (event: JobObservationEvent): readonly JobObservationEffect[] => {
+    const dispatch = (
+      event: JobObservationEvent,
+    ): readonly JobObservationEffect[] => {
       const transition = transitionJobObservation(state, event);
       if (transition.accepted) state = transition.state;
       return transition.effects;
@@ -196,7 +203,8 @@ export const createXYOpsClient = (
         return result;
       } catch (error) {
         const effects = dispatch({ kind: "stream-failed" });
-        if (effects.some((effect) => effect.kind === "start-polling")) return poll();
+        if (effects.some((effect) => effect.kind === "start-polling"))
+          return poll();
         throw error;
       }
     };
@@ -205,7 +213,9 @@ export const createXYOpsClient = (
       const pollingEffects = dispatch({ kind: "polling-started" });
       return pollingEffects.some((effect) => effect.kind === "start-polling")
         ? poll()
-        : Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH }));
+        : Promise.reject(
+            fail("execute-outcome-unknown", { endpoint: JOB_PATH }),
+          );
     }
     return effects.some((effect) => effect.kind === "start-stream")
       ? stream()
@@ -218,7 +228,11 @@ export const createXYOpsClient = (
     guard: ResponseSchema<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> => {
     try {
-      const launch = await request(RUN_PATH, eventBody(reference, params), RUN_PATH);
+      const launch = await request(
+        RUN_PATH,
+        eventBody(reference, params),
+        RUN_PATH,
+      );
       const id = readLaunchID(launch, RUN_PATH);
       const useStreaming =
         typeof config.streamMaxBytes === "number" &&

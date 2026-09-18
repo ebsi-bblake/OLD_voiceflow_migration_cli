@@ -64,16 +64,17 @@ export const readLaunchID = (
 // XYOps has two supported response envelopes for jobs.
 const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined => {
   const parsed = XYOpsJobResponseSchema.safeParse(response);
-  return parsed.success
-    ? parsed.data.job
-    : readJobContainer(response.data);
+  return parsed.success ? parsed.data.job : readJobContainer(response.data);
 };
 
-const readStructuredDiagnostic = (job: XYOpsJobResult): Diagnostic | undefined => {
+const readStructuredDiagnostic = (
+  job: XYOpsJobResult,
+): Diagnostic | undefined => {
   const data = XYOpsRecordSchema.safeParse(job.data);
   if (!data.success) return undefined;
   const error = XYOpsRecordSchema.safeParse(data.data.error);
-  const candidate = data.data.diagnostic ?? (error.success ? error.data.diagnostic : undefined);
+  const candidate =
+    data.data.diagnostic ?? (error.success ? error.data.diagnostic : undefined);
   return parseDiagnostic(candidate);
 };
 

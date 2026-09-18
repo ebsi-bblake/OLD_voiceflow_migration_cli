@@ -36,7 +36,8 @@ export const DiagnosticSchema: z.ZodType<DiagnosticDTO> = z
   .loose();
 
 export type DiagnosticCauseDTO = {
-  readonly domain: "core" | "plugin" | "cli" | "logux" | "transport" | "protocol";
+  readonly domain:
+    "core" | "plugin" | "cli" | "logux" | "transport" | "protocol";
   readonly code: string;
   readonly stage: string;
   readonly retryable: boolean;
@@ -45,7 +46,8 @@ export type DiagnosticCauseDTO = {
 };
 export type DiagnosticDTO = {
   readonly code: string;
-  readonly domain: "core" | "plugin" | "cli" | "logux" | "transport" | "protocol";
+  readonly domain:
+    "core" | "plugin" | "cli" | "logux" | "transport" | "protocol";
   readonly stage: string;
   readonly retryable: boolean;
   readonly nextAction: string;

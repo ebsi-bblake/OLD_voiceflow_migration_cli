@@ -56,21 +56,28 @@ const fetchRequest: FetchRequest = async (
   }
 };
 
-type ReadHTTPDiagnostic = (response: Response) => Promise<ReturnType<typeof parseDiagnostic>>;
+type ReadHTTPDiagnostic = (
+  response: Response,
+) => Promise<ReturnType<typeof parseDiagnostic>>;
 export const readHTTPDiagnostic: ReadHTTPDiagnostic = async (response) => {
   try {
     const body: unknown = await response.clone().json();
     const record = XYOpsRecordSchema.safeParse(body);
     if (!record.success) return undefined;
     const error = XYOpsRecordSchema.safeParse(record.data.error);
-    const candidate = record.data.diagnostic ?? (error.success ? error.data.diagnostic : undefined);
+    const candidate =
+      record.data.diagnostic ??
+      (error.success ? error.data.diagnostic : undefined);
     return parseDiagnostic(candidate);
   } catch {
     return undefined;
   }
 };
 
-type RequireHTTPResponse = (response: Response, endpoint: string) => Promise<Response>;
+type RequireHTTPResponse = (
+  response: Response,
+  endpoint: string,
+) => Promise<Response>;
 const requireHTTPResponse: RequireHTTPResponse = async (response, endpoint) => {
   if (response.ok) return response;
   const diagnostic = await readHTTPDiagnostic(response);

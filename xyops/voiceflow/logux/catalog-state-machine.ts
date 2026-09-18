@@ -3,9 +3,7 @@ export type CatalogRow = Readonly<Record<string, unknown>>;
 const MAX_CATALOG_ROWS = 100_000;
 
 export type CatalogErrorCode =
-  | "AUTHENTICATION_FAILED"
-  | "DEPENDENCY_FAILURE"
-  | "DEPENDENCY_TIMEOUT";
+  "AUTHENTICATION_FAILED" | "DEPENDENCY_FAILURE" | "DEPENDENCY_TIMEOUT";
 
 type CatalogContext = Readonly<{
   readonly operationID: string;
@@ -111,7 +109,9 @@ const isTerminal = (state: CatalogState): boolean =>
 const requestedTypeSet = (state: CatalogState): ReadonlySet<string> =>
   new Set(state.context.requestedTypes);
 const workspaceIDFromChannel = (channel: string): string | undefined =>
-  channel.startsWith("workspace/") ? channel.slice("workspace/".length) : undefined;
+  channel.startsWith("workspace/")
+    ? channel.slice("workspace/".length)
+    : undefined;
 const actionIsScopedToState = (
   state: Extract<CatalogState, { readonly kind: "COLLECTING" }>,
   event: Extract<CatalogEvent, { readonly kind: "catalog-action" }>,
@@ -120,7 +120,8 @@ const actionIsScopedToState = (
   return (
     event.operationID === state.context.operationID &&
     event.channel === state.context.channel &&
-    (event.workspaceID === undefined || event.workspaceID === expectedWorkspaceID)
+    (event.workspaceID === undefined ||
+      event.workspaceID === expectedWorkspaceID)
   );
 };
 const actionCompletesSnapshot = (
@@ -132,7 +133,10 @@ type TransitionCatalogState = (
   state: CatalogState,
   event: CatalogEvent,
 ) => CatalogTransition;
-export const transitionCatalogState: TransitionCatalogState = (state, event) => {
+export const transitionCatalogState: TransitionCatalogState = (
+  state,
+  event,
+) => {
   if (isTerminal(state)) return ignored(state);
 
   if (event.kind === "connection-established" && state.kind === "CONNECTING")
@@ -140,7 +144,11 @@ export const transitionCatalogState: TransitionCatalogState = (state, event) => 
 
   if (event.kind === "connected" && state.kind === "CONNECTED")
     return accepted(
-      { ...state, kind: "SUBSCRIBING", subscriptionSyncID: event.subscriptionSyncID },
+      {
+        ...state,
+        kind: "SUBSCRIBING",
+        subscriptionSyncID: event.subscriptionSyncID,
+      },
       [{ kind: "send-subscription", syncID: event.subscriptionSyncID }],
     );
 
@@ -180,10 +188,10 @@ export const transitionCatalogState: TransitionCatalogState = (state, event) => 
     const rows = [...state.rows, ...event.rows];
     const nextState = { ...state, seenTypes, rows, byteCount: event.byteCount };
     return actionCompletesSnapshot(requestedTypeSet(state), seenTypes)
-      ? accepted({ kind: "COMPLETED", context: state.context, seenTypes, rows }, [
-          { kind: "close-socket" },
-          { kind: "settle" },
-        ])
+      ? accepted(
+          { kind: "COMPLETED", context: state.context, seenTypes, rows },
+          [{ kind: "close-socket" }, { kind: "settle" }],
+        )
       : accepted(nextState);
   }
 
@@ -194,7 +202,9 @@ export const transitionCatalogState: TransitionCatalogState = (state, event) => 
         context: state.context,
         code: event.kind === "error-frame" ? event.code : "DEPENDENCY_FAILURE",
         diagnostic: event.diagnostic,
-        retryable: event.kind !== "error-frame" || event.code !== "AUTHENTICATION_FAILED",
+        retryable:
+          event.kind !== "error-frame" ||
+          event.code !== "AUTHENTICATION_FAILED",
       },
       [{ kind: "close-socket" }, { kind: "settle" }],
     );

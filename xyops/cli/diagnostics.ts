@@ -24,9 +24,13 @@ const toDiagnostic = (value: DiagnosticDTO): Diagnostic => ({
     stage: cause.stage,
     retryable: cause.retryable,
     context: safeContext(cause.context),
-    ...(cause.diagnostic === undefined ? {} : { diagnostic: toDiagnostic(cause.diagnostic) }),
+    ...(cause.diagnostic === undefined
+      ? {}
+      : { diagnostic: toDiagnostic(cause.diagnostic) }),
   })),
-  ...(value.diagnostic === undefined ? {} : { diagnostic: toDiagnostic(value.diagnostic) }),
+  ...(value.diagnostic === undefined
+    ? {}
+    : { diagnostic: toDiagnostic(value.diagnostic) }),
 });
 
 export const parseDiagnostic = (value: unknown): Diagnostic | undefined => {
@@ -78,7 +82,9 @@ export const fail: Fail = (code, options = {}) =>
     retryable: resolveRetryable(options),
     status: options.status,
     nextAction: resolveNextAction(options),
-    ...(options.diagnostic === undefined ? {} : { diagnostic: options.diagnostic }),
+    ...(options.diagnostic === undefined
+      ? {}
+      : { diagnostic: options.diagnostic }),
   });
 
 type AsCliError = (error: unknown) => CliError;
@@ -92,15 +98,18 @@ const safeDiagnostic = (diagnostic: Diagnostic): SafeContext => {
 };
 export const cliErrorOutput: CliErrorOutput = (error) => {
   const diagnostic = asCliError(error).diagnostic;
-  const safeNestedDiagnostic = diagnostic.diagnostic === undefined
-    ? undefined
-    : safeDiagnostic(diagnostic.diagnostic);
+  const safeNestedDiagnostic =
+    diagnostic.diagnostic === undefined
+      ? undefined
+      : safeDiagnostic(diagnostic.diagnostic);
   return {
     code: diagnostic.code,
     endpoint: diagnostic.endpoint,
     retryable: diagnostic.retryable,
     ...(diagnostic.status === undefined ? {} : { status: diagnostic.status }),
     nextAction: diagnostic.nextAction,
-    ...(safeNestedDiagnostic === undefined ? {} : { diagnostic: safeNestedDiagnostic }),
+    ...(safeNestedDiagnostic === undefined
+      ? {}
+      : { diagnostic: safeNestedDiagnostic }),
   };
 };

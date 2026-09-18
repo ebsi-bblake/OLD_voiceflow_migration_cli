@@ -72,7 +72,9 @@ const createPlanFromCatalog: CreatePlanFromCatalog =
   (selection, [workspaces, projects, destinationFolders]) =>
   (planID) => {
     const workspaceChoices = workspaceOptions(workspaces);
-    const projectChoices = projectOptions(selection.sourceWorkspaceID)(projects);
+    const projectChoices = projectOptions(selection.sourceWorkspaceID)(
+      projects,
+    );
     const versionChoices = versionOptions(
       selection.sourceWorkspaceID,
       selection.sourceProjectID,

@@ -1,16 +1,22 @@
 import { z } from "zod";
 import type { VoiceflowEnvelope } from "../types";
-import { ErrorCode, VoiceflowOperation, WarningCode } from "../../voiceflow/types";
+import {
+  ErrorCode,
+  VoiceflowOperation,
+  WarningCode,
+} from "../../voiceflow/types";
 
-const operationSchema = z.string().refine((value) =>
-  Object.values(VoiceflowOperation).some((operation) => operation === value),
-);
-const errorCodeSchema = z.string().refine((value) =>
-  Object.values(ErrorCode).some((code) => code === value),
-);
-const warningCodeSchema = z.string().refine((value) =>
-  Object.values(WarningCode).some((code) => code === value),
-);
+const operationSchema = z
+  .string()
+  .refine((value) =>
+    Object.values(VoiceflowOperation).some((operation) => operation === value),
+  );
+const errorCodeSchema = z
+  .string()
+  .refine((value) => Object.values(ErrorCode).some((code) => code === value));
+const warningCodeSchema = z
+  .string()
+  .refine((value) => Object.values(WarningCode).some((code) => code === value));
 const operationIDSchema = z.string().refine((value) => value.trim() !== "");
 const warningSchema = z
   .object({

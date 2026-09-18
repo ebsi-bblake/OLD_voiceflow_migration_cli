@@ -11,11 +11,13 @@ type ReadSecretFileContents = (path: string) => Promise<SecretEntries>;
 const readSecretFileContents: ReadSecretFileContents = (path) =>
   path === ""
     ? Promise.resolve([])
-    : readSecretFile(resolveConfiguredFilePath(path, process.platform)).catch(() => {
-        throw fail("configuration", {
-          nextAction: "The configured secrets file is invalid or unreadable.",
-        });
-      });
+    : readSecretFile(resolveConfiguredFilePath(path, process.platform)).catch(
+        () => {
+          throw fail("configuration", {
+            nextAction: "The configured secrets file is invalid or unreadable.",
+          });
+        },
+      );
 
 type ReadSecretsForMigration = (
   reader: PromptReader,

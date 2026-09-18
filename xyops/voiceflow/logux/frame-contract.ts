@@ -18,7 +18,10 @@ export const parseLoguxFrame: ParseLoguxFrame = (text) => {
     const value: unknown = JSON.parse(text);
     const parsed = LoguxFrameSchema.safeParse(value);
     if (!parsed.success) return undefined;
-    if (parsed.data[0] === "sync" && !LoguxActionSchema.safeParse(parsed.data[2]).success)
+    if (
+      parsed.data[0] === "sync" &&
+      !LoguxActionSchema.safeParse(parsed.data[2]).success
+    )
       return undefined;
     return parsed.data;
   } catch {
@@ -39,7 +42,9 @@ export const summarizeLoguxAction: SummarizeLoguxAction = (frame) => {
 };
 
 type SummarizeSecretFailureFrame = (frame: LoguxFrame) => TraceFields;
-export const summarizeSecretFailureFrame: SummarizeSecretFailureFrame = (frame) => {
+export const summarizeSecretFailureFrame: SummarizeSecretFailureFrame = (
+  frame,
+) => {
   if (!isSecretFailureAction(frame)) return {};
   const failureCause: SecretFailureCause = {
     kind: "dependency-failure",
@@ -87,7 +92,10 @@ const readAction = (frame: LoguxFrame): Record<string, unknown> | undefined => {
   return parsed.success ? parsed.data : undefined;
 };
 
-const hasActionID = (action: Record<string, unknown>, actionID: string): boolean => {
+const hasActionID = (
+  action: Record<string, unknown>,
+  actionID: string,
+): boolean => {
   const meta = action.meta;
   return isRecord(meta) && meta.actionID === actionID;
 };

@@ -152,8 +152,7 @@ export const dispatchOperation: DispatchOperation = (
   handlers = defaultOperationHandlers,
 ) => {
   configureDebug(job.params[MigrationParameterName.debug]);
-  return invokeOperation(
-    job.operation,
-    () => operationInvocations[job.operation](job, token, handlers),
+  return invokeOperation(job.operation, () =>
+    operationInvocations[job.operation](job, token, handlers),
   );
 };

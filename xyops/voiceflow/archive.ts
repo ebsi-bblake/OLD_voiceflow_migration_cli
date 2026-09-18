@@ -48,10 +48,11 @@ export const findArchiveCandidate: FindArchiveCandidate = (
 ) => {
   const inDestination = projects.filter(
     (project) =>
-      project.workspaceID === workspaceID &&
-      project.folderID === folderID,
+      project.workspaceID === workspaceID && project.folderID === folderID,
   );
-  const collision = inDestination.find((project) => project.label === sourceName);
+  const collision = inDestination.find(
+    (project) => project.label === sourceName,
+  );
   if (collision === undefined) return undefined;
   const existingNames = new Set(inDestination.map((project) => project.label));
   const baseName = archiveName(sourceName, clock.now());

@@ -136,7 +136,15 @@ const pollUntilComplete = async <T>(
     JOB_PATH,
   );
   if (isCompletedJob(job.completed)) return completeJob(job, guard);
-  return pollIncompleteJob(id, request, sleeper, intervalMs, deadline, guard, attempt);
+  return pollIncompleteJob(
+    id,
+    request,
+    sleeper,
+    intervalMs,
+    deadline,
+    guard,
+    attempt,
+  );
 };
 const pollIncompleteJob = async <T>(
   id: string,
@@ -147,10 +155,19 @@ const pollIncompleteJob = async <T>(
   guard: ResponseSchema<VoiceflowEnvelope<T>>,
   attempt: number,
 ): Promise<VoiceflowEnvelope<T>> => {
-  if (attempt >= MAX_POLL_ATTEMPTS) return Promise.reject(pollingDeadlineError());
+  if (attempt >= MAX_POLL_ATTEMPTS)
+    return Promise.reject(pollingDeadlineError());
   await waitForNextPoll(sleeper, intervalMs, deadline);
   if (Date.now() >= deadline) return Promise.reject(pollingDeadlineError());
-  return pollUntilComplete(id, request, sleeper, intervalMs, deadline, guard, attempt + 1);
+  return pollUntilComplete(
+    id,
+    request,
+    sleeper,
+    intervalMs,
+    deadline,
+    guard,
+    attempt + 1,
+  );
 };
 const pollingDeadlineError = (): CliError =>
   fail("execute-outcome-unknown", {
