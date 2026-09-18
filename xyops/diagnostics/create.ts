@@ -79,36 +79,54 @@ const actionFor = (code: string): string => {
   return "Retry only when the diagnostic policy permits it";
 };
 
-/* oxlint-disable complexity -- diagnostic construction branches only on trusted optional fields. */
+const safeDetailContext = (diagnostic: string | undefined): SafeContext => {
+  if (diagnostic === undefined) return {};
+  const detail = safeDiagnosticDetail(diagnostic);
+  return detail === undefined ? {} : { detail };
+};
+
+const mergeDiagnosticContext = (
+  context: unknown,
+  details: FaultShape["details"],
+  diagnostic: string | undefined,
+): SafeContext =>
+  safeContext({
+    ...safeContext(context),
+    ...safeContext(details?.context),
+    ...safeDetailContext(diagnostic),
+  });
+
+const diagnosticCause = (
+  fault: FaultShape,
+  domain: DiagnosticDomain,
+  stage: string,
+  context: SafeContext,
+): DiagnosticCause => causeFromFault(fault, domain, stage, context);
+
+const boundedCauses = (
+  causes: readonly DiagnosticCause[] | undefined,
+): readonly DiagnosticCause[] =>
+  (causes ?? []).slice(0, MAX_CAUSES - 1).map(safeCause);
+
 export const createDiagnostic: CreateDiagnostic = (
   fault,
   domain,
   stage,
   context,
 ) => {
-  const safe = safeContext({
-    ...safeContext(context),
-    ...safeContext(fault.details?.context),
-    ...(fault.diagnostic === undefined ||
-    safeDiagnosticDetail(fault.diagnostic) === undefined
-      ? {}
-      : { detail: safeDiagnosticDetail(fault.diagnostic) }),
-  });
+  const diagnosticDomain = fault.details?.domain ?? domain;
+  const diagnosticStage = fault.details?.stage ?? stage;
+  const safe = mergeDiagnosticContext(context, fault.details, fault.diagnostic);
   return {
     code: boundedField(fault.code),
-    domain: fault.details?.domain ?? domain,
-    stage: boundedField(fault.details?.stage ?? stage),
+    domain: diagnosticDomain,
+    stage: boundedField(diagnosticStage),
     retryable: fault.retryable,
     nextAction: actionFor(fault.code),
     context: safe,
     causes: [
-      ...(fault.details?.causes ?? []).slice(0, MAX_CAUSES - 1).map(safeCause),
-      causeFromFault(
-        fault,
-        fault.details?.domain ?? domain,
-        fault.details?.stage ?? stage,
-        safe,
-      ),
+      ...boundedCauses(fault.details?.causes),
+      diagnosticCause(fault, diagnosticDomain, diagnosticStage, safe),
     ],
   };
 };
