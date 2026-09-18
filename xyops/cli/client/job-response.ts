@@ -1,4 +1,5 @@
-import { fail } from "../diagnostics";
+import { fail, parseDiagnostic } from "../diagnostics";
+import type { Diagnostic } from "../../diagnostics/types";
 import { VoiceflowRegex } from "../../voiceflow/regex";
 import { isSuccessfulCode } from "../guards";
 import {
@@ -66,6 +67,14 @@ const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined => {
   return parsed.success
     ? parsed.data.job
     : readJobContainer(response.data);
+};
+
+const readStructuredDiagnostic = (job: XYOpsJobResult): Diagnostic | undefined => {
+  const data = XYOpsRecordSchema.safeParse(job.data);
+  if (!data.success) return undefined;
+  const error = XYOpsRecordSchema.safeParse(data.data.error);
+  const candidate = data.data.diagnostic ?? (error.success ? error.data.diagnostic : undefined);
+  return parseDiagnostic(candidate);
 };
 
 const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
@@ -173,7 +182,12 @@ export const requireSuccessfulJob = (
 ): XYOpsJobResult => {
   if (!hasSuccessfulJobCode(job)) {
     logFailedJobResponse(job);
-    throw fail("job", { endpoint, nextAction: describeFailure(job, fallback) });
+    const diagnostic = readStructuredDiagnostic(job);
+    throw fail("job", {
+      endpoint,
+      nextAction: diagnostic?.nextAction ?? describeFailure(job, fallback),
+      ...(diagnostic === undefined ? {} : { diagnostic }),
+    });
   }
   return job;
 };

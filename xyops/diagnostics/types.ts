@@ -17,11 +17,12 @@ export type SafeContextValue =
 export type SafeContext = Readonly<Record<string, SafeContextValue>>;
 
 export type DiagnosticCause = Readonly<{
-  domain: DiagnosticDomain;
+  domain: DiagnosticDomain | string;
   code: string;
   stage: string;
   retryable: boolean;
   context: SafeContext;
+  diagnostic?: Diagnostic;
 }>;
 
 export type Diagnostic = Readonly<{
@@ -32,4 +33,5 @@ export type Diagnostic = Readonly<{
   nextAction: string;
   context: SafeContext;
   causes: readonly DiagnosticCause[];
+  diagnostic?: Diagnostic;
 }>;

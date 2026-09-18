@@ -9,6 +9,7 @@ import { createVoiceflowEnvelopeSchema } from "../xyops/cli/schemas/voiceflow-en
 import { CatalogOptionResultSchema } from "../xyops/cli/schemas/catalog-results";
 import { CheckSessionResultSchema } from "../xyops/cli/schemas/session";
 import { run } from "../xyops/cli/index";
+import { cliErrorOutput } from "../xyops/cli/diagnostics";
 import {
   executeParameters,
   listFoldersParameters,
@@ -342,6 +343,70 @@ describe("XYOps CLI adapter", () => {
     ).rejects.toMatchObject({
       diagnostic: { code: "job", nextAction: failureDescription },
     });
+  });
+
+  test("preserves structured XYOps diagnostics and redacts nested sensitive context", async () => {
+    const diagnostic = {
+      code: "DEPENDENCY_FAILURE",
+      domain: "transport",
+      stage: "job-response",
+      retryable: true,
+      nextAction: "Retry the operation.",
+      context: { endpoint: "/api/app/run_event/v1", token: "secret-token", safe: "visible" },
+      causes: [{
+        domain: "core",
+        code: "BACKEND_REJECTED",
+        stage: "upstream",
+        retryable: true,
+        context: { password: "secret-password", status: 502 },
+      }],
+    };
+    const client = createXYOpsClient(config, {
+      fetcher: async () => new Response(JSON.stringify({
+        code: 0,
+        job: {
+          id: "job-structured",
+          code: "plugin_failure",
+          completed: true,
+          output: "ignored",
+          data: { diagnostic },
+        },
+      }), { status: 200 }),
+    });
+
+    const error = await client.readEvent(
+      "event-projects",
+      { operation: "list_projects" },
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+    ).catch((value: unknown) => value);
+
+    expect(error).toMatchObject({
+      diagnostic: {
+        code: "job",
+        nextAction: diagnostic.nextAction,
+        diagnostic: {
+          code: diagnostic.code,
+          domain: diagnostic.domain,
+          stage: diagnostic.stage,
+          retryable: true,
+          context: { safe: "visible", token: "[REDACTED]" },
+          causes: [{ context: { status: 502, password: "[REDACTED]" } }],
+        },
+      },
+    });
+    expect(JSON.stringify(cliErrorOutput(error))).not.toContain("secret-");
+
+    const malformedClient = createXYOpsClient(config, {
+      fetcher: async () => new Response(JSON.stringify({
+        code: 0,
+        job: { id: "job-malformed", code: "failed", completed: true, data: { diagnostic: { code: 42 } } },
+      }), { status: 200 }),
+    });
+    await expect(malformedClient.readEvent(
+      "event-projects",
+      { operation: "list_projects" },
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+    )).rejects.toMatchObject({ diagnostic: { code: "job", nextAction: "The migration event job failed." } });
   });
 
   test("checks for an active session before requesting workspace choices", async () => {

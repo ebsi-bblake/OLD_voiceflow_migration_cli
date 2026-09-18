@@ -2,7 +2,37 @@ import { VoiceflowRegex } from "../voiceflow/regex";
 import type { CliDiagnostic, CliDiagnosticCode } from "./types";
 import type { Diagnostic, SafeContext } from "../diagnostics/types";
 import { redactDiagnosticValue } from "../diagnostics/redact";
+import { DiagnosticSchema, type DiagnosticDTO } from "./schemas/diagnostics";
 export type { CliDiagnostic, CliDiagnosticCode } from "./types";
+
+const isSafeContext = (value: unknown): value is SafeContext =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+const safeContext = (value: Readonly<Record<string, unknown>>): SafeContext => {
+  const redacted = redactDiagnosticValue(value);
+  return isSafeContext(redacted) ? redacted : {};
+};
+const toDiagnostic = (value: DiagnosticDTO): Diagnostic => ({
+  code: value.code,
+  domain: value.domain,
+  stage: value.stage,
+  retryable: value.retryable,
+  nextAction: value.nextAction,
+  context: safeContext(value.context),
+  causes: value.causes.map((cause) => ({
+    domain: cause.domain,
+    code: cause.code,
+    stage: cause.stage,
+    retryable: cause.retryable,
+    context: safeContext(cause.context),
+    ...(cause.diagnostic === undefined ? {} : { diagnostic: toDiagnostic(cause.diagnostic) }),
+  })),
+  ...(value.diagnostic === undefined ? {} : { diagnostic: toDiagnostic(value.diagnostic) }),
+});
+
+export const parseDiagnostic = (value: unknown): Diagnostic | undefined => {
+  const parsed = DiagnosticSchema.safeParse(value);
+  return parsed.success ? toDiagnostic(parsed.data) : undefined;
+};
 
 type SafeEndpoint = (endpoint: string) => string;
 const safeEndpoint: SafeEndpoint = (endpoint) =>
@@ -56,11 +86,9 @@ export const asCliError: AsCliError = (error) =>
   error instanceof CliError ? error : fail("network", { retryable: false });
 
 type CliErrorOutput = (error: unknown) => Readonly<Record<string, unknown>>;
-const isSafeContextObject = (value: unknown): value is SafeContext =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
 const safeDiagnostic = (diagnostic: Diagnostic): SafeContext => {
   const redacted = redactDiagnosticValue(diagnostic);
-  return isSafeContextObject(redacted) ? redacted : {};
+  return isSafeContext(redacted) ? redacted : {};
 };
 export const cliErrorOutput: CliErrorOutput = (error) => {
   const diagnostic = asCliError(error).diagnostic;

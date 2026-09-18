@@ -50,6 +50,9 @@ const translateExecuteJobError = (error: unknown): CliError => {
       status: diagnostic.status,
       nextAction:
         "The execute job outcome is unknown; reconcile before retrying.",
+      ...(diagnostic.diagnostic === undefined
+        ? {}
+        : { diagnostic: diagnostic.diagnostic }),
     });
   return toCliError(error);
 };
@@ -77,8 +80,14 @@ const pollObservation: PollObservation = async <T>(
   } catch (error) {
     const diagnostic = error instanceof CliError ? error.diagnostic : undefined;
     dispatch(diagnostic?.code === "job" ? { kind: "job-failed" } : { kind: "poll-timeout" });
-    if (useStreaming && diagnostic?.code === "job" && diagnostic.nextAction !== "The migration execute job failed.")
-      throw fail("execute-outcome-unknown", { endpoint: JOB_PATH, nextAction: "The execute job outcome is unknown; reconcile before retrying." });
+    if (useStreaming && diagnostic?.code === "job")
+      throw fail("execute-outcome-unknown", {
+        endpoint: JOB_PATH,
+        nextAction: "The execute job outcome is unknown; reconcile before retrying.",
+        ...(diagnostic.diagnostic === undefined
+          ? {}
+          : { diagnostic: diagnostic.diagnostic }),
+      });
     throw error;
   }
 };
@@ -134,7 +143,11 @@ export const createXYOpsClient = (
       );
     } catch (error) {
       if (readCliDiagnostic(error) === undefined)
-        throw new Error("stream-transport-unknown");
+        throw fail("network", {
+          endpoint: "/api/app/stream_job/v1",
+          retryable: true,
+          nextAction: "The XYOps stream transport failed.",
+        });
       throw error;
     }
     if ("kind" in streamOrJob && streamOrJob.kind === "failure")
@@ -150,8 +163,12 @@ export const createXYOpsClient = (
           : streamOrJob,
       );
       return requireEnvelope(output, guard, "/api/app/stream_job/v1");
-    } catch {
-      throw new Error("stream-result-invalid");
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      throw fail("stream", {
+        endpoint: "/api/app/stream_job/v1",
+        nextAction: "The XYOps stream result was invalid.",
+      });
     }
   };
 
