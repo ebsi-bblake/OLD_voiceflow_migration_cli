@@ -1,10 +1,12 @@
 import { PLUGIN_VERSION } from "./version";
-
-import { PluginStage } from "./types";
+import { OperationFault, toOperationError } from "../voiceflow/contracts";
 import {
+  appendDiagnosticCause,
   createDiagnostic,
   createUnexpectedDiagnostic,
 } from "../diagnostics/create";
+
+import { PluginStage } from "./types";
 import type { Diagnostic } from "../diagnostics/types";
 export type { PluginStage } from "./types";
 
@@ -12,6 +14,19 @@ export const pluginStages = Object.values(PluginStage);
 
 type CreatePluginDiagnostic = (stage: PluginStage, error: unknown) => Diagnostic;
 export const createPluginDiagnostic: CreatePluginDiagnostic = (stage, error) => {
+  if (error instanceof OperationFault) {
+    const coreDiagnostic = toOperationError(error).diagnostic;
+    if (coreDiagnostic === undefined)
+      return createUnexpectedDiagnostic(error, "plugin", stage);
+    return appendDiagnosticCause(
+      coreDiagnostic,
+      createDiagnostic(
+        { code: error.code, retryable: error.retryable },
+        "plugin",
+        stage,
+      ).causes[0],
+    );
+  }
   if (
     typeof error === "object" &&
     error !== null &&

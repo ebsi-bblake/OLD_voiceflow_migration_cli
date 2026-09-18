@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { OperationFault, toOperationError } from "../xyops/voiceflow/contracts";
 import { ErrorCode, VoiceflowOperation, WarningCode } from "../xyops/voiceflow/types";
 import { isVoiceflowEnvelope } from "../xyops/cli/guards";
+import { createPluginDiagnostic } from "../xyops/plugin/diagnostics";
+import { mapVoiceflowEnvelope } from "../xyops/plugin/wire_protocol";
+import { requireEnvelopeResult } from "../xyops/cli/validation";
+import { CliError, cliErrorOutput, fail } from "../xyops/cli/diagnostics";
+import { appendDiagnosticCause, createDiagnostic } from "../xyops/diagnostics/create";
 
 describe("Voiceflow unexpected error diagnostics", () => {
   test("preserves every finite wire value during JSON serialization", () => {
@@ -29,6 +35,109 @@ describe("Voiceflow unexpected error diagnostics", () => {
     expect(guard(valid)).toBe(true);
     expect(guard({ ...valid, warnings: [{ code: "UNKNOWN", message: "warning" }] })).toBe(false);
     expect(guard({ ...valid, warnings: [], result: {}, operation: "unknown" })).toBe(false);
+  });
+
+  test("preserves the canonical cause chain from core through plugin to CLI", () => {
+    const coreFailure = new OperationFault("DEPENDENCY_FAILURE", true, undefined, {
+      domain: "transport",
+      stage: "export",
+      context: { requestID: "request-1", token: "secret-token" },
+      causes: [{
+        domain: "core",
+        code: "BACKEND_REJECTED",
+        stage: "export-response",
+        retryable: true,
+        context: { status: 502 },
+      }],
+    });
+    const core = toOperationError(coreFailure);
+    const plugin = createPluginDiagnostic("dispatch", coreFailure);
+    const envelope = mapVoiceflowEnvelope({
+      ok: false,
+      operation: "execute_migration",
+      operationID: "operation-1",
+      error: { ...core, diagnostic: plugin },
+    });
+    let cliError: unknown;
+    try {
+      requireEnvelopeResult(envelope.data?.voiceflow, "execute_migration", () => true);
+    } catch (error: unknown) {
+      cliError = error;
+    }
+
+    expect(core.diagnostic).toMatchObject({
+      code: "DEPENDENCY_FAILURE",
+      domain: "transport",
+      stage: "export",
+      retryable: true,
+      context: { requestID: "request-1", token: "[REDACTED]" },
+    });
+    expect(plugin.causes.map(({ code }) => code)).toEqual([
+      "BACKEND_REJECTED",
+      "DEPENDENCY_FAILURE",
+      "DEPENDENCY_FAILURE",
+    ]);
+    expect(cliError).toBeInstanceOf(CliError);
+    if (!(cliError instanceof CliError)) return;
+    expect(cliError.diagnostic.diagnostic?.causes).toHaveLength(3);
+    expect(cliError.diagnostic.nextAction).toBe("Retry only when the diagnostic policy permits it");
+  });
+
+  test("presents a safe actionable root cause without mutating its source", () => {
+    const source = createDiagnostic(
+      { code: "AUTHENTICATION_FAILED", retryable: false },
+      "core",
+      "auth",
+      { requestID: "request-1", apiKey: "do-not-show" },
+    );
+    const withCliCause = appendDiagnosticCause(source, {
+      domain: "cli",
+      code: "AUTHENTICATION_FAILED",
+      stage: "presentation",
+      retryable: false,
+      context: { password: "do-not-show", operator: "alice" },
+    });
+    const output = cliErrorOutput(fail("envelope", {
+      nextAction: source.nextAction,
+      diagnostic: withCliCause,
+    }));
+
+    expect(output).toMatchObject({
+      nextAction: "Check authentication and sign in again",
+      diagnostic: { code: "AUTHENTICATION_FAILED", stage: "auth" },
+    });
+    expect(JSON.stringify(output)).not.toContain("do-not-show");
+    expect(source.causes).toHaveLength(1);
+    expect(withCliCause.causes[1].context.password).toBe("[REDACTED]");
+  });
+
+  test("keeps confirmed rejection distinct from unknown outcome", () => {
+    expect(toOperationError(new OperationFault("DEPENDENCY_FAILURE")).code).toBe("DEPENDENCY_FAILURE");
+    expect(toOperationError(new OperationFault("IMPORT_OUTCOME_UNKNOWN", true)).code).toBe("IMPORT_OUTCOME_UNKNOWN");
+    expect(toOperationError(new OperationFault("DEPENDENCY_FAILURE")).diagnostic?.nextAction).not.toBe(
+      toOperationError(new OperationFault("IMPORT_OUTCOME_UNKNOWN", true)).diagnostic?.nextAction,
+    );
+  });
+
+  test("redacts Zod issue inputs while preserving safe issue metadata", () => {
+    const schema = z.object({ token: z.string() });
+    const result = schema.safeParse({ token: { value: "secret-token" } });
+    if (result.success) throw new Error("test fixture unexpectedly parsed");
+    const source = result.error.issues;
+    const diagnostic = createDiagnostic(
+      { code: "INVALID_ARGUMENT", retryable: false },
+      "plugin",
+      "input",
+      { issues: source.map((issue) => ({ ...issue, input: "secret-token" })) },
+    );
+
+    expect(diagnostic.context.issues[0]).toMatchObject({
+      path: ["token"],
+      expected: "string",
+      input: "[REDACTED]",
+    });
+    expect(JSON.stringify(diagnostic)).not.toContain("secret-token");
+    expect(source[0]).not.toHaveProperty("input", "[REDACTED]");
   });
 
   test("returns a bounded safe error message", () => {

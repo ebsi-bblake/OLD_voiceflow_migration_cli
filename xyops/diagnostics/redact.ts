@@ -11,11 +11,27 @@ const sensitiveKeys = new Set([
   "apikey",
   "api_key",
   "cookie",
+  "credential",
+  "credentials",
   "defaultvalue",
+  "exported",
   "exporteddata",
-  "password",
+  "filecontents",
+  "input",
+  "message",
+  "multipart",
+  "payload",
+  "rawbody",
+  "requestbody",
+  "requestpayload",
+  "responsebody",
+  "responsepayload",
   "secret",
+  "secrets",
+  "password",
+  "stack",
   "token",
+  "value",
 ]);
 
 type RedactDiagnosticValue = (
@@ -79,6 +95,7 @@ export const redactDiagnosticValue: RedactDiagnosticValue = (
     return value;
   if (Array.isArray(value)) return redactArray(value, depth);
   if (value instanceof Map) return redactMap(value, depth);
+  if (value instanceof Error) return "[UNTRUSTED]";
   if (typeof value === "object" && isRecord(value))
     return redactRecord(value, depth);
   return "[UNTRUSTED]";

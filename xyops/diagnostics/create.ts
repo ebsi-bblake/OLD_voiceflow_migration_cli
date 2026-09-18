@@ -15,6 +15,12 @@ type FaultShape = Readonly<{
   code: string;
   retryable: boolean;
   diagnostic?: string;
+  details?: Readonly<{
+    readonly domain?: DiagnosticDomain;
+    readonly stage?: string;
+    readonly context?: unknown;
+    readonly causes?: readonly DiagnosticCause[];
+  }>;
 }>;
 
 type CreateDiagnostic = (
@@ -45,6 +51,19 @@ const causeFromFault = (
   context,
 });
 
+const MAX_CAUSES = 32;
+const MAX_FIELD_LENGTH = 120;
+const boundedField = (value: string): string => value.slice(0, MAX_FIELD_LENGTH);
+const safeDiagnosticDetail = (value: string): string | undefined =>
+  /^[a-z0-9][a-z0-9_-]{0,79}$/i.test(value) ? value : undefined;
+const safeCause = (cause: DiagnosticCause): DiagnosticCause => ({
+  domain: cause.domain,
+  code: boundedField(cause.code),
+  stage: boundedField(cause.stage),
+  retryable: cause.retryable,
+  context: safeContext(cause.context),
+});
+
 const actionFor = (code: string): string => {
   if (code === "AUTHENTICATION_FAILED")
     return "Check authentication and sign in again";
@@ -59,21 +78,36 @@ const actionFor = (code: string): string => {
   return "Retry only when the diagnostic policy permits it";
 };
 
+/* oxlint-disable complexity -- diagnostic construction branches only on trusted optional fields. */
 export const createDiagnostic: CreateDiagnostic = (
   fault,
   domain,
   stage,
   context,
 ) => {
-  const safe = safeContext({ ...safeContext(context), ...(fault.diagnostic === undefined ? {} : { detail: fault.diagnostic }) });
+  const safe = safeContext({
+    ...safeContext(context),
+    ...safeContext(fault.details?.context),
+    ...(fault.diagnostic === undefined || safeDiagnosticDetail(fault.diagnostic) === undefined
+      ? {}
+      : { detail: safeDiagnosticDetail(fault.diagnostic) }),
+  });
   return {
-    code: fault.code,
-    domain,
-    stage,
+    code: boundedField(fault.code),
+    domain: fault.details?.domain ?? domain,
+    stage: boundedField(fault.details?.stage ?? stage),
     retryable: fault.retryable,
     nextAction: actionFor(fault.code),
     context: safe,
-    causes: [causeFromFault(fault, domain, stage, safe)],
+    causes: [
+      ...(fault.details?.causes ?? []).slice(0, MAX_CAUSES).map(safeCause),
+      causeFromFault(
+        fault,
+        fault.details?.domain ?? domain,
+        fault.details?.stage ?? stage,
+        safe,
+      ),
+    ],
   };
 };
 
@@ -84,7 +118,13 @@ type AppendDiagnosticCause = (
 export const appendDiagnosticCause: AppendDiagnosticCause = (
   diagnostic,
   cause,
-) => ({ ...diagnostic, causes: [...diagnostic.causes, cause] });
+) => ({
+  ...diagnostic,
+  causes: [
+    ...diagnostic.causes,
+    safeCause(cause),
+  ].slice(-MAX_CAUSES),
+});
 
 type CreateUnexpectedDiagnostic = (
   error: unknown,

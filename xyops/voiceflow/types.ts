@@ -1,3 +1,5 @@
+import type { Diagnostic } from "../diagnostics/types";
+
 export const VoiceflowOperation = {
   CheckSession: "check_session",
   ListWorkspaces: "list_workspaces",
@@ -37,6 +39,7 @@ export type OperationError = Readonly<{
   code: ErrorCode;
   message: string;
   retryable: boolean;
+  diagnostic?: Diagnostic;
 }>;
 export type Success<T> = {
   readonly ok: true;

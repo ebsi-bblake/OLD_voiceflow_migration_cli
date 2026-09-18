@@ -1,5 +1,6 @@
 import { VoiceflowRegex } from "../voiceflow/regex";
 import type { CliDiagnostic, CliDiagnosticCode } from "./types";
+import type { Diagnostic } from "../diagnostics/types";
 export type { CliDiagnostic, CliDiagnosticCode } from "./types";
 
 type SafeEndpoint = (endpoint: string) => string;
@@ -27,6 +28,7 @@ type DiagnosticOptions = Readonly<{
   retryable?: boolean;
   status?: number;
   nextAction?: string;
+  diagnostic?: Diagnostic;
 }>;
 
 type Fail = (code: CliDiagnosticCode, options?: DiagnosticOptions) => CliError;
@@ -45,6 +47,7 @@ export const fail: Fail = (code, options = {}) =>
     retryable: resolveRetryable(options),
     status: options.status,
     nextAction: resolveNextAction(options),
+    ...(options.diagnostic === undefined ? {} : { diagnostic: options.diagnostic }),
   });
 
 type AsCliError = (error: unknown) => CliError;
@@ -60,5 +63,6 @@ export const cliErrorOutput: CliErrorOutput = (error) => {
     retryable: diagnostic.retryable,
     ...(diagnostic.status === undefined ? {} : { status: diagnostic.status }),
     nextAction: diagnostic.nextAction,
+    ...(diagnostic.diagnostic === undefined ? {} : { diagnostic: diagnostic.diagnostic }),
   };
 };
