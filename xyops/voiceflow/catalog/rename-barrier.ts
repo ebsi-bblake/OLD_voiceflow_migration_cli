@@ -1,4 +1,3 @@
-/* oxlint-disable complexity -- bounded retry orchestration is explicit. */
 import type { AuthContext, ProjectRecord } from "../types";
 import { OperationFault } from "../contracts";
 import { createUUID } from "../uuid";
@@ -111,6 +110,231 @@ export type ConfirmProjectRename = (
   state: ProjectState,
   options?: ConfirmProjectRenameOptions,
 ) => Promise<void>;
+type AttemptResult = Readonly<{
+  readonly state: RenameDurabilityState;
+  readonly confirmed: boolean;
+}>;
+
+type AttemptOptions = Readonly<{
+  readonly auth: AuthContext;
+  readonly expected: ProjectState;
+  readonly signal?: AbortSignal;
+  readonly now: () => number;
+  readonly readProjects: LoadProjects;
+  readonly deadline: number;
+  readonly remaining: number;
+  readonly attemptID: string;
+  readonly state: RenameDurabilityState;
+}>;
+
+const startRenameAttempt = (
+  state: RenameDurabilityState,
+  attempt: number,
+  attemptID: string,
+  deadline: number,
+): RenameDurabilityState =>
+  transitionRenameDurability(state, {
+    kind: "start-attempt",
+    attempt,
+    attemptID,
+    limit: MAX_CONFIRMATION_ATTEMPTS,
+    deadline,
+  }).state;
+
+const handleAttemptFailure = (
+  error: unknown,
+  signal: AbortSignal | undefined,
+  now: () => number,
+  deadline: number,
+  attempt: number,
+): void => {
+  if (isCancelled(signal)) throw cancellationError();
+  if (isPermanentFailure(error))
+    throw new OperationFault(
+      error.code,
+      error.retryable,
+      boundedDiagnostic(`archive-durability ${safeFailureCategory(error)}`),
+    );
+  if (now() >= deadline)
+    throw timeoutError(
+      exhaustedDiagnostic(attempt, safeFailureCategory(error)),
+    );
+};
+
+const performRenameAttempt = async (
+  options: AttemptOptions,
+): Promise<AttemptResult> => {
+  try {
+    const projects = await readWithDeadline(
+      options.readProjects(options.auth, options.expected.workspaceID),
+      options.remaining,
+    );
+    if (isCancelled(options.signal)) throw cancellationError();
+    const project = projectMatches(projects, options.expected);
+    if (options.now() > options.deadline || project === undefined)
+      return { state: options.state, confirmed: false };
+    const state = transitionRenameDurability(options.state, {
+      kind: "catalog-result",
+      attemptID: options.attemptID,
+      matches: true,
+      project: {
+        id: project.id,
+        workspaceID: project.workspaceID,
+        folderID: project.folderID ?? "",
+        name: project.label,
+      },
+    }).state;
+    return { state, confirmed: state.kind === "CONFIRMED" };
+  } catch (error) {
+    handleAttemptFailure(
+      error,
+      options.signal,
+      options.now,
+      options.deadline,
+      options.state.kind === "ATTEMPTING" ? options.state.attempt : 0,
+    );
+    return { state: options.state, confirmed: false };
+  }
+};
+
+const waitForRenameRetry = async (
+  state: RenameDurabilityState,
+  attemptID: string,
+  retryDeadline: number,
+  sleep: Sleep,
+  now: () => number,
+  signal: AbortSignal | undefined,
+): Promise<RenameDurabilityState> => {
+  try {
+    await sleep(Math.max(0, retryDeadline - now()));
+  } catch {
+    return transitionRenameDurability(state, {
+      kind: "timer-failure",
+      diagnostic: "archive-durability retry timer failed",
+    }).state;
+  }
+  if (isCancelled(signal)) throw cancellationError();
+  return transitionRenameDurability(state, {
+    kind: "retry-timer",
+    attemptID: state.kind === "WAITING_TO_RETRY" ? state.attemptID : attemptID,
+    nextAttemptID: createUUID(),
+    deadline: retryDeadline,
+  }).state;
+};
+
+type AttemptCycleOptions = Readonly<{
+  readonly auth: AuthContext;
+  readonly expected: ProjectState;
+  readonly state: RenameDurabilityState;
+  readonly attempt: number;
+  readonly attemptID: string;
+  readonly deadline: number;
+  readonly now: () => number;
+  readonly sleep: Sleep;
+  readonly readProjects: LoadProjects;
+  readonly signal?: AbortSignal;
+}>;
+
+type AttemptCycleResult = Readonly<{
+  readonly state: RenameDurabilityState;
+  readonly confirmed: boolean;
+  readonly attemptID: string;
+}>;
+
+const remainingAttemptTime = (
+  signal: AbortSignal | undefined,
+  now: () => number,
+  deadline: number,
+  attempt: number,
+): number => {
+  if (isCancelled(signal)) throw cancellationError();
+  const remaining = deadline - now();
+  if (remaining <= 0)
+    throw timeoutError(exhaustedDiagnostic(attempt - 1, "deadline-exceeded"));
+  return remaining;
+};
+
+const ensureRetryCanStart = (
+  now: () => number,
+  deadline: number,
+  attempt: number,
+): void => {
+  if (now() >= deadline || attempt === MAX_CONFIRMATION_ATTEMPTS)
+    throw timeoutError(
+      exhaustedDiagnostic(attempt, safeFailureCategory(undefined)),
+    );
+};
+
+const throwIfRetryTimerFailed = (state: RenameDurabilityState): void => {
+  if (state.kind === "FAILED")
+    throw new OperationFault(
+      "DEPENDENCY_FAILURE",
+      true,
+      "archive-durability retry timer failed",
+    );
+};
+
+const runRenameAttemptCycle = async (
+  options: AttemptCycleOptions,
+): Promise<AttemptCycleResult> => {
+  const remaining = remainingAttemptTime(
+    options.signal,
+    options.now,
+    options.deadline,
+    options.attempt,
+  );
+  const state = startRenameAttempt(
+    options.state,
+    options.attempt,
+    options.attemptID,
+    options.deadline,
+  );
+  const result = await performRenameAttempt({
+    auth: options.auth,
+    expected: options.expected,
+    signal: options.signal,
+    now: options.now,
+    readProjects: options.readProjects,
+    deadline: options.deadline,
+    remaining,
+    attemptID: options.attemptID,
+    state,
+  });
+  if (result.confirmed)
+    return {
+      state: result.state,
+      confirmed: true,
+      attemptID: options.attemptID,
+    };
+  ensureRetryCanStart(options.now, options.deadline, options.attempt);
+  const retryDeadline = Math.min(
+    options.now() + CONFIRMATION_INTERVAL_MS,
+    options.deadline,
+  );
+  const waitingState = scheduleRenameDurabilityRetry(
+    result.state as Extract<
+      RenameDurabilityState,
+      { readonly kind: "ATTEMPTING" }
+    >,
+    retryDeadline,
+  );
+  const nextState = await waitForRenameRetry(
+    waitingState,
+    options.attemptID,
+    retryDeadline,
+    options.sleep,
+    options.now,
+    options.signal,
+  );
+  throwIfRetryTimerFailed(nextState);
+  return {
+    state: nextState,
+    confirmed: false,
+    attemptID:
+      nextState.kind === "ATTEMPTING" ? nextState.attemptID : createUUID(),
+  };
+};
+
 export const confirmProjectRename: ConfirmProjectRename = async (
   auth,
   expected,
@@ -125,82 +349,21 @@ export const confirmProjectRename: ConfirmProjectRename = async (
   let attemptID = createUUID();
 
   while (attempt <= MAX_CONFIRMATION_ATTEMPTS) {
-    if (isCancelled(options.signal)) throw cancellationError();
-    const remaining = deadline - now();
-    if (remaining <= 0)
-      throw timeoutError(exhaustedDiagnostic(attempt - 1, "deadline-exceeded"));
-    state = transitionRenameDurability(state, {
-      kind: "start-attempt",
+    const result = await runRenameAttemptCycle({
+      auth,
+      expected,
+      state,
       attempt,
       attemptID,
-      limit: MAX_CONFIRMATION_ATTEMPTS,
       deadline,
-    }).state;
-    try {
-      const projects = await readWithDeadline(
-        readProjects(auth, expected.workspaceID),
-        remaining,
-      );
-      if (isCancelled(options.signal)) throw cancellationError();
-      const project = projectMatches(projects, expected);
-      if (now() <= deadline && project !== undefined) {
-        state = transitionRenameDurability(state, {
-          kind: "catalog-result",
-          attemptID,
-          matches: true,
-          project: {
-            id: project.id,
-            workspaceID: project.workspaceID,
-            folderID: project.folderID ?? "",
-            name: project.label,
-          },
-        }).state;
-        if (state.kind === "CONFIRMED") return;
-      }
-    } catch (error) {
-      if (isCancelled(options.signal)) throw cancellationError();
-      if (isPermanentFailure(error))
-        throw new OperationFault(
-          error.code,
-          error.retryable,
-          boundedDiagnostic(`archive-durability ${safeFailureCategory(error)}`),
-        );
-      if (now() >= deadline)
-        throw timeoutError(
-          exhaustedDiagnostic(attempt, safeFailureCategory(error)),
-        );
-    }
-    if (now() >= deadline || attempt === MAX_CONFIRMATION_ATTEMPTS)
-      throw timeoutError(
-        exhaustedDiagnostic(attempt, safeFailureCategory(undefined)),
-      );
-    const retryDeadline = Math.min(now() + CONFIRMATION_INTERVAL_MS, deadline);
-    state = scheduleRenameDurabilityRetry(
-      state as Extract<RenameDurabilityState, { readonly kind: "ATTEMPTING" }>,
-      retryDeadline,
-    );
-    try {
-      await sleep(Math.max(0, retryDeadline - now()));
-    } catch {
-      state = transitionRenameDurability(state, {
-        kind: "timer-failure",
-        diagnostic: "archive-durability retry timer failed",
-      }).state;
-      throw new OperationFault(
-        "DEPENDENCY_FAILURE",
-        true,
-        "archive-durability retry timer failed",
-      );
-    }
-    if (isCancelled(options.signal)) throw cancellationError();
-    state = transitionRenameDurability(state, {
-      kind: "retry-timer",
-      attemptID:
-        state.kind === "WAITING_TO_RETRY" ? state.attemptID : attemptID,
-      nextAttemptID: createUUID(),
-      deadline: retryDeadline,
-    }).state;
-    attemptID = state.kind === "ATTEMPTING" ? state.attemptID : createUUID();
+      now,
+      sleep,
+      readProjects,
+      signal: options.signal,
+    });
+    state = result.state;
+    if (result.confirmed) return;
+    attemptID = result.attemptID;
     attempt += 1;
   }
   throw timeoutError(
