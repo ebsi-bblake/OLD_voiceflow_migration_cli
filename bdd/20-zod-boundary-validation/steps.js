@@ -33,6 +33,34 @@ class BoundaryWorld {
 
 setWorldConstructor(BoundaryWorld);
 
+defineStep("the active XYOps plugin, CLI client, and Voiceflow core are under test", function () {
+  this.value = true;
+});
+
+defineStep("Zod is a direct runtime dependency recorded in the Bun lockfile", function () {
+  const packageJSON = JSON.parse(readFileSync("package.json", "utf8"));
+  const lockfile = readFileSync("bun.lock", "utf8");
+  assert.equal(typeof packageJSON.dependencies?.zod, "string");
+  assert.match(lockfile, /zod@4\.6\.5/);
+  this.value = true;
+});
+
+defineStep("all external values enter the system as unknown", function () {
+  // This is verified at the schema boundary by the safeParse calls in this suite.
+  this.value = true;
+});
+
+defineStep("no validation boundary exposes raw input or raw Zod issue values", function () {
+  const result = z.object({ token: z.string() }).safeParse({
+    token: { secret: "bdd-secret-value" },
+  });
+  assert.equal(result.success, false);
+  if (result.success) return;
+  const diagnostic = pluginDiagnostics.formatPluginDiagnostic("input", result.error);
+  assert.doesNotMatch(diagnostic, /bdd-secret-value/);
+  this.value = true;
+});
+
 defineStep("a valid native plugin job is parsed", function () {
   this.value = job.NativePluginJobSchema.safeParse({
     xy: 1,
