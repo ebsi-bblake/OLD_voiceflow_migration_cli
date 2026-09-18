@@ -16,7 +16,16 @@ const secret = await import("../../xyops/voiceflow/logux/secret-state-machine.ts
 const source = (path) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const migrationSource = source("xyops/voiceflow/execute_migration/index.ts");
-const effectRunnerSource = `${source("xyops/voiceflow/execute_migration/effect-runner/runtime.ts")}\n${source("xyops/voiceflow/execute_migration/effect-runner/handlers.ts")}`;
+const effectRunnerSource = [
+  "xyops/voiceflow/execute_migration/effect-runner/runtime.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/authentication.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/catalog.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/control.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/import.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/secrets.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/settlement.ts",
+  "xyops/voiceflow/execute_migration/effect-runner/handlers/index.ts",
+].map(source).join("\\n");
 const clientSource = source("xyops/cli/client/index.ts");
 const streamingSource = source("xyops/cli/client/streaming.ts");
 const loguxSource = source("xyops/voiceflow/logux/connection.ts");
@@ -148,9 +157,9 @@ defineStep(
 defineStep("no later stage is started after a terminal failure", function () {
   const failed = workflow.transitionMigrationWorkflow(
     workflow.createMigrationWorkflow(identity),
-    { kind: "dependency-failure", code: "DEPENDENCY_FAILURE" },
+    { kind: "dependency-failure", failure: { code: "DEPENDENCY_FAILURE", retryable: true, stage: "AUTHENTICATION" } },
   ).state;
-  assertNoEffectsAfter(failed, { kind: "authentication-succeeded" });
+  assertNoEffectsAfter(failed, { kind: "authentication-succeeded", auth: { token: "token", creatorID: "creator" } });
 });
 
 defineStep(
