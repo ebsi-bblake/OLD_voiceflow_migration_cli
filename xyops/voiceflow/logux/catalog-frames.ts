@@ -1,7 +1,7 @@
 /* oxlint-disable complexity -- protocol frame normalization is exhaustive. */
-import { isRowArray } from "../guards";
 import type { CatalogEvent } from "./catalog-state-machine";
 import { LoguxActionSchema } from "./schemas/action";
+import { CatalogRecordSchema } from "../catalog/schemas/catalog_record";
 
 type NormalizeCatalogFrame = (
   frame: readonly unknown[],
@@ -33,9 +33,10 @@ export const normalizeCatalogFrame: NormalizeCatalogFrame = (
   if (!action.success) return undefined;
   const type = action.data.type;
   const payload = action.data.payload;
-  const rows = payload === undefined ? undefined : payload.values ?? payload.data;
-  if (type === undefined || !isRowArray(rows)) return undefined;
-  const workspaceID = rows
+  const rowsValue = payload === undefined ? undefined : payload.values ?? payload.data;
+  const rows = CatalogRecordSchema.array().safeParse(rowsValue);
+  if (type === undefined || !rows.success) return undefined;
+  const workspaceID = rows.data
     .map((row) => row.workspaceID)
     .find((value): value is string => typeof value === "string");
   return {
@@ -44,7 +45,7 @@ export const normalizeCatalogFrame: NormalizeCatalogFrame = (
     channel,
     ...(workspaceID === undefined ? {} : { workspaceID }),
     type,
-    rows,
+    rows: rows.data,
     byteCount,
   };
 };

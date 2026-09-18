@@ -4,6 +4,7 @@ import { createUUID } from "../uuid";
 import { VOICEFLOW_REALTIME_WEBSOCKET_URL } from "../urls";
 import { debugLog } from "../debug";
 import { parseLoguxFrame } from "./frame-contract";
+import { isRecord } from "../guards";
 
 type UpdateSecret = (
   auth: AuthContext,
@@ -84,5 +85,3 @@ const send = (ws: WebSocket, frame: Frame): void => {
   traceFrame("out", frame);
   ws.send(JSON.stringify(frame));
 };
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);

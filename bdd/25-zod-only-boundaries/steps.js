@@ -8,6 +8,34 @@ const exists = (path) => existsSync(new URL(path, root));
 const packageJSON = JSON.parse(read("package.json"));
 const testSource = read("tests/bdd25_zod_migration.test.ts");
 const auditSource = read("docs/bdd25-schema-ownership.md");
+const migrationConfig = await import("../../xyops/cli/schemas/migration-config.ts");
+const pluginJob = await import("../../xyops/plugin/schemas/native_plugin_job.ts");
+const catalogRecord = await import("../../xyops/voiceflow/catalog/schemas/catalog_record.ts");
+const secretEntry = await import("../../xyops/voiceflow/schemas/secret_entry.ts");
+const loguxFrame = await import("../../xyops/voiceflow/logux/schemas/frame.ts");
+const loguxAction = await import("../../xyops/voiceflow/logux/schemas/action.ts");
+const xyopsResponses = await import("../../xyops/cli/schemas/xyops-responses.ts");
+
+const assertRuntimeBoundaryEvidence = () => {
+  const cases = [
+    [migrationConfig.MigrationFileConfigSchema, { source_workspace: "workspace" }],
+    [pluginJob.NativePluginJobSchema, { xy: 1, type: "event", params: { operation: "check_session" } }],
+    [catalogRecord.CatalogRecordSchema, { id: "catalog-1" }],
+    [secretEntry.SecretEntrySchema, { key: "KEY", value: "value", type: "" }],
+    [loguxFrame.LoguxFrameSchema, ["synced", 1]],
+    [loguxAction.LoguxActionSchema, { type: "project.CRUD:PATCH", payload: {} }],
+    [xyopsResponses.XYOpsStreamEventSchema, { type: "update", data: { jobID: "job-1" } }],
+  ];
+  for (const [schema, valid] of cases) {
+    const parsed = schema.safeParse(valid);
+    assert.equal(parsed.success, true);
+    if (parsed.success) assert.deepEqual(parsed.data, valid);
+    assert.equal(schema.safeParse(null).success, false);
+    assert.equal(schema.safeParse([]).success, false);
+    assert.doesNotThrow(() => schema.safeParse({ unknown: "x" }));
+    assert.doesNotThrow(() => schema.safeParse({ value: "x".repeat(100_000) }));
+  }
+};
 
 const schemaPaths = [
   "xyops/cli/schemas/migration-config.ts",
@@ -33,6 +61,7 @@ class ZodMigrationWorld {
 setWorldConstructor(ZodMigrationWorld);
 
 const assertInventory = () => {
+  assertRuntimeBoundaryEvidence();
   assert.ok(schemaPaths.every(exists));
   assert.ok(boundaryPaths.every(exists));
   assert.match(auditSource, /## Ownership matrix/);
@@ -45,14 +74,21 @@ const assertFocusedCoverage = () => {
   }
 };
 const assertNoConfigDuplication = () => {
-  assert.match(auditSource, /No schema ownership conflict/);
   const configSource = read("xyops/cli/config.ts");
   const cliGuardsSource = read("xyops/cli/guards.ts");
+  const envelopeSource = read("xyops/cli/schemas/voiceflow-envelope.ts");
+  const migratedSources = [
+    read("xyops/voiceflow/logux/create-folder.ts"),
+    read("xyops/voiceflow/logux/rename-project.ts"),
+    read("xyops/voiceflow/logux/update-secret.ts"),
+  ].join("\\n");
   assert.doesNotMatch(configSource, /CONFIG_KEYS/);
   assert.doesNotMatch(configSource, /typeof value === ["']object/);
   assert.doesNotMatch(cliGuardsSource, /export const isRecord/);
+  assert.doesNotMatch(envelopeSource, /FromGuard|ResponseGuard/);
+  assert.doesNotMatch(migratedSources, /const isRecord/);
   assert.equal(exists("xyops/plugin/guards.ts"), false);
-  assert.doesNotMatch(read("xyops/voiceflow/catalog/record-parsers.ts"), /isRawRow/);
+  assert.doesNotMatch(read("xyops/voiceflow/catalog/record-parsers.ts"), /isRawRow|isIDValue|isVersionValue/);
 };
 const assertRegistered = () => {
   assert.equal(typeof packageJSON.scripts["bdd:25"], "string");

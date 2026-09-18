@@ -1,10 +1,9 @@
 import { fail } from "./diagnostics";
-import { isVoiceflowEnvelope } from "./guards";
-import type { ResponseGuard } from "./types";
+import type { ResponseSchema } from "./types";
 type RequireEnvelopeResult = <T>(
   value: unknown,
   operation: string,
-  resultGuard: ResponseGuard<T>,
+  envelopeSchema: ResponseSchema<import("./types").VoiceflowEnvelope<T>>,
 ) => T;
 const requireSuccessfulEnvelope = <T>(
   value: import("./types").VoiceflowEnvelope<T>,
@@ -22,11 +21,12 @@ const requireSuccessfulEnvelope = <T>(
 export const requireEnvelopeResult: RequireEnvelopeResult = <T>(
   value: unknown,
   operation: string,
-  resultGuard: ResponseGuard<T>,
+  envelopeSchema: ResponseSchema<import("./types").VoiceflowEnvelope<T>>,
 ): T => {
-  if (!isVoiceflowEnvelope(resultGuard)(value))
+  const parsed = envelopeSchema.safeParse(value);
+  if (!parsed.success)
     throw fail("envelope", {
       nextAction: `${operation} returned an invalid response.`,
     });
-  return requireSuccessfulEnvelope(value, operation);
+  return requireSuccessfulEnvelope(parsed.data, operation);
 };

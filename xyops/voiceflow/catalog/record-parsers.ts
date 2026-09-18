@@ -1,5 +1,6 @@
 import { VoiceflowRegex } from "../regex";
 import { CatalogRecordSchema } from "./schemas/catalog_record";
+import type { CatalogRecord } from "./schemas/catalog_record";
 import type {
   EnvironmentRecord,
   FolderRecord,
@@ -7,7 +8,7 @@ import type {
   WorkspaceRecord,
 } from "../types";
 
-export type RawCatalogRow = Readonly<Record<string, unknown>>;
+export type RawCatalogRow = CatalogRecord;
 export type CatalogParseResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: "invalid-row" };
@@ -31,11 +32,10 @@ const parseCatalogRecord = (
   return parsed.success ? parsed.data : undefined;
 };
 
-// Runtime validation intentionally handles multiple external representations.
-const isIDValue = (value: unknown): value is string | number =>
-  typeof value === "string" || typeof value === "number";
-const normalizeOptionalID = (value: unknown): string | undefined =>
-  isIDValue(value) ? nonEmptyID(String(value).trim()) : undefined;
+const normalizeOptionalID = (
+  value: string | number | undefined,
+): string | undefined =>
+  value === undefined ? undefined : nonEmptyID(String(value).trim());
 const nonEmptyID = (value: string): string | undefined =>
   value === "" ? undefined : value;
 
@@ -58,14 +58,11 @@ const readEnvironmentRows = (value: unknown): readonly RawCatalogRow[] =>
     return parsed === undefined ? [] : [parsed];
   });
 
-const isVersionValue = (value: unknown): value is string | number =>
-  typeof value === "string" || typeof value === "number";
-
 const readOptionalVersion = (
   key: VersionField,
-  value: unknown,
+  value: string | number | undefined,
 ): Partial<EnvironmentRecord> =>
-  isVersionValue(value) ? { [key]: String(value) } : {};
+  value === undefined ? {} : { [key]: String(value) };
 
 const readEnvironment = (row: RawCatalogRow): EnvironmentRecord => ({
   label: readLabel(row, "Environment"),

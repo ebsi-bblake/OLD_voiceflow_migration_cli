@@ -1,9 +1,6 @@
 import { fail, CliError } from "../diagnostics";
-import {
-  isRetryableStatus,
-  isSuccessfulCode,
-  isXYOpsResponse,
-} from "../guards";
+import { isRetryableStatus, isSuccessfulCode } from "../guards";
+import { XYOpsResponseSchema } from "../schemas/xyops-responses";
 import type { XYOpsResponse } from "../types";
 
 export type Sleep = (milliseconds: number) => Promise<void>;
@@ -86,12 +83,13 @@ const parseJSONResponse: ParseJSONResponse = async (response, endpoint) => {
 
 type RequireXYOpsResponse = (value: unknown, endpoint: string) => XYOpsResponse;
 const requireXYOpsResponse: RequireXYOpsResponse = (value, endpoint) => {
-  if (!isXYOpsResponse(value))
+  const parsed = XYOpsResponseSchema.safeParse(value);
+  if (!parsed.success)
     throw fail("api", {
       endpoint,
       nextAction: "XYOps returned an invalid response.",
     });
-  return value;
+  return parsed.data;
 };
 
 type RequireSuccessfulResponse = (

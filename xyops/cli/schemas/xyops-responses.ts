@@ -9,7 +9,7 @@ const outputSchema = z.union([z.string(), z.null()]).optional();
 
 export const XYOpsResponseSchema = z
   .object({
-    code: responseCodeSchema.optional(),
+    code: responseCodeSchema,
     description: responseDescriptionSchema,
     id: responseIDSchema,
     job: z.unknown().optional(),

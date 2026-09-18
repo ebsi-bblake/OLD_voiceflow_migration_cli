@@ -6,7 +6,8 @@ import {
   validateMigrationFileConfig,
 } from "../config";
 import { createXYOpsClient } from "../client";
-import { isCheckSessionResult, isVoiceflowEnvelope } from "../guards";
+import { CheckSessionResultSchema } from "../schemas/session";
+import { createVoiceflowEnvelopeSchema } from "../schemas/voiceflow-envelope";
 import { requireEnvelopeResult } from "../validation";
 import { asCliError, cliErrorOutput, fail } from "../diagnostics";
 import {
@@ -62,7 +63,7 @@ const performMigration: PerformMigration = async (context) => {
     client.readEvent(
       config.events.checkSession,
       eventParametersFor(VoiceflowOperation.CheckSession),
-      isVoiceflowEnvelope(isCheckSessionResult),
+      createVoiceflowEnvelopeSchema(CheckSessionResultSchema),
     ),
   );
 
@@ -70,7 +71,7 @@ const performMigration: PerformMigration = async (context) => {
     requireEnvelopeResult(
       sessionResponse,
       "check_session",
-      isCheckSessionResult,
+      createVoiceflowEnvelopeSchema(CheckSessionResultSchema),
     ).active,
   );
 

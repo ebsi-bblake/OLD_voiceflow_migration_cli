@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { expect, test } from "bun:test";
 
 import { createXYOpsClient } from "../xyops/cli/client";
@@ -5,7 +6,7 @@ import {
   createJobObservationState,
   transitionJobObservation,
 } from "../xyops/cli/client/job-observation-state-machine";
-import { isVoiceflowEnvelope } from "../xyops/cli/guards";
+import { createVoiceflowEnvelopeSchema } from "../xyops/cli/schemas/voiceflow-envelope";
 import {
   DEFAULT_STREAM_MAX_BYTES,
   parseSSE,
@@ -291,7 +292,7 @@ test.each(["output", "data"] as const)(
       client.executeEvent(
         "execute-event",
         { operation: "execute_migration" },
-        isVoiceflowEnvelope(() => true),
+        createVoiceflowEnvelopeSchema(z.unknown()),
       ),
     ).resolves.toEqual(successfulEnvelope());
     expect(paths).toEqual(["/api/app/run_event/v1", "/api/app/get_job/v1"]);
@@ -328,7 +329,7 @@ test("reconciles a raw stream failure without redispatching", async () => {
     client.executeEvent(
       "execute-event",
       { operation: "execute_migration" },
-      isVoiceflowEnvelope(() => true),
+      createVoiceflowEnvelopeSchema(z.unknown()),
     ),
   ).rejects.toMatchObject({ diagnostic: { code: "execute-outcome-unknown" } });
   expect(dispatches).toBe(2);

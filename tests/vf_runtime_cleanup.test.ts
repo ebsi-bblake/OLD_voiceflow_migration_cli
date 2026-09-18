@@ -1,7 +1,8 @@
+import { z } from "zod";
 import { expect, test } from "bun:test";
 import { createXYOpsClient } from "../xyops/cli/client";
 import { streamJob } from "../xyops/cli/client/streaming";
-import { isVoiceflowEnvelope } from "../xyops/cli/guards";
+import { createVoiceflowEnvelopeSchema } from "../xyops/cli/schemas/voiceflow-envelope";
 import { createSecret } from "../xyops/voiceflow/logux/create-secret";
 
 const config = {
@@ -14,7 +15,7 @@ const config = {
   streamMaxBytes: 1_000,
   streamMaxFrameBytes: 1_000,
 } as const;
-const guard = isVoiceflowEnvelope(() => true);
+const guard = createVoiceflowEnvelopeSchema(z.unknown());
 const result = { ok: true, operation: "execute_migration", operationID: "operation", result: {}, warnings: [] };
 const response = (body: unknown): Response => new Response(JSON.stringify(body), { status: 200 });
 

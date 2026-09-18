@@ -1,6 +1,7 @@
 import { fail } from "../diagnostics";
 import { VoiceflowRegex } from "../../voiceflow/regex";
-import { isNonEmptyString, isXYOpsStreamEvent } from "../guards";
+import { z } from "zod";
+import { XYOpsStreamEventSchema } from "../schemas/xyops-responses";
 import type {
   XYOpsStreamEvent,
   XYOpsStreamLimits,
@@ -12,6 +13,7 @@ import { fetchSSE } from "./http";
 export const STREAM_PATH = "/api/app/stream_job/v1";
 export const DEFAULT_STREAM_MAX_BYTES = 1_048_576;
 export const DEFAULT_STREAM_MAX_FRAME_BYTES = 256_000;
+const nonEmptyStringSchema = z.string().trim().min(1);
 
 type ParseSSE = (
   source: string,
@@ -54,9 +56,10 @@ const parseEventFrame = (
     return streamError("XYOps returned malformed SSE JSON.");
   }
   const event: unknown = { type: eventName, data };
-  if (!isXYOpsStreamEvent(event))
+  const parsed = XYOpsStreamEventSchema.safeParse(event);
+  if (!parsed.success)
     return streamError("XYOps returned an unknown or invalid SSE event.");
-  return event;
+  return parsed.data;
 };
 
 // eslint-disable-next-line complexity
@@ -92,7 +95,7 @@ const hasTerminalJobStatus: HasTerminalJobStatus = (
   data,
 ): data is Record<string, unknown> & TerminalJobData =>
   data !== undefined &&
-  isNonEmptyString(data.id) &&
+  nonEmptyStringSchema.safeParse(data.id).success &&
   (typeof data.code === "number" || typeof data.code === "string");
 
 type ReadSSEResponse = (

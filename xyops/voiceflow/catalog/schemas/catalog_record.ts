@@ -14,8 +14,12 @@ export const CatalogRecordSchema = z
     parentId: catalogIDSchema,
     parentFolderID: catalogIDSchema,
     environments: z.unknown().optional(),
+    draftVersionID: catalogIDSchema,
+    publishedVersionID: catalogIDSchema,
     name: z.unknown().optional(),
     title: z.unknown().optional(),
     label: z.unknown().optional(),
   })
   .loose();
+
+export type CatalogRecord = z.infer<typeof CatalogRecordSchema>;

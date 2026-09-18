@@ -3,6 +3,7 @@ export type TraceFields = Readonly<Record<string, unknown>>;
 
 import { LoguxFrameSchema } from "./schemas/frame";
 import { LoguxActionSchema } from "./schemas/action";
+import { isRecord } from "../guards";
 
 export type SecretFailureCause = Readonly<{
   kind: "dependency-failure";
@@ -97,6 +98,3 @@ const hasAssistantID = (
   const context = payload.result.context;
   return isRecord(context) && context.assistantID === assistantID;
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);

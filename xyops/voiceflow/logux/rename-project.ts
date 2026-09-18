@@ -11,6 +11,7 @@ import {
   type RenameEffect,
 } from "./state-machine";
 import { parseLoguxFrame } from "./frame-contract";
+import { isRecord } from "../guards";
 
 export type RenameProject = (
   auth: AuthContext,
@@ -22,8 +23,6 @@ export type RenameProject = (
 
 type Frame = readonly unknown[];
 type RecordValue = Readonly<Record<string, unknown>>;
-const isRecord = (value: unknown): value is RecordValue =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 const parseFrame = (value: unknown): Frame | undefined =>
   typeof value === "string" ? parseLoguxFrame(value) : undefined;
 const actionOf = (frame: Frame): RecordValue | undefined =>

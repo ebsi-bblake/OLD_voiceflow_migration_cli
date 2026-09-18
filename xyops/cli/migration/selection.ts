@@ -1,10 +1,9 @@
 import { createXYOpsClient } from "../client";
 import {
-  isCreatedFolderResult,
-  isOptionResult,
-  isVoiceflowEnvelope,
 } from "../guards";
 import { requireEnvelopeResult } from "../validation";
+import { createVoiceflowEnvelopeSchema } from "../schemas/voiceflow-envelope";
+import { CatalogOptionResultSchema, CreatedFolderResultSchema } from "../schemas/catalog-results";
 import { fail } from "../diagnostics";
 import type {
   EventParameters,
@@ -47,7 +46,7 @@ const validateConfiguredOption: ValidateConfiguredOption = async (
   const response = await context.client.readEvent(
     eventReference,
     parameters,
-    isVoiceflowEnvelope(isOptionResult),
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
   );
   const options = readOptions(response, field);
   if (!options.some((option) => option.value === configuredValue))
@@ -215,7 +214,7 @@ const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = async (
   const response = await client.readEvent(
     eventReference,
     parameters,
-    isVoiceflowEnvelope(isOptionResult),
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
   );
   return resolveConfiguredOption(
     configuredValue,
@@ -241,7 +240,7 @@ const selectCatalog: SelectCatalog = async (
   const response = await client.readEvent(
     eventReference,
     parameters,
-    isVoiceflowEnvelope(isOptionResult),
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
   );
   return chooseOption(reader, title, readOptions(response, title));
 };
@@ -251,7 +250,7 @@ const readOptions = (
   title: string,
 ): readonly { value: string; label: string }[] => {
   try {
-    return requireEnvelopeResult(value, title, isOptionResult).options;
+    return requireEnvelopeResult(value, title, createVoiceflowEnvelopeSchema(CatalogOptionResultSchema)).options;
   } catch {
     throw fail("envelope", {
       nextAction: `${title} returned no usable options.`,
@@ -280,7 +279,7 @@ const selectDefaultSourceVersion: SelectDefaultSourceVersion = async ({
   const response = await client.readEvent(
     config.events.listVersions,
     listVersionsParameters(workspaceID, projectID),
-    isVoiceflowEnvelope(isOptionResult),
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
   );
   const options = readOptions(response, "source_version");
   const draftDevelopment = options.find(
@@ -394,9 +393,9 @@ const createDestinationFolder: CreateDestinationFolder = async (
   const response = await client.executeEvent(
     config.events.createFolder,
     createFolderParameters(workspaceID, name),
-    isVoiceflowEnvelope(isCreatedFolderResult),
+    createVoiceflowEnvelopeSchema(CreatedFolderResultSchema),
   );
-  return requireEnvelopeResult(response, "create_folder", isCreatedFolderResult)
+  return requireEnvelopeResult(response, "create_folder", createVoiceflowEnvelopeSchema(CreatedFolderResultSchema))
     .folder.value;
 };
 
@@ -426,12 +425,12 @@ const selectInteractiveDestinationFolder: SelectInteractiveDestinationFolder = a
   const response = await client.readEvent(
     config.events.listFolders,
     listFoldersParameters(workspaceID),
-    isVoiceflowEnvelope(isOptionResult),
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
   );
   const options = requireEnvelopeResult(
     response,
     "destination_folder",
-    isOptionResult,
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
   ).options;
   console.log("\nDestination folder:");
   options.forEach((option, index) =>
@@ -536,7 +535,7 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
           const response = await client.readEvent(
             config.events.listFolders,
             listFoldersParameters(destinationWorkspaceID),
-            isVoiceflowEnvelope(isOptionResult),
+            createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
           );
           const options = readOptions(response, "destination_folder");
           const resolved = resolveFolderInput(configuredFolder, options);

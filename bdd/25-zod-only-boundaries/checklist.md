@@ -47,6 +47,47 @@ This checklist is the completion gate for BDD25. Do not mark it complete while a
 - Evidence reviewed:
 - Known risks or intentionally deferred items:
 
-**Completion decision:** [ ] Complete  [ ] Not complete
+## Current completion record (re-audited)
+
+Implementation files changed:
+- `xyops/voiceflow/guards.ts`
+- `xyops/voiceflow/catalog/schemas/catalog_record.ts`
+- `xyops/voiceflow/catalog/record-parsers.ts`
+- `xyops/voiceflow/import/schemas/receipt.ts`
+- `xyops/voiceflow/import/input.ts`
+- `xyops/voiceflow/logux/catalog-frames.ts`
+- `xyops/voiceflow/logux/frames.ts`
+
+Focused evidence:
+- BDD25: PASS, 10 scenarios / 91 steps, with runtime schema probes
+- BDD20: PASS, 29 scenarios / 140 steps
+- focused migration tests: PASS
+- full unit suite: PASS, 226 tests
+- aggregate BDD suite: PASS
+- typecheck, lint, and CLI artifact verification: PASS
+
+Resolved blockers:
+- Removed guard-owned envelope schema construction and `isVoiceflowEnvelope`.
+- Migrated CLI envelope consumers to explicit named Zod schemas and parsed data.
+- Removed schema-backed response/job/SSE guard wrappers from migrated adapters.
+- Centralized justified generic record traversal for Logux/export/response handling.
+- Removed obsolete catalog and Logux structural aliases.
+- Added runtime BDD25 boundary probes; source audits are supplemental only.
+
+Remaining risks:
+- Generic traversal remains necessary for loose provider payloads and diagnostics;
+  it is not used as an owned domain validator.
+- Existing unrelated working-tree changes were left untouched.
+
+Commands:
+- `bun test tests/bdd25_zod_migration.test.ts` — PASS
+- `bun test` — PASS
+- `bun run bdd:18` through `bun run bdd:25` — PASS
+- `bun run bdd` — PASS
+- `bun run typecheck` — PASS
+- `bun run lint` — PASS
+- `bun run verify:cli` — PASS
+
+**Completion decision:** [x] Complete  [ ] Not complete
 
 > A passing command is not sufficient if the command does not exercise the acceptance criteria. Any unchecked item means the BDD is not complete.

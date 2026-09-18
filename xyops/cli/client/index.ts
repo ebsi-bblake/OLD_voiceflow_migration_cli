@@ -2,7 +2,7 @@ import { fail, CliError } from "../diagnostics";
 import type {
   CliDiagnostic,
   EventParameters,
-  ResponseGuard,
+  ResponseSchema,
   VoiceflowEnvelope,
   XYOpsClient,
   XYOpsConfig,
@@ -104,7 +104,7 @@ export const createXYOpsClient = (
   const readEvent = <T>(
     reference: XYOpsEventReference,
     params: EventParameters,
-    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+    guard: ResponseSchema<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> =>
     readEventWithRetry(
       request,
@@ -117,7 +117,7 @@ export const createXYOpsClient = (
 
   const readTerminalStream = async <T>(
     id: string,
-    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+    guard: ResponseSchema<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> => {
     let streamOrJob: Awaited<ReturnType<typeof streamer>>;
     try {
@@ -157,7 +157,7 @@ export const createXYOpsClient = (
 
   const startJobObservation = <T>(
     id: string,
-    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+    guard: ResponseSchema<VoiceflowEnvelope<T>>,
     useStreaming: boolean,
   ): Promise<VoiceflowEnvelope<T>> => {
     let state: JobObservationState = createJobObservationState(id);
@@ -198,7 +198,7 @@ export const createXYOpsClient = (
   const executeEvent = async <T>(
     reference: XYOpsEventReference,
     params: EventParameters,
-    guard: ResponseGuard<VoiceflowEnvelope<T>>,
+    guard: ResponseSchema<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> => {
     try {
       const launch = await request(RUN_PATH, eventBody(reference, params), RUN_PATH);

@@ -1,4 +1,5 @@
 import type { Diagnostic } from "../diagnostics/types";
+import type { ZodType } from "zod";
 
 export type Option = Readonly<{ value: string; label: string }>;
 export type MigrationSelection = Readonly<{
@@ -40,7 +41,7 @@ export type VoiceflowFailure = Readonly<{
   }>;
 }>;
 export type VoiceflowEnvelope<T> = VoiceflowSuccess<T> | VoiceflowFailure;
-export type ResponseGuard<T> = (value: unknown) => value is T;
+export type ResponseSchema<T> = ZodType<T>;
 export type XYOpsResponse = Readonly<{
   code: number | string;
   description?: string;
@@ -203,11 +204,11 @@ export type XYOpsClient = Readonly<{
   readEvent: <T>(
     eventReference: XYOpsEventReference,
     params: EventParameters,
-    envelopeGuard: ResponseGuard<VoiceflowEnvelope<T>>,
+    envelopeGuard: ResponseSchema<VoiceflowEnvelope<T>>,
   ) => Promise<VoiceflowEnvelope<T>>;
   executeEvent: <T>(
     eventReference: XYOpsEventReference,
     params: EventParameters,
-    envelopeGuard: ResponseGuard<VoiceflowEnvelope<T>>,
+    envelopeGuard: ResponseSchema<VoiceflowEnvelope<T>>,
   ) => Promise<VoiceflowEnvelope<T>>;
 }>;

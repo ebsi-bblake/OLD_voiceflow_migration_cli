@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ResponseGuard } from "../types";
+import type { VoiceflowEnvelope } from "../types";
 import { ErrorCode, VoiceflowOperation, WarningCode } from "../../voiceflow/types";
 
 const operationSchema = z.string().refine((value) =>
@@ -26,21 +26,19 @@ const failureSchema = z
   })
   .loose();
 
-type ResultSchemaOrGuard<T> = z.ZodType<T> | ResponseGuard<T>;
 type CreateVoiceflowEnvelopeSchema = <T>(
-  result: ResultSchemaOrGuard<T>,
-) => z.ZodType;
+  result: z.ZodType<T>,
+) => z.ZodType<VoiceflowEnvelope<T>>;
 export const createVoiceflowEnvelopeSchema: CreateVoiceflowEnvelopeSchema = <T>(
-  result: ResultSchemaOrGuard<T>,
+  result: z.ZodType<T>,
 ) => {
-  const resultSchema = typeof result === "function" ? z.custom<T>(result) : result;
   return z.union([
     z
       .object({
         ok: z.literal(true),
         operation: operationSchema,
         operationID: operationIDSchema,
-        result: resultSchema,
+        result,
         warnings: z.array(warningSchema),
       })
       .loose(),
@@ -54,8 +52,3 @@ export const createVoiceflowEnvelopeSchema: CreateVoiceflowEnvelopeSchema = <T>(
       .loose(),
   ]);
 };
-
-/** Compatibility adapter for consumers that still expose ResponseGuard APIs. */
-export const createVoiceflowEnvelopeSchemaFromGuard = <T>(
-  resultGuard: ResponseGuard<T>,
-): z.ZodType => createVoiceflowEnvelopeSchema(z.custom<T>(resultGuard));

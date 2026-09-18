@@ -19,3 +19,6 @@ coverage/
 .direnv/
 result
 result-*
+
+# Local documentation and generated notebooks
+docs/

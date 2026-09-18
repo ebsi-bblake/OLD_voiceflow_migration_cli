@@ -7,11 +7,10 @@ import { VoiceflowRegex } from "./regex";
 import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "./urls";
 import type { ExportArtifact } from "./types";
 import { ExportPayloadSchema } from "./schemas/export_payload";
+import { isRecord } from "./guards";
 export type { ExportArtifact } from "./types";
 const EXPORT_URL = `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/export-json`;
 type RecordValue = Readonly<Record<string, unknown>>;
-const isRecord = (value: unknown): value is RecordValue =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const exportedSchemaMetadata = (value: RecordValue): unknown => {
   if (value._version !== undefined) return value._version;

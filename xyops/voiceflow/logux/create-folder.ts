@@ -10,13 +10,12 @@ import {
   type FolderState,
 } from "./folder-state-machine";
 import { parseLoguxFrame } from "./frame-contract";
+import { isRecord } from "../guards";
 
 export type CreatedFolder = Readonly<{ id: string; name: string }>;
 type RecordValue = Readonly<Record<string, unknown>>;
 type Frame = readonly unknown[];
 const FOLDER_CHANNEL = (workspaceID: string): string => `workspace/${workspaceID}`;
-const isRecord = (value: unknown): value is RecordValue =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 const parseFrame = (value: string): Frame | undefined => parseLoguxFrame(value);
 const isSafeFolderName = (value: string): boolean => {
   const trimmed = value.trim();

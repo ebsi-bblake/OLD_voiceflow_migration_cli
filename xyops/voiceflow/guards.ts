@@ -5,15 +5,12 @@ export type RecordValue = Readonly<Record<string, unknown>>;
 
 const isNonNullObject = (value: unknown): value is object =>
   typeof value === "object" && value !== null;
+/**
+ * Generic traversal guard for unowned JSON fragments. Domain records must be
+ * parsed by their owning Zod schema before they reach domain policy code.
+ */
 export const isRecord = (value: unknown): value is RecordValue =>
   isNonNullObject(value) && !Array.isArray(value);
-export const isObject = isRecord;
-export const isClaims = isRecord;
-export const isRawRow = isRecord;
-const isRecordArray = (value: unknown[]): value is RecordValue[] =>
-  value.every(isRecord);
-export const isRowArray = (value: unknown): value is readonly RecordValue[] =>
-  Array.isArray(value) && isRecordArray(value);
 export const isNumericFolderID = (id: string): boolean =>
   VoiceflowRegex.numericID.test(id);
 const isServerErrorStatus = (status: number): boolean =>

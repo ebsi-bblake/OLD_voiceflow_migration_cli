@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { createXYOpsClient } from "../xyops/cli/client";
 import { DEFAULT_XYOPS_BASE_URL, readXYOpsConfig } from "../xyops/cli/config";
 import {
-  isCheckSessionResult,
-  isOptionResult,
-  isVoiceflowEnvelope,
   isEventParameterEntry,
 } from "../xyops/cli/guards";
+import { createVoiceflowEnvelopeSchema } from "../xyops/cli/schemas/voiceflow-envelope";
+import { CatalogOptionResultSchema } from "../xyops/cli/schemas/catalog-results";
+import { CheckSessionResultSchema } from "../xyops/cli/schemas/session";
 import { run } from "../xyops/cli/index";
 import {
   executeParameters,
@@ -90,7 +91,7 @@ describe("XYOps CLI adapter", () => {
     const result = await client.readEvent(
       "event-projects",
       { operation: "list_projects", SOURCE_WORKSPACE_ID: "workspace-1" },
-      isVoiceflowEnvelope(isOptionResult),
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
     );
 
     const request = requiredRequest(requests);
@@ -133,7 +134,7 @@ describe("XYOps CLI adapter", () => {
       client.readEvent(
         "event-projects",
         { operation: "list_projects" },
-        isVoiceflowEnvelope(isOptionResult),
+        createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
       ),
     ).resolves.toEqual(envelope);
   });
@@ -167,7 +168,7 @@ describe("XYOps CLI adapter", () => {
       client.readEvent(
         "event-check_session",
         { operation: "check_session" },
-        isVoiceflowEnvelope(isCheckSessionResult),
+        createVoiceflowEnvelopeSchema(CheckSessionResultSchema),
       ),
     ).resolves.toEqual(envelope);
   });
@@ -214,7 +215,7 @@ describe("XYOps CLI adapter", () => {
     await client.readEvent(
       { id: "event-check" },
       { operation: "check_session" },
-      isVoiceflowEnvelope(isOptionResult),
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
     );
 
     expect(firstBodyJSON(requests)).toMatchObject({ id: "event-check" });
@@ -250,9 +251,7 @@ describe("XYOps CLI adapter", () => {
       client.executeEvent(
         "event-execute",
         { operation: "execute_migration", CONFIRMED: true },
-        isVoiceflowEnvelope((value): value is Readonly<Record<string, unknown>> =>
-          typeof value === "object" && value !== null,
-        ),
+        createVoiceflowEnvelopeSchema(z.record(z.string(), z.unknown())),
       ),
     ).resolves.toMatchObject({ ok: true, operation: "execute_migration" });
   });
@@ -283,7 +282,7 @@ describe("XYOps CLI adapter", () => {
     const result = await client.readEvent(
       "event-projects",
       { operation: "list_projects" },
-      isVoiceflowEnvelope(isOptionResult),
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
     );
 
     expect(result.ok).toBe(true);
@@ -304,7 +303,7 @@ describe("XYOps CLI adapter", () => {
     const error = await client.readEvent(
       "event-projects",
       { operation: "list_projects" },
-      isVoiceflowEnvelope(isOptionResult),
+      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
     ).catch((value: unknown) => value);
 
     expect(error).toMatchObject({
@@ -338,7 +337,7 @@ describe("XYOps CLI adapter", () => {
       client.readEvent(
         "event-projects",
         { operation: "list_projects" },
-        isVoiceflowEnvelope(isOptionResult),
+        createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
       ),
     ).rejects.toMatchObject({
       diagnostic: { code: "job", nextAction: failureDescription },
@@ -397,7 +396,7 @@ describe("XYOps CLI adapter", () => {
     const result = await client.executeEvent(
       "event-execute",
       executeParameters(selection, "plan-1"),
-      isVoiceflowEnvelope((value): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null),
+      createVoiceflowEnvelopeSchema(z.record(z.string(), z.unknown())),
     );
 
     expect(result).toEqual({
@@ -431,7 +430,7 @@ describe("XYOps CLI adapter", () => {
     await expect(client.executeEvent(
       "event-execute",
       executeParameters(selection, "plan-1"),
-      isVoiceflowEnvelope((value): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null),
+      createVoiceflowEnvelopeSchema(z.record(z.string(), z.unknown())),
     )).rejects.toMatchObject({
       diagnostic: { code: "execute-outcome-unknown" },
     });
@@ -479,7 +478,7 @@ describe("XYOps CLI adapter", () => {
       client.executeEvent(
         "event-execute",
         { operation: "execute_migration" },
-        isVoiceflowEnvelope(() => true),
+        createVoiceflowEnvelopeSchema(z.unknown()),
       ),
     ).resolves.toMatchObject({
       ok: true,
@@ -543,7 +542,7 @@ describe("XYOps CLI adapter", () => {
     const result = await client.executeEvent(
       "event-execute",
       executeParameters(selection, "plan-1"),
-      isVoiceflowEnvelope((value): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null),
+      createVoiceflowEnvelopeSchema(z.record(z.string(), z.unknown())),
     );
 
     expect(result.ok).toBe(true);
@@ -582,7 +581,7 @@ describe("XYOps CLI adapter", () => {
       client.executeEvent(
         "event-execute",
         executeParameters(selection, "plan-1"),
-        isVoiceflowEnvelope((value): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null),
+        createVoiceflowEnvelopeSchema(z.record(z.string(), z.unknown())),
       ),
     ).rejects.toMatchObject({
       diagnostic: { code: "job", nextAction: failureDescription },

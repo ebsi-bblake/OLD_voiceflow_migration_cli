@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { z } from "zod";
 import { defineStep, setWorldConstructor } from "@cucumber/cucumber";
 
 const workflow = await import("../../xyops/voiceflow/execute-migration-state-machine.ts");
@@ -8,6 +9,7 @@ const logux = await import("../../xyops/voiceflow/logux/state-machine.ts");
 const renameAdapter = await import("../../xyops/voiceflow/logux/rename-project.ts");
 const secretAdapter = await import("../../xyops/voiceflow/logux/create-secret.ts");
 const clientModule = await import("../../xyops/cli/client/index.ts");
+const envelopeSchemas = await import("../../xyops/cli/schemas/voiceflow-envelope.ts");
 const diagnostics = await import("../../xyops/cli/diagnostics.ts");
 
 
@@ -48,7 +50,7 @@ defineStep("the production observation adapter handles a stream failure", async 
     streamer: async () => { throw diagnostics.fail("network", { endpoint: "/api/app/stream_job/v1" }); },
     sleeper: async () => undefined,
   });
-  this.value = { result: await client.executeEvent("event", {}, () => true), requests };
+  this.value = { result: await client.executeEvent("event", {}, envelopeSchemas.createVoiceflowEnvelopeSchema(z.unknown())), requests };
 });
 defineStep("polling is started only by the reducer effect", function () { assert.equal(this.value.result.ok, true); assert.deepEqual(this.value.requests, ["/api/app/run_event/v1", "/api/app/get_job/v1"]); });
 defineStep("terminal cleanup signals race", function () { const started = observation.transitionJobObservation(observation.createJobObservationState("job"), { kind: "execute-dispatched", jobID: "job" }); const terminal = observation.transitionJobObservation(started.state, { kind: "stream-succeeded" }); this.value = [terminal, observation.transitionJobObservation(terminal.state, { kind: "poll-timeout" })]; });

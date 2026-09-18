@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { OperationFault, toOperationError } from "../xyops/voiceflow/contracts";
 import { ErrorCode, VoiceflowOperation, WarningCode } from "../xyops/voiceflow/types";
-import { isVoiceflowEnvelope } from "../xyops/cli/guards";
+import { createVoiceflowEnvelopeSchema } from "../xyops/cli/schemas/voiceflow-envelope";
 import { createPluginDiagnostic } from "../xyops/plugin/diagnostics";
 import { mapVoiceflowEnvelope } from "../xyops/plugin/wire_protocol";
 import { requireEnvelopeResult } from "../xyops/cli/validation";
@@ -24,7 +24,7 @@ describe("Voiceflow unexpected error diagnostics", () => {
   });
 
   test("rejects unknown error and warning codes at the response boundary", () => {
-    const guard = isVoiceflowEnvelope(() => true);
+    const guard = createVoiceflowEnvelopeSchema(z.unknown());
     const valid = {
       ok: true,
       operation: "check_session",
@@ -32,9 +32,9 @@ describe("Voiceflow unexpected error diagnostics", () => {
       result: {},
       warnings: [{ code: "NOT_IDEMPOTENT", message: "warning" }],
     };
-    expect(guard(valid)).toBe(true);
-    expect(guard({ ...valid, warnings: [{ code: "UNKNOWN", message: "warning" }] })).toBe(false);
-    expect(guard({ ...valid, warnings: [], result: {}, operation: "unknown" })).toBe(false);
+    expect(guard.safeParse(valid).success).toBe(true);
+    expect(guard.safeParse({ ...valid, warnings: [{ code: "UNKNOWN", message: "warning" }] }).success).toBe(false);
+    expect(guard.safeParse({ ...valid, warnings: [], result: {}, operation: "unknown" }).success).toBe(false);
   });
 
   test("preserves the canonical cause chain from core through plugin to CLI", () => {
@@ -60,7 +60,11 @@ describe("Voiceflow unexpected error diagnostics", () => {
     });
     let cliError: unknown;
     try {
-      requireEnvelopeResult(envelope.data?.voiceflow, "execute_migration", () => true);
+      requireEnvelopeResult(
+        envelope.data?.voiceflow,
+        "execute_migration",
+        createVoiceflowEnvelopeSchema(z.unknown()),
+      );
     } catch (error: unknown) {
       cliError = error;
     }

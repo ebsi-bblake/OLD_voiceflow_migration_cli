@@ -1,4 +1,5 @@
-import { isExecuteResult, isVoiceflowEnvelope } from "../guards";
+import { ExecuteResultSchema } from "../schemas/migration-results";
+import { createVoiceflowEnvelopeSchema } from "../schemas/voiceflow-envelope";
 import { requireEnvelopeResult } from "../validation";
 import { bounded } from "../prompt";
 import type {
@@ -74,12 +75,12 @@ export const executeConfirmedMigration: ExecuteConfirmedMigration = async (
   const executeResponse = await client.executeEvent(
     config.events.executeMigration,
     executeParameters(selection, planID, secretFileContents),
-    isVoiceflowEnvelope(isExecuteResult),
+    createVoiceflowEnvelopeSchema(ExecuteResultSchema),
   );
   const execute = requireEnvelopeResult(
     executeResponse,
     "execute_migration",
-    isExecuteResult,
+    createVoiceflowEnvelopeSchema(ExecuteResultSchema),
   );
   warnAPIKeyRetrieval(executeResponse);
   return execute;

@@ -15,7 +15,11 @@ export const ImportedReceiptSchema = z
     folderID: primitiveID,
     project: z
       .object({ _id: primitiveID })
-      .loose()
+      .strict()
+      .optional(),
+    version: z
+      .object({ _id: primitiveID, _version: z.unknown().optional() })
+      .strict()
       .optional(),
   })
   .loose();

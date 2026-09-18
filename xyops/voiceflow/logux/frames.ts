@@ -1,5 +1,6 @@
 import { OperationFault } from "../contracts";
-import { isObject, isRowArray } from "../guards";
+import { isRecord } from "../guards";
+import { CatalogRecordSchema } from "../catalog/schemas/catalog_record";
 import { parseLoguxFrame } from "./frame-contract";
 
 type Row = Readonly<Record<string, unknown>>;
@@ -136,7 +137,7 @@ const parseActionFrame = (
 const readFrameAction = (
   frame: readonly unknown[],
 ): Readonly<Record<string, unknown>> | undefined =>
-  isObject(frame[2]) ? frame[2] : undefined;
+  isRecord(frame[2]) ? frame[2] : undefined;
 const readActionPayload = (
   action: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<Record<string, unknown>> | undefined => {
@@ -146,7 +147,7 @@ const readActionPayload = (
 const objectPayload = (
   payload: unknown,
 ): Readonly<Record<string, unknown>> | undefined =>
-  [payload].filter(isObject)[0];
+  [payload].filter(isRecord)[0];
 const readWantedActionType = (
   action: Readonly<Record<string, unknown>> | undefined,
   wantedSet: Set<string>,
@@ -156,7 +157,7 @@ const readActionValues = (
   payload: Readonly<Record<string, unknown>> | undefined,
 ): unknown =>
   [payload]
-    .filter(isObject)
+    .filter(isRecord)
     .flatMap((value) => [value.values, value.data])
     .find(isDefined);
 const isDefined = (value: unknown): boolean => value !== undefined;
@@ -164,8 +165,8 @@ const parsedAction = (
   type: string,
   values: unknown,
 ): ParsedAction | undefined => {
-  if (!isRowArray(values)) return undefined;
-  return { type, values };
+  const parsed = CatalogRecordSchema.array().safeParse(values);
+  return parsed.success ? { type, values: parsed.data } : undefined;
 };
 const dispatchAction = (
   action: ParsedAction | undefined,

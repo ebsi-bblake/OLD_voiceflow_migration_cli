@@ -2,7 +2,7 @@ import { asCliError, fail, type CliError } from "../diagnostics";
 import { isCompletedJob, normalizeVoiceflowResponse } from "../guards";
 import type {
   EventParameters,
-  ResponseGuard,
+  ResponseSchema,
   VoiceflowEnvelope,
   XYOpsConfig,
   XYOpsEventReference,
@@ -37,7 +37,7 @@ export const readEventWithRetry = <T>(
   intervalMs: number,
   reference: XYOpsEventReference,
   params: EventParameters,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
   attempt = 0,
 ): Promise<VoiceflowEnvelope<T>> =>
   readEventAttempt(request, reference, params, guard).catch((error) =>
@@ -57,7 +57,7 @@ const readEventAttempt = <T>(
   request: Request,
   reference: XYOpsEventReference,
   params: EventParameters,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
 ): Promise<VoiceflowEnvelope<T>> =>
   request(WAIT_PATH, eventBody(reference, params), WAIT_PATH)
     .then((response) =>
@@ -78,7 +78,7 @@ const retryRead = <T>(
   intervalMs: number,
   reference: XYOpsEventReference,
   params: EventParameters,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
   attempt: number,
   error: unknown,
 ): Promise<VoiceflowEnvelope<T>> => {
@@ -102,7 +102,7 @@ const shouldStopRetry = (error: CliError, attempt: number): boolean =>
 
 const completeJob = <T>(
   job: XYOpsJob,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
 ): VoiceflowEnvelope<T> => {
   const result = normalizeVoiceflowResponse(
     readJobOutput(
@@ -110,12 +110,13 @@ const completeJob = <T>(
       JOB_PATH,
     ),
   );
-  if (!guard(result))
+  const parsed = guard.safeParse(result);
+  if (!parsed.success)
     throw fail("envelope", {
       endpoint: JOB_PATH,
       nextAction: "The execute job returned an invalid envelope.",
     });
-  return result;
+  return parsed.data;
 };
 
 // Polling intentionally checks completion and deadline at each remote observation.
@@ -125,7 +126,7 @@ const pollUntilComplete = async <T>(
   sleeper: Sleep,
   intervalMs: number,
   deadline: number,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
   attempt: number,
 ): Promise<VoiceflowEnvelope<T>> => {
   if (Date.now() >= deadline || attempt > MAX_POLL_ATTEMPTS)
@@ -143,7 +144,7 @@ const pollIncompleteJob = async <T>(
   sleeper: Sleep,
   intervalMs: number,
   deadline: number,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
   attempt: number,
 ): Promise<VoiceflowEnvelope<T>> => {
   if (attempt >= MAX_POLL_ATTEMPTS) return Promise.reject(pollingDeadlineError());
@@ -171,7 +172,7 @@ export const pollJob = <T>(
   request: Request,
   sleeper: Sleep,
   config: XYOpsConfig,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
 ): Promise<VoiceflowEnvelope<T>> => {
   if (!validPollingConfig(config.pollIntervalMs, config.pollTimeoutMs))
     return Promise.reject(

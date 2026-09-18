@@ -22,7 +22,6 @@ const loguxActions = await import("../../xyops/voiceflow/logux/schemas/action.ts
 const exportPayloads = await import("../../xyops/voiceflow/schemas/export_payload.ts");
 const envelopeSchemas = await import("../../xyops/cli/schemas/voiceflow-envelope.ts");
 const xyopsResponses = await import("../../xyops/cli/schemas/xyops-responses.ts");
-const cliGuards = await import("../../xyops/cli/guards.ts");
 const pluginValidation = await import("../../xyops/plugin/job_validation.ts");
 const responseBody = await import("../../xyops/voiceflow/http/body.ts");
 
@@ -209,7 +208,7 @@ defineStep("the Logux frame is rejected", function () {
 
 defineStep("a valid Voiceflow success envelope is parsed", function () {
   this.value = envelopes
-    .createVoiceflowEnvelopeSchema((value) => typeof value === "string")
+    .createVoiceflowEnvelopeSchema(z.string())
     .safeParse({
       ok: true,
       operation: "check_session",
@@ -225,7 +224,7 @@ defineStep("the Voiceflow envelope is accepted", function () {
 
 defineStep("a Voiceflow envelope has an unknown operation", function () {
   this.value = envelopes
-    .createVoiceflowEnvelopeSchema((value) => typeof value === "string")
+    .createVoiceflowEnvelopeSchema(z.string())
     .safeParse({
       ok: true,
       operation: "unknown_operation",
@@ -500,26 +499,20 @@ defineStep("the HTTP or SSE event is rejected", function () {
 
 defineStep("a valid catalog option is checked by its guard and schema", function () {
   const option = { value: "option-1", label: "Option" };
-  this.value = {
-    schema: catalogResults.CatalogOptionSchema.safeParse(option).success,
-    guard: cliGuards.isOption(option),
-  };
+  this.value = { schema: catalogResults.CatalogOptionSchema.safeParse(option).success };
 });
 
 defineStep("both catalog validators accept it", function () {
-  assert.deepEqual(this.value, { schema: true, guard: true });
+  assert.deepEqual(this.value, { schema: true });
 });
 
 defineStep("an invalid catalog option is checked by its guard and schema", function () {
   const option = { id: { secret: "parity-input" }, label: "Option" };
-  this.value = {
-    schema: catalogResults.CatalogOptionSchema.safeParse(option).success,
-    guard: cliGuards.isOption(option),
-  };
+  this.value = { schema: catalogResults.CatalogOptionSchema.safeParse(option).success };
 });
 
 defineStep("both catalog validators reject it", function () {
-  assert.deepEqual(this.value, { schema: false, guard: false });
+  assert.deepEqual(this.value, { schema: false });
 });
 
 defineStep("a malformed plugin job enters the validation boundary", function () {

@@ -1,7 +1,6 @@
 import { OperationFault } from "../contracts";
 import { VoiceflowRegex } from "../regex";
 import { parseFolderID } from "../validation";
-import { isRecord } from "../guards";
 import { ImportedReceiptSchema } from "./schemas/receipt";
 import type { ImportedReceipt } from "../types";
 
@@ -39,8 +38,9 @@ const isPrimitiveID = (value: unknown): value is string | number => {
 
 type NestedProjectID = (row: RecordValue) => string | undefined;
 const nestedProjectID: NestedProjectID = (row) => {
-  if (!isRecord(row.project)) return undefined;
-  return primitiveID(row.project._id);
+  const project = row.project;
+  if (project === null || typeof project !== "object") return undefined;
+  return primitiveID(Reflect.get(project, "_id"));
 };
 
 type Receipt = (
@@ -49,10 +49,9 @@ type Receipt = (
   bytes: number,
 ) => ImportedReceipt;
 export const receipt: Receipt = (value, status, bytes) => {
-  if (!isRecord(value)) throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
-  if (!ImportedReceiptSchema.safeParse(value).success)
-    throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
-  return receiptFromRecord(value, status, bytes);
+  const parsed = ImportedReceiptSchema.safeParse(value);
+  if (!parsed.success) throw new OperationFault("IMPORT_OUTCOME_UNKNOWN");
+  return receiptFromRecord(parsed.data, status, bytes);
 };
 
 const receiptFromRecord = (
@@ -74,10 +73,14 @@ const receiptFromRecord = (
   };
 };
 
-const versionIDFromRecord = (value: RecordValue): string | undefined =>
-  primitiveID(value.versionID) ??
-  primitiveID(value.environmentID) ??
-  (isRecord(value.version) ? primitiveID(value.version._id) : undefined);
+const versionIDFromRecord = (value: RecordValue): string | undefined => {
+  const version = value.version;
+  const nestedVersionID =
+    version !== null && typeof version === "object"
+      ? primitiveID(Reflect.get(version, "_id"))
+      : undefined;
+  return primitiveID(value.versionID) ?? primitiveID(value.environmentID) ?? nestedVersionID;
+};
 const optionalReceiptField = <K extends "assistantID" | "versionID" | "workspaceID" | "folderID">(
   key: K,
   value: string | undefined,

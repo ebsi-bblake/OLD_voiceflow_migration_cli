@@ -1,22 +1,22 @@
 import { fail } from "../diagnostics";
 import { VoiceflowRegex } from "../../voiceflow/regex";
+import { isSuccessfulCode } from "../guards";
 import {
-  isJobLaunch,
-  isSuccessfulCode,
-  isXYOpsJob,
-  isXYOpsJobResponse,
-  isXYOpsLaunchResponse,
-  isXYOpsWaitResponse,
-} from "../guards";
+  JobLaunchSchema,
+  XYOpsJobSchema,
+  XYOpsJobResponseSchema,
+  XYOpsLaunchResponseSchema,
+  XYOpsWaitResponseSchema,
+} from "../schemas/xyops-responses";
+import { isRecord } from "../../voiceflow/guards";
 import type {
-  ResponseGuard,
+  ResponseSchema,
   VoiceflowEnvelope,
   XYOpsJob,
   XYOpsResponse,
 } from "../types";
 
-const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const isPlainRecord = isRecord;
 
 const hasResponseData = (
   response: XYOpsResponse,
@@ -25,21 +25,28 @@ const hasResponseData = (
 const recordChildren = (value: unknown): readonly unknown[] =>
   isPlainRecord(value) ? [value.job, value.data] : [];
 
-const readJobValue = (value: unknown): XYOpsJob | undefined =>
-  isXYOpsJob(value) ? value : undefined;
+const readJobValue = (value: unknown): XYOpsJob | undefined => {
+  const parsed = XYOpsJobSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+};
 
 const readJobContainer = (value: unknown): XYOpsJob | undefined =>
   [value, ...recordChildren(value)]
     .map(readJobValue)
     .find((job): job is XYOpsJob => job !== undefined);
 
-const readTopLaunchID = (response: XYOpsResponse): string | undefined =>
-  isXYOpsLaunchResponse(response) ? response.id : undefined;
+const readTopLaunchID = (response: XYOpsResponse): string | undefined => {
+  const parsed = XYOpsLaunchResponseSchema.safeParse(response);
+  return parsed.success ? parsed.data.id : undefined;
+};
 
 const readDataLaunchID = (response: XYOpsResponse): string | undefined => {
   if (!hasResponseData(response)) return undefined;
   return [response.data, ...recordChildren(response.data)]
-    .map((value) => (isJobLaunch(value) ? value.id : undefined))
+    .map((value) => {
+      const parsed = JobLaunchSchema.safeParse(value);
+      return parsed.success ? parsed.data.id : undefined;
+    })
     .find((id): id is string => id !== undefined);
 };
 
@@ -59,12 +66,14 @@ export const readLaunchID = (
 };
 
 // XYOps has two supported response envelopes for jobs.
-const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined =>
-  isXYOpsJobResponse(response)
-    ? response.job
+const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined => {
+  const parsed = XYOpsJobResponseSchema.safeParse(response);
+  return parsed.success
+    ? parsed.data.job
     : hasResponseData(response)
       ? readJobContainer(response.data)
       : undefined;
+};
 
 const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
 
@@ -211,14 +220,15 @@ export const readWaitResponseData = (
   response: XYOpsResponse,
   endpoint: string,
 ): unknown => {
-  if (!isXYOpsWaitResponse(response))
+  const parsed = XYOpsWaitResponseSchema.safeParse(response);
+  if (!parsed.success)
     throw fail("api", {
       endpoint,
       nextAction: "XYOps returned an invalid wait response.",
     });
   return readJobOutput(
     requireSuccessfulJob(
-      response.job,
+      parsed.data.job,
       endpoint,
       "The migration event job failed.",
     ),
@@ -228,13 +238,14 @@ export const readWaitResponseData = (
 
 export const requireEnvelope = <T>(
   data: unknown,
-  guard: ResponseGuard<VoiceflowEnvelope<T>>,
+  guard: ResponseSchema<VoiceflowEnvelope<T>>,
   endpoint: string,
 ): VoiceflowEnvelope<T> => {
-  if (!guard(data))
+  const parsed = guard.safeParse(data);
+  if (!parsed.success)
     throw fail("envelope", {
       endpoint,
       nextAction: "The migration runner returned an invalid envelope.",
     });
-  return data;
+  return parsed.data;
 };
