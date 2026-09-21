@@ -1624,3 +1624,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Probed `voiceflow_initialize_execution_workflow` with invalid input; launch succeeded and no migration mutation was attempted.
 - [x] Confirmed the failure is below application/plugin logic: XYOps server `df2v-sljbr-lp01` cannot spawn its configured command `C:\\xysat\\bin\\node.exe`.
 - [ ] Have the XYOps server administrator repair or verify the configured Node executable/permissions and rerun the initializer probe before composing or enabling the execution workflow.
+- [x] Corrected the new execution events to target the `Moves Servers` group (`gmtnfn78nyo6k532`) instead of `Main Group`.
+- [x] Re-ran the initializer probe on `df2v-moves-d01` (`jmubocshghre3ucv`); plugin spawned successfully and returned validated `EXECUTION_READY` data.
+- [x] The prior Node spawn error was target-selection related, not a broken Node script.
+- [ ] Compose the second execution workflow using the verified Moves Servers target and validate its event handoff before enabling real execution.
