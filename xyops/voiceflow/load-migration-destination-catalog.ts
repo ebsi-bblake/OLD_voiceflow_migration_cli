@@ -1,0 +1,46 @@
+import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
+import { resolveVoiceflowAuth } from "./auth";
+import { failure, OperationFault, success } from "./contracts";
+import { loadFolders } from "./catalog";
+import type { Envelope } from "./types";
+import { createUUID } from "./uuid";
+
+type DestinationCatalogLoadedResult = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "DESTINATION_CATALOG_LOADED" }>;
+type Main = (token: string, workflowData: unknown) => Promise<Envelope<DestinationCatalogLoadedResult>>;
+type RecordValue = Record<string, unknown>;
+const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
+const readWorkflowData = (value: unknown): unknown => isRecord(value) && isRecord(value.voiceflow) ? value.voiceflow.result : value;
+const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
+const configuredWorkspace = (config: RecordValue): string | undefined => {
+  if (typeof config.destination_workspace === "string") return config.destination_workspace;
+  if (typeof config.destination_path === "string") return config.destination_path.split("/")[0]?.trim();
+  return undefined;
+};
+const resolveWorkspace = (config: RecordValue, workspaces: readonly { id: string; label: string }[]): string => {
+  const value = configuredWorkspace(config);
+  if (value === undefined || value === "") throw new OperationFault("CONFIGURATION");
+  const exact = workspaces.find((workspace) => workspace.id === value);
+  if (exact !== undefined) return exact.id;
+  const matches = workspaces.filter((workspace) => normalize(workspace.label) === normalize(value));
+  if (matches.length !== 1) throw new OperationFault("CONFIGURATION");
+  return matches[0].id;
+};
+export const main: Main = async (token, input) => {
+  const id = createUUID();
+  try {
+    const parsed = MigrationWorkflowDataSchema.safeParse(readWorkflowData(input));
+    if (!parsed.success || parsed.data.stage !== "SOURCE_RESOLVED") throw new OperationFault("INVALID_ARGUMENT");
+    const destinationWorkspaceID = resolveWorkspace(parsed.data.config, parsed.data.catalog.workspaces);
+    const auth = await resolveVoiceflowAuth(token);
+    const destinationFolders = await loadFolders(auth, destinationWorkspaceID);
+    return success("load_destination_catalog", id, {
+      schemaVersion: 1,
+      stage: "DESTINATION_CATALOG_LOADED",
+      config: parsed.data.config,
+      catalog: { ...parsed.data.catalog, destinationFolders },
+      selection: { ...parsed.data.selection, destinationWorkspaceID },
+    });
+  } catch (error) {
+    return failure("load_destination_catalog", id, error);
+  }
+};

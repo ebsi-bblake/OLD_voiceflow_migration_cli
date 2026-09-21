@@ -39,6 +39,8 @@ type ListWorkspacesHandler = (token: string) => Promise<PluginEnvelope>;
 type LoadWorkspacesHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
 type LoadSourceCatalogHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
 type ResolveSourceSelectionHandler = (workflowData: unknown) => Promise<PluginEnvelope>;
+type LoadDestinationCatalogHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
+type ResolveDestinationSelectionHandler = (workflowData: unknown) => Promise<PluginEnvelope>;
 
 type ListProjectsHandler = (
   token: string,
@@ -96,6 +98,8 @@ export type OperationHandlers = Readonly<{
   readonly load_workspaces?: LoadWorkspacesHandler;
   readonly load_source_catalog?: LoadSourceCatalogHandler;
   readonly resolve_source_selection?: ResolveSourceSelectionHandler;
+  readonly load_destination_catalog?: LoadDestinationCatalogHandler;
+  readonly resolve_destination_selection?: ResolveDestinationSelectionHandler;
   readonly list_projects: ListProjectsHandler;
   readonly list_versions: ListVersionsHandler;
   readonly list_folders: ListFoldersHandler;

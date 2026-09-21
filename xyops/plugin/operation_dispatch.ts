@@ -9,6 +9,8 @@ import { main as listWorkspaces } from "../voiceflow/list_workspaces";
 import { main as loadWorkspaces } from "../voiceflow/load-migration-workspaces";
 import { main as loadSourceCatalog } from "../voiceflow/load-migration-source-catalog";
 import { main as resolveSourceSelection } from "../voiceflow/resolve-migration-source";
+import { main as loadDestinationCatalog } from "../voiceflow/load-migration-destination-catalog";
+import { main as resolveDestinationSelection } from "../voiceflow/resolve-migration-destination";
 import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
@@ -30,6 +32,8 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   load_workspaces: loadWorkspaces,
   load_source_catalog: loadSourceCatalog,
   resolve_source_selection: resolveSourceSelection,
+  load_destination_catalog: loadDestinationCatalog,
+  resolve_destination_selection: resolveDestinationSelection,
   list_projects: listProjects,
   list_versions: listVersions,
   list_folders: listFolders,
@@ -125,6 +129,18 @@ const operationInvocations: OperationInvocations = {
   },
   resolve_source_selection: (job, _token, handlers) => {
     const resolve = handlers.resolve_source_selection;
+    if (resolve === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return resolve(workflowDataInput(job));
+  },
+  load_destination_catalog: (job, token, handlers) => {
+    const load = handlers.load_destination_catalog;
+    if (load === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return load(token, workflowDataInput(job));
+  },
+  resolve_destination_selection: (job, _token, handlers) => {
+    const resolve = handlers.resolve_destination_selection;
     if (resolve === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
     return resolve(workflowDataInput(job));

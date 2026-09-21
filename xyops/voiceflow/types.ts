@@ -7,6 +7,8 @@ export const VoiceflowOperation = {
   LoadWorkspaces: "load_workspaces",
   LoadSourceCatalog: "load_source_catalog",
   ResolveSourceSelection: "resolve_source_selection",
+  LoadDestinationCatalog: "load_destination_catalog",
+  ResolveDestinationSelection: "resolve_destination_selection",
   ListProjects: "list_projects",
   ListVersions: "list_versions",
   ListFolders: "list_folders",

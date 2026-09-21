@@ -1578,3 +1578,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added `resolve_source_selection` and connected it after source catalog loading.
 - [x] Created Event `voiceflow_resolve_source_selection` (`emubmei7pojidh80`) and deployed the updated plugin.
 - [x] Completed remote source-resolution probe: workflow `jmubmf85xpumwm3e` reached `SOURCE_RESOLVED` with canonical workspace, project, and draft version IDs.
+- [x] Added destination catalog loading and configured destination folder resolution.
+- [x] Created Events `emubmjj8vz9air76` and `emubmjj48yz1x591`, connected after source resolution, and deployed the updated plugin.
+- [x] Completed remote probe: workflow `jmubml09f3qsul8s` reached `DESTINATION_RESOLVED` with canonical destination workspace and folder IDs.

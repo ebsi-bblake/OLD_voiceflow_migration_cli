@@ -12,7 +12,7 @@ import { appendDiagnosticCause, createDiagnostic } from "../xyops/diagnostics/cr
 describe("Voiceflow unexpected error diagnostics", () => {
   test("preserves every finite wire value during JSON serialization", () => {
     expect(Object.values(VoiceflowOperation)).toEqual([
-      "check_session", "check_session_workflow", "list_workspaces", "load_workspaces", "load_source_catalog", "resolve_source_selection", "list_projects", "list_versions",
+      "check_session", "check_session_workflow", "list_workspaces", "load_workspaces", "load_source_catalog", "resolve_source_selection", "load_destination_catalog", "resolve_destination_selection", "list_projects", "list_versions",
       "list_folders", "create_folder", "plan_migration", "execute_migration",
       "initialize_migration_workflow",
     ]);
