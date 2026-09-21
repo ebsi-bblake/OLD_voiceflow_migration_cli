@@ -1638,3 +1638,5 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Add an integration test covering the full planned → confirmed → execution-workflow start/observe path.
 - [x] Extracted the confirmed execution workflow start/observe adapter and wired the workflow CLI path through it.
 - [x] Added integration coverage proving one execution-workflow start followed by observation of the same job ID.
+- [x] Probed `voiceflow_execute_migration_workflow` on Moves Servers with invalid workflowData (`jmubop5veuyglbvn`); it reached the plugin and rejected input before any migration effect.
+- [ ] Do not run a valid execution handoff yet: that would invoke real Voiceflow export/import, and the execution workflow remains disabled.
