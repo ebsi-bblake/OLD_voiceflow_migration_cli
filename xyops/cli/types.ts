@@ -229,6 +229,7 @@ export type XYOpsClient = Readonly<{
   startWorkflow: (
     workflowReference: XYOpsEventReference,
     input: XYOpsWorkflowInput,
+    params?: EventParameters,
   ) => Promise<string>;
   observeWorkflow: (jobID: string) => Promise<XYOpsJob>;
 }>;

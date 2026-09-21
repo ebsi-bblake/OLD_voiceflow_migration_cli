@@ -147,6 +147,38 @@ test("starts and observes the confirmed execution workflow exactly once", async 
   });
 });
 
+test("passes configured secret entries only to the execution workflow params", async () => {
+  let receivedParams: unknown;
+  const client = {
+    startWorkflow: async (_workflow: unknown, _input: unknown, params: unknown) => {
+      receivedParams = params;
+      return "execution-job";
+    },
+    observeWorkflow: async () => ({ id: "execution-job", code: 0, final: true }),
+  } as never;
+
+  await runExecutionWorkflow(
+    client,
+    { id: "execution-workflow" },
+    {
+      planID: "plan-1",
+      selection,
+      labels: {
+        sourceWorkspace: "Source Workspace",
+        sourceProject: "Source Project",
+        sourceVersion: "Source Version",
+        destinationWorkspace: "Destination Workspace",
+        destinationFolder: "Destination Folder",
+      },
+    },
+    [{ key: "TOKEN", value: "secret-value", type: "" }],
+  );
+
+  expect(receivedParams).toEqual({
+    SECRET_FILE_CONTENTS: [{ key: "TOKEN", value: "secret-value", type: "" }],
+  });
+});
+
 test("does not redispatch a timed-out event wait request", async () => {
   let requests = 0;
   const client = createXYOpsClient(config, {

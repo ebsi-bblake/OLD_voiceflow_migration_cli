@@ -1587,7 +1587,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Workflow CLI now renders the validated `PLANNED` migration plan using the existing display contract without starting mutation.
 - [x] Verified the current workflow graph has no first-class suspension node; its node types are event/job/trigger/limit/action/controller/note.
 - [x] Verified XYOps exposes `resumeJob` for an already-suspended active job, but no suspension mechanism is currently present in this workflow or native plugin path.
-- [ ] Do not implement confirmation resume until a real suspended workflow job and its resume payload are verified.
+- [x] Native suspension/resume is not used; confirmation is implemented by starting a separate execution workflow.
 
 ## Confirmed human-in-the-loop composition strategy
 
@@ -1597,46 +1597,49 @@ Revert each cleanup commit independently; retain the stable workflow migration.
   - Planning workflow loads catalogs, resolves canonical selections, and generates the plan.
   - CLI displays the plan and obtains explicit human confirmation.
   - Execution workflow receives the confirmed plan as JSON input and performs mutation stages.
-- [ ] Define and validate the plan-to-execution handoff contract, bound to the exact `planID` and canonical selection.
+- [x] Defined and validated the plan-to-execution handoff contract, bound to the exact `planID` and canonical selection.
 - [ ] Ensure execution revalidates current Voiceflow state before irreversible operations.
 - [ ] Ensure execution workflow start is idempotent and duplicate starts reconcile the existing execution before retrying.
-- [ ] Keep secret values out of workflow input and workflowData; define the approved secret transport for the execution workflow.
-- [ ] Add a dedicated execution workflow that accepts only confirmed, validated plan input.
+- [x] Keep secret values out of workflow input and workflowData; pass configured secret entries only as `SECRET_FILE_CONTENTS` execution-workflow parameters.
+- [x] Added a disabled dedicated execution workflow that accepts only confirmed, validated plan input.
 - [ ] Add end-to-end tests for plan handoff, confirmation rejection, duplicate execution starts, unknown outcomes, and final result reporting.
 - [x] Replaced hand-rolled workflow-envelope and workflowData shape checks in the newly added workflow-stage modules with Zod schemas.
 - [x] Replaced recursive JSON-safety validation in `migration-workflow-data` with a recursive Zod JSON-value schema.
 - [x] Verified changed workflow boundaries with typecheck, lint, and focused tests.
 - [x] Defined a secret-free confirmed execution handoff containing `schemaVersion`, literal `confirmed: true`, `planID`, and the validated plan; schema binding rejects mismatched plan IDs, unknown fields, and secret payloads.
 - [x] Added `toExecutionWorkflowInput` to construct the validated handoff from the planned migration.
-- [ ] Add and deploy the dedicated execution workflow that accepts this handoff.
+- [x] Added and deployed the disabled dedicated execution workflow that accepts this handoff.
 - [x] Added `initialize_execution_workflow`, which accepts only the confirmed, secret-free handoff and emits validated `EXECUTION_READY` workflowData.
 - [x] Registered the execution-workflow initializer through the plugin operation and response workflowData validation.
-- [ ] Deploy the initializer event and compose the production execution workflow after confirming the workflow event mapping and approved secret transport.
+- [x] Deployed the initializer and execution events and composed the disabled execution workflow; production enablement still waits on secret transport and duplicate-start verification.
 - [x] Added `execute_migration_workflow`, which consumes only `EXECUTION_READY` workflowData and delegates to the existing migration execution state machine.
-- [x] Kept optional secret input outside workflowData; workflow execution still requires an approved secure secret transport before production use.
-- [ ] Deploy and verify the initializer/execution events and compose the second workflow; do not enable it for real mutation until secret transport and duplicate-start reconciliation are verified.
+- [x] Kept optional secret input outside workflowData; configured entries now use the existing `SECRET_FILE_CONTENTS` parameter path.
+- [x] Deployed and verified the initializer/execution events and composed the second workflow; it remains disabled for real mutation.
 - [x] Built and deployed native plugin revision 163 containing the execution workflow operations.
 - [x] Created `voiceflow_initialize_execution_workflow` (`emubo4mwn5lo80yv`).
 - [x] Created `voiceflow_execute_migration_workflow` (`emubo4nah5vnhb7w`).
-- [x] Ran a non-mutating initializer probe with invalid input; the event launch succeeded but the XYOps server failed to spawn `C:\\xysat\\bin\\node.exe`, so plugin execution was not verified.
-- [ ] Resolve the XYOps server/plugin runtime spawn failure before running further workflow probes or enabling execution composition.
+- [x] Initial non-mutating probe exposed a wrong-target Node spawn failure; this was corrected by targeting Moves Servers.
 - [x] Verified both execution events are enabled and point to plugin `pmtal4rok7gbevqi`.
 - [x] Probed `voiceflow_initialize_execution_workflow` with invalid input; launch succeeded and no migration mutation was attempted.
-- [x] Confirmed the failure is below application/plugin logic: XYOps server `df2v-sljbr-lp01` cannot spawn its configured command `C:\\xysat\\bin\\node.exe`.
-- [ ] Have the XYOps server administrator repair or verify the configured Node executable/permissions and rerun the initializer probe before composing or enabling the execution workflow.
+- [x] Confirmed the Moves Servers target can spawn the configured Node runtime and execute the plugin.
 - [x] Corrected the new execution events to target the `Moves Servers` group (`gmtnfn78nyo6k532`) instead of `Main Group`.
 - [x] Re-ran the initializer probe on `df2v-moves-d01` (`jmubocshghre3ucv`); plugin spawned successfully and returned validated `EXECUTION_READY` data.
 - [x] The prior Node spawn error was target-selection related, not a broken Node script.
-- [ ] Compose the second execution workflow using the verified Moves Servers target and validate its event handoff before enabling real execution.
+- [x] Composed and exported the second execution workflow using the verified Moves Servers target.
 - [x] Composed disabled execution workflow `emuboe9h3jre7p5p` targeting the Moves Servers workflow event, with initializer `emubo4mwn5lo80yv` followed by execution `emubo4nah5vnhb7w` on success.
 - [x] Verified the deployed workflow graph and event references by exporting the created workflow.
-- [ ] Add the CLI execution-workflow reference and confirmed handoff start/observation path.
-- [ ] Keep the execution workflow disabled until secret transport, current-state revalidation, and duplicate-start reconciliation are verified.
+- [x] Added the CLI execution-workflow reference and confirmed handoff start/observation path.
+- [x] Kept the execution workflow disabled pending secret transport, current-state revalidation, and duplicate-start reconciliation.
 - [x] Added `XYOPS_WORKFLOW_EXECUTION` / `executionWorkflow` configuration with default title `Voiceflow Migration Execution Workflow`.
 - [x] Workflow CLI path now prompts for confirmation after `PLANNED`, then starts and observes the separate execution workflow with the validated plan handoff.
-- [x] Workflow execution refuses configured or inline non-empty secrets until secure secret transport exists; no secret values enter workflow input.
-- [ ] Add an integration test covering the full planned → confirmed → execution-workflow start/observe path.
+- [x] Workflow execution reads configured secrets only after confirmation and sends them to the execution workflow as `SECRET_FILE_CONTENTS`; no secret values enter workflow input or workflowData.
+- [x] Added integration coverage for the planned → confirmed → execution-workflow start/observe handoff adapter.
 - [x] Extracted the confirmed execution workflow start/observe adapter and wired the workflow CLI path through it.
 - [x] Added integration coverage proving one execution-workflow start followed by observation of the same job ID.
+- [x] Added integration coverage proving secret entries are passed only in execution workflow params.
 - [x] Probed `voiceflow_execute_migration_workflow` on Moves Servers with invalid workflowData (`jmubop5veuyglbvn`); it reached the plugin and rejected input before any migration effect.
 - [ ] Do not run a valid execution handoff yet: that would invoke real Voiceflow export/import, and the execution workflow remains disabled.
+- [x] Extended workflow starts with a separate `params` channel.
+- [x] Workflow CLI reads configured secret files only after confirmation and passes parsed entries as `SECRET_FILE_CONTENTS` to the execution workflow start; the plan/input/workflowData remain secret-free.
+- [x] Execution workflow event continues to reuse the existing plugin-side `parseSecretEntries` and secret migration logic.
+- [ ] Verify the deployed XYOps workflow propagates start params to child event params with a controlled secret-bearing test, then enable only after confirming no secret leakage in job/workflow logs.

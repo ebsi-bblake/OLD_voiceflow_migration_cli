@@ -99,17 +99,17 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
     displayPlan(planned.plan);
     const confirmed = await requestMigrationConfirmation(reader);
     if (!confirmed) return;
-    if (migrationConfig?.secrets !== undefined &&
-      (typeof migrationConfig.secrets === "string" || migrationConfig.secrets.length > 0))
-      throw fail("configuration", {
-        nextAction:
-          "Workflow execution cannot receive secret values until secure secret transport is configured.",
-      });
+    const secretFileContents = migrationConfig?.secrets === undefined
+      ? undefined
+      : await progress.run("load_secrets", () =>
+          readSecretsForMigration(reader, migrationConfig),
+        );
     const execution = await progress.run("execution_workflow", () =>
       runExecutionWorkflow(
         client,
         config.executionWorkflow ?? { title: "Voiceflow Migration Execution Workflow" },
         planned.plan,
+        secretFileContents,
       ),
     );
     const executionWorkflowID = execution.jobID;

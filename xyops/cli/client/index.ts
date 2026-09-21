@@ -302,10 +302,11 @@ export const createXYOpsClient = (
   const startWorkflow: XYOpsClient["startWorkflow"] = async (
     reference,
     input,
+    params = {},
   ) => {
     const launch = await request(
       RUN_PATH,
-      { ...eventBody(reference, {}), input: { data: input } },
+      { ...eventBody(reference, params), input: { data: input } },
       RUN_PATH,
     );
     return readLaunchID(launch, RUN_PATH);
