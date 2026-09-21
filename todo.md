@@ -1573,3 +1573,5 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Fixed workflow ordering: initialization -> workflow-aware session check -> workspace loading.
 - [x] Added `check_session_workflow` (`emublxqwmowth7l2`) so the session gate preserves workflowData for downstream stages.
 - [x] Remote probe succeeded in order: `voiceflow_initialize_migration_workflow`, `voiceflow_check_migration_workflow_session`, `voiceflow_load_workspaces`.
+- [x] Created `voiceflow_load_source_catalog` Event `emubm9h8qeaob14o` and connected it after workspace loading.
+- [x] Completed remote source-catalog probe with configured workspace `empyrean-ci`: 48 projects and 12 folders loaded into `SOURCE_CATALOG_LOADED` workflowData (job `jmubma81efk6xqjj`).
