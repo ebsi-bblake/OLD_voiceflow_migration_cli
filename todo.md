@@ -1647,3 +1647,9 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Planning workflow loaded session/workspaces/source catalog, then stopped at source selection with a non-secret `CONFIGURATION` failure; confirmation was never reached, so the secrets file was not read/sent and no mutation occurred.
 - [x] Disabled execution workflow `emuboe9h3jre7p5p` again after the failed pre-plan test.
 - [ ] Correct the local migration configuration/source selection or choose a currently valid catalog target before retrying; do not retry blindly.
+- [x] Added source-resolution diagnostics; the local failure was identified as a project option-label mismatch: configured `source_path` omitted the generated project ID suffix, while option labels included it.
+- [x] Fixed source project matching to strip the generated trailing `(projectID)` suffix before normalized comparison; deployed plugin revision 165.
+- [x] Fixed workflow CLI job-data extraction for the nested XYOps `{ data: { voiceflow, workflowData } }` response shape.
+- [x] Re-ran the local workflow: source resolution now succeeds.
+- [ ] Current local probe now stops at destination folder resolution because configured `empyrean-ci/Boaz new hero folder` is not present in the current destination folder catalog; decide whether to create/select a valid folder before retrying.
+- [x] Added equivalent generated-ID suffix normalization for destination folder labels; deployed plugin revision 166.

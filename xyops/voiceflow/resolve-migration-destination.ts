@@ -15,6 +15,8 @@ const readWorkflowData = (value: unknown): unknown => {
   return parsed.success ? parsed.data.voiceflow.result : value;
 };
 const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
+const normalizeFolderLabel = (value: string): string =>
+  normalize(value.replace(/\s+\([^()]+\)$/u, ""));
 const configuredFolder = (config: { destination_folder?: string; destination_path?: string }): string | undefined =>
   config.destination_folder ?? config.destination_path?.split("/").slice(1).join("/");
 const resolveFolder = (config: { destination_folder?: string; destination_path?: string }, options: readonly { value: string; label: string }[]): string => {
@@ -22,7 +24,7 @@ const resolveFolder = (config: { destination_folder?: string; destination_path?:
   if (value === undefined || value === "") throw new OperationFault("CONFIGURATION");
   const exact = options.find((option) => option.value === value);
   if (exact !== undefined) return exact.value;
-  const matches = options.filter((option) => normalize(option.label) === normalize(value));
+  const matches = options.filter((option) => normalizeFolderLabel(option.label) === normalize(value));
   if (matches.length !== 1) throw new OperationFault("CONFIGURATION");
   return matches[0].value;
 };

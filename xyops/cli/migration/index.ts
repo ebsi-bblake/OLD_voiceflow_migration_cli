@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { z } from "zod";
 import {
   DEFAULT_XYOPS_BASE_URL,
   readMigrationFileConfig,
@@ -59,14 +60,25 @@ const requireActiveSession = (active: boolean): void => {
     });
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-type ReadWorkflowDataCandidate = (job: { workflowData?: Record<string, unknown>; data?: unknown }) => unknown;
+const WorkflowDataEnvelopeSchema = z.looseObject({
+  voiceflow: z.unknown(),
+});
+const WorkflowDataFieldSchema = z.looseObject({
+  workflowData: z.unknown(),
+});
+const JobDataEnvelopeSchema = z.looseObject({
+  data: z.unknown(),
+});
+type ReadWorkflowDataCandidate = (job: { workflowData?: unknown; data?: unknown }) => unknown;
 const readWorkflowDataCandidate: ReadWorkflowDataCandidate = (job) => {
-  if (job.workflowData !== undefined) return job.workflowData;
-  if (!isRecord(job.data)) return undefined;
-  const { voiceflow: _voiceflow, ...workflowData } = job.data;
+  const source = job.workflowData ?? job.data;
+  const nested = JobDataEnvelopeSchema.safeParse(source);
+  const candidate = nested.success ? nested.data.data : source;
+  const field = WorkflowDataFieldSchema.safeParse(candidate);
+  if (field.success) return field.data.workflowData;
+  const wrapped = WorkflowDataEnvelopeSchema.safeParse(candidate);
+  if (!wrapped.success) return source;
+  const { voiceflow: _voiceflow, ...workflowData } = wrapped.data;
   return workflowData;
 };
 
