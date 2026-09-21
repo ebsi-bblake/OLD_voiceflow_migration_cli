@@ -4,16 +4,16 @@ import { requireEnvelopeResult } from "../validation";
 import { bounded } from "../prompt";
 import type {
   ExecuteResult,
-  MigrationPlan,
   MigrationSelection,
   SecretEntries,
+  WorkflowMigrationPlan,
   VoiceflowEnvelope,
   VoiceflowWarning,
 } from "../types";
 import { executeParameters } from "../state";
 import type { MigrationContext } from "./selection";
 
-type DisplayPlan = (plan: MigrationPlan) => void;
+type DisplayPlan = (plan: WorkflowMigrationPlan) => void;
 export const displayPlan: DisplayPlan = (plan) => {
   [
     "\nMigration plan:",
@@ -23,6 +23,9 @@ export const displayPlan: DisplayPlan = (plan) => {
     `Source version: ${bounded(plan.labels.sourceVersion)}`,
     `Destination workspace: ${bounded(plan.labels.destinationWorkspace)}`,
     `Destination folder: ${bounded(plan.labels.destinationFolder)}`,
+    ...(plan.destinationFolderCreation === undefined
+      ? []
+      : [`Action: create destination folder '${bounded(plan.destinationFolderCreation.requestedPath)}'`]),
     `Target schema: ${bounded(plan.selection.targetSchemaVersion, 40)}`,
   ].forEach((msg) => console.log(msg));
 };

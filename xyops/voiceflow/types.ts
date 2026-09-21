@@ -19,6 +19,7 @@ export const VoiceflowOperation = {
   InitializeMigrationWorkflow: "initialize_migration_workflow",
   InitializeExecutionWorkflow: "initialize_execution_workflow",
   ExecuteMigrationWorkflow: "execute_migration_workflow",
+  CreateFolderWorkflow: "create_folder_workflow",
 } as const;
 
 export type VoiceflowOperation =
@@ -71,6 +72,14 @@ export type MigrationSelection = Readonly<{
   sourceVersionID: string;
   destinationWorkspaceID: string;
   destinationFolderID: string;
+  targetSchemaVersion?: string;
+}>;
+export type MigrationPlanIdentity = Readonly<{
+  sourceWorkspaceID: string;
+  sourceProjectID: string;
+  sourceVersionID: string;
+  destinationWorkspaceID: string;
+  destinationFolderID?: string;
   targetSchemaVersion?: string;
 }>;
 export type MigrationPlan = Readonly<{

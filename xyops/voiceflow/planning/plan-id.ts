@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import type { MigrationSelection } from "../types";
+import type { MigrationPlanIdentity } from "../types";
 
 type FormatPlanID = (bytes: Uint8Array) => string;
 const formatPlanID: FormatPlanID = (bytes) =>
@@ -8,7 +8,7 @@ const formatPlanID: FormatPlanID = (bytes) =>
     .join("")
     .slice(0, 24);
 
-type PlanID = (selection: MigrationSelection) => Promise<string>;
+type PlanID = (selection: MigrationPlanIdentity) => Promise<string>;
 export const planID: PlanID = async (selection) => {
   const bytes = new TextEncoder().encode(JSON.stringify(selection));
   return Promise.resolve().then(() =>

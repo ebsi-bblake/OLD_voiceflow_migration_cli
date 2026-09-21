@@ -1,7 +1,7 @@
 import { MigrationParameterName } from "../../migration-parameters";
 import type {
-  MigrationPlan,
   SecretEntries,
+  WorkflowMigrationPlan,
   XYOpsClient,
   XYOpsEventReference,
   XYOpsJob,
@@ -11,7 +11,7 @@ import { toExecutionWorkflowInput } from "./workflow-input";
 type RunExecutionWorkflow = (
   client: XYOpsClient,
   workflow: XYOpsEventReference,
-  plan: MigrationPlan,
+  plan: WorkflowMigrationPlan,
   secretFileContents?: SecretEntries,
 ) => Promise<Readonly<{ jobID: string; job: XYOpsJob }>>;
 

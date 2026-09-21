@@ -16,6 +16,7 @@ import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { main as initializeExecutionWorkflow } from "../voiceflow/initialize-execution-workflow";
 import { main as executeMigrationWorkflow } from "../voiceflow/execute-migration-workflow";
+import { main as createFolderWorkflow } from "../voiceflow/create-folder-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
 import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
@@ -47,6 +48,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   initialize_migration_workflow: initializeMigrationWorkflow,
   initialize_execution_workflow: initializeExecutionWorkflow,
   execute_migration_workflow: executeMigrationWorkflow,
+  create_folder_workflow: createFolderWorkflow,
 };
 
 const parseParameterString = (value: unknown): string => {
@@ -224,6 +226,12 @@ const operationInvocations: OperationInvocations = {
     if (execute === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
     return execute(token, workflowDataInput(job), optionalSecretInput(job, MigrationParameterName.secretFileContents));
+  },
+  create_folder_workflow: (job, token, handlers) => {
+    const create = handlers.create_folder_workflow;
+    if (create === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return create(token, workflowDataInput(job));
   },
 };
 

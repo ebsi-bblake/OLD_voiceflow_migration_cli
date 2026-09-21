@@ -1598,7 +1598,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
   - CLI displays the plan and obtains explicit human confirmation.
   - Execution workflow receives the confirmed plan as JSON input and performs mutation stages.
 - [x] Defined and validated the plan-to-execution handoff contract, bound to the exact `planID` and canonical selection.
-- [ ] Ensure execution revalidates current Voiceflow state before irreversible operations.
+- [x] Ensure execution revalidates current Voiceflow state before irreversible operations.
 - [ ] Ensure execution workflow start is idempotent and duplicate starts reconcile the existing execution before retrying.
 - [x] Keep secret values out of workflow input and workflowData; pass configured secret entries only as `SECRET_FILE_CONTENTS` execution-workflow parameters.
 - [x] Added a disabled dedicated execution workflow that accepts only confirmed, validated plan input.
@@ -1659,11 +1659,11 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Confirmed that a missing destination folder should be represented as a planned, user-visible action rather than created during planning.
 - [x] Confirmed that a separate workflow is unnecessary.
 - [x] Chosen a workflow-aware `create_folder_workflow` event inside the existing execution workflow.
-- [ ] Extend the workflow-data/plan contract with a pending destination-folder creation state containing workspace, requested folder/path, and explicit create action.
-- [ ] Update planning output to highlight that the confirmed migration will create the missing folder.
-- [ ] Add `create_folder_workflow` to re-read the current destination folder catalog before creation.
-- [ ] Reuse a folder that appeared while planning was awaiting confirmation.
-- [ ] Create the folder only when it is still absent, then verify the durable folder ID.
+- [x] Extend the workflow-data/plan contract with a pending destination-folder creation state containing workspace, requested folder/path, and explicit create action.
+- [x] Update planning output to highlight that the confirmed migration will create the missing folder.
+- [x] Add `create_folder_workflow` to re-read the current destination folder catalog before creation.
+- [x] Reuse a folder that appeared while planning was awaiting confirmation.
+- [x] Create the folder only when it is still absent, then verify the durable folder ID.
 - [ ] Stop safely on ambiguity, duplicate creation, timeout, or unknown creation outcome.
-- [ ] Connect `create_folder_workflow` before `execute_migration_workflow` in the disabled execution workflow.
+- [x] Connect `create_folder_workflow` before `execute_migration_workflow` in the disabled execution workflow.
 - [ ] Add tests for missing-folder planning, cancellation, reappeared folders, creation success, and unknown outcomes.

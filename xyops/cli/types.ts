@@ -21,6 +21,31 @@ export type MigrationPlan = Readonly<{
     destinationFolder: string;
   }>;
 }>;
+export type WorkflowMigrationSelection = Readonly<{
+  sourceWorkspaceID: string;
+  sourceProjectID: string;
+  sourceVersionID: string;
+  destinationWorkspaceID: string;
+  destinationFolderID?: string;
+  targetSchemaVersion?: string;
+}>;
+export type DestinationFolderCreation = Readonly<{
+  workspaceID: string;
+  requestedPath: string;
+  action: "CREATE_DESTINATION_FOLDER";
+}>;
+export type WorkflowMigrationPlan = Readonly<{
+  planID: string;
+  selection: WorkflowMigrationSelection;
+  labels: Readonly<{
+    sourceWorkspace: string;
+    sourceProject: string;
+    sourceVersion: string;
+    destinationWorkspace: string;
+    destinationFolder: string;
+  }>;
+  destinationFolderCreation?: DestinationFolderCreation;
+}>;
 export type VoiceflowWarning = Readonly<{ code: string; message: string }>;
 export type VoiceflowSuccess<T> = Readonly<{
   ok: true;

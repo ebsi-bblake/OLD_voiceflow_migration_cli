@@ -65,6 +65,22 @@ const CompleteSelectionSchema = z
   })
   .strict();
 
+const PendingFolderSelectionSchema = z
+  .object({
+    sourceWorkspaceID: nonEmptyString,
+    sourceProjectID: nonEmptyString,
+    sourceVersionID: nonEmptyString,
+    destinationWorkspaceID: nonEmptyString,
+    destinationFolderID: z.undefined().optional(),
+    targetSchemaVersion: optionalNonEmptyString,
+  })
+  .strict();
+
+const PlannedSelectionSchema = z.union([
+  CompleteSelectionSchema,
+  PendingFolderSelectionSchema,
+]);
+
 const EmptyCatalogSchema = z.object({}).strict();
 const WorkspacesCatalogSchema = z
   .object({
@@ -88,10 +104,18 @@ const DestinationCatalogSchema = z
   .strict();
 const CompleteCatalogSchema = DestinationCatalogSchema;
 
+const DestinationFolderCreationSchema = z
+  .object({
+    workspaceID: nonEmptyString,
+    requestedPath: nonEmptyString,
+    action: z.literal("CREATE_DESTINATION_FOLDER"),
+  })
+  .strict();
+
 const MigrationPlanSchema = z
   .object({
     planID: nonEmptyString,
-    selection: CompleteSelectionSchema,
+    selection: PlannedSelectionSchema,
     labels: z
       .object({
         sourceWorkspace: nonEmptyString,
@@ -101,8 +125,14 @@ const MigrationPlanSchema = z
         destinationFolder: nonEmptyString,
       })
       .strict(),
+    destinationFolderCreation: DestinationFolderCreationSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ selection, destinationFolderCreation }) =>
+      selection.destinationFolderID !== undefined || destinationFolderCreation !== undefined,
+    { message: "A destination folder or creation action is required" },
+  );
 
 const ConfiguredWorkflowDataSchema = z
   .object({
@@ -193,12 +223,18 @@ const DestinationResolvedWorkflowDataSchema = z
         sourceProjectID: nonEmptyString,
         sourceVersionID: nonEmptyString,
         destinationWorkspaceID: nonEmptyString,
-        destinationFolderID: nonEmptyString,
+        destinationFolderID: optionalNonEmptyString,
         targetSchemaVersion: optionalNonEmptyString,
       })
       .strict(),
+    destinationFolderCreation: DestinationFolderCreationSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ selection, destinationFolderCreation }) =>
+      selection.destinationFolderID !== undefined || destinationFolderCreation !== undefined,
+    { message: "A destination folder or creation action is required" },
+  );
 
 const PlannedWorkflowDataSchema = z
   .object({
@@ -206,10 +242,15 @@ const PlannedWorkflowDataSchema = z
     stage: z.literal("PLANNED"),
     config: MigrationWorkflowConfigSchema,
     catalog: CompleteCatalogSchema,
-    selection: CompleteSelectionSchema,
+    selection: PlannedSelectionSchema,
     plan: MigrationPlanSchema,
   })
-  .strict();
+  .strict()
+  .refine(
+    ({ selection, plan }) =>
+      selection.destinationFolderID !== undefined || plan.destinationFolderCreation !== undefined,
+    { message: "A destination folder or creation action is required" },
+  );
 
 /** Confirmed, secret-free handoff from planning to the execution workflow. */
 export const ConfirmedMigrationHandoffSchema = z
@@ -230,7 +271,7 @@ const ExecutionReadyWorkflowDataSchema = z
     schemaVersion: z.literal(1),
     stage: z.literal("EXECUTION_READY"),
     planID: nonEmptyString,
-    selection: CompleteSelectionSchema,
+    selection: PlannedSelectionSchema,
     plan: MigrationPlanSchema,
   })
   .strict()

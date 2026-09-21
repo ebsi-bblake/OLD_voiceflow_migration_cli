@@ -29,6 +29,14 @@ export const main: Main = (token, workflowData, secretFileContents) => {
     );
 
   const { planID, selection } = parsed.data;
+  if (selection.destinationFolderID === undefined)
+    return Promise.resolve(
+      failure(
+        "execute_migration_workflow",
+        createUUID(),
+        new OperationFault("INVALID_ARGUMENT"),
+      ),
+    );
   return executeMigration(
     token,
     planID,

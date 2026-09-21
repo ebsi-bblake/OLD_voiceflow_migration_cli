@@ -20,31 +20,63 @@ const labelFor = (options: readonly { value: string; label: string }[], value: s
   if (option === undefined) throw new OperationFault("NOT_FOUND");
   return option.label;
 };
+
+type PlannedLabels = Readonly<{
+  sourceWorkspace: string;
+  sourceProject: string;
+  sourceVersion: string;
+  destinationWorkspace: string;
+  destinationFolder: string;
+}>;
+const destinationFolderLabel = (
+  selection: { destinationFolderID?: string },
+  creation: { requestedPath: string } | undefined,
+  options: readonly { value: string; label: string }[],
+): string => {
+  if (selection.destinationFolderID !== undefined)
+    return labelFor(options, selection.destinationFolderID);
+  if (creation !== undefined) return creation.requestedPath;
+  throw new OperationFault("NOT_FOUND");
+};
+const plannedLabels = (
+  parsed: Extract<z.infer<typeof MigrationWorkflowDataSchema>, { stage: "DESTINATION_RESOLVED" }>,
+): PlannedLabels => {
+  const { catalog, selection, destinationFolderCreation } = parsed;
+  const sourceWorkspaceOptions = workspaceOptions(catalog.workspaces);
+  const sourceProjectOptions = projectOptions(selection.sourceWorkspaceID, catalog.sourceFolders)(catalog.sourceProjects);
+  const sourceVersionOptions = versionOptions(selection.sourceWorkspaceID, selection.sourceProjectID)(catalog.sourceProjects);
+  const destinationFolderOptions = folderOptions(selection.destinationWorkspaceID)(catalog.destinationFolders);
+  return {
+    sourceWorkspace: labelFor(sourceWorkspaceOptions, selection.sourceWorkspaceID),
+    sourceProject: labelFor(sourceProjectOptions, selection.sourceProjectID),
+    sourceVersion: labelFor(sourceVersionOptions, selection.sourceVersionID),
+    destinationWorkspace: labelFor(sourceWorkspaceOptions, selection.destinationWorkspaceID),
+    destinationFolder: destinationFolderLabel(selection, destinationFolderCreation, destinationFolderOptions),
+  };
+};
 export const main: Main = async (input) => {
   const id = createUUID();
   try {
     const parsed = MigrationWorkflowDataSchema.safeParse(readWorkflowData(input));
     if (!parsed.success || parsed.data.stage !== "DESTINATION_RESOLVED") throw new OperationFault("INVALID_ARGUMENT");
-    const { catalog, selection, config } = parsed.data;
-    const sourceWorkspaceOptions = workspaceOptions(catalog.workspaces);
-    const sourceProjectOptions = projectOptions(selection.sourceWorkspaceID, catalog.sourceFolders)(catalog.sourceProjects);
-    const sourceVersionOptions = versionOptions(selection.sourceWorkspaceID, selection.sourceProjectID)(catalog.sourceProjects);
-    const destinationFolderOptions = folderOptions(selection.destinationWorkspaceID)(catalog.destinationFolders);
-    const labels = {
-      sourceWorkspace: labelFor(sourceWorkspaceOptions, selection.sourceWorkspaceID),
-      sourceProject: labelFor(sourceProjectOptions, selection.sourceProjectID),
-      sourceVersion: labelFor(sourceVersionOptions, selection.sourceVersionID),
-      destinationWorkspace: labelFor(sourceWorkspaceOptions, selection.destinationWorkspaceID),
-      destinationFolder: labelFor(destinationFolderOptions, selection.destinationFolderID),
-    };
+    const { catalog, selection, config, destinationFolderCreation } = parsed.data;
+    const labels = plannedLabels(parsed.data);
     const planIDValue = await planID(selection);
+    const plan = {
+      planID: planIDValue,
+      selection,
+      labels,
+      ...(destinationFolderCreation === undefined
+        ? {}
+        : { destinationFolderCreation }),
+    };
     return success("plan_migration_workflow", id, {
       schemaVersion: 1,
       stage: "PLANNED",
       config,
       catalog,
       selection,
-      plan: { planID: planIDValue, selection, labels },
+      plan,
     });
   } catch (error) {
     return failure("plan_migration_workflow", id, error);

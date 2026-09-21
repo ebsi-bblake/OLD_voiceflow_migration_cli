@@ -214,6 +214,35 @@ test("rejects malformed catalog and selection records", () => {
   ).toBe(false);
 });
 
+test("accepts a planned destination-folder creation action without a folder ID", () => {
+  const pendingSelection = {
+    sourceWorkspaceID: selection.sourceWorkspaceID,
+    sourceProjectID: selection.sourceProjectID,
+    sourceVersionID: selection.sourceVersionID,
+    destinationWorkspaceID: selection.destinationWorkspaceID,
+    targetSchemaVersion: selection.targetSchemaVersion,
+  };
+  const pendingPlan = {
+    ...plan,
+    selection: pendingSelection,
+    destinationFolderCreation: {
+      workspaceID: selection.destinationWorkspaceID,
+      requestedPath: "Boaz new hero folder",
+      action: "CREATE_DESTINATION_FOLDER",
+    },
+  } as const;
+  const result = MigrationWorkflowDataSchema.safeParse({
+    schemaVersion: 1,
+    stage: "PLANNED",
+    config,
+    catalog: { workspaces, sourceProjects, sourceFolders, destinationFolders },
+    selection: pendingSelection,
+    plan: pendingPlan,
+  });
+
+  expect(result.success).toBe(true);
+});
+
 test("binds confirmed execution handoff to the exact plan and excludes secrets", () => {
   const handoff = {
     schemaVersion: 1,

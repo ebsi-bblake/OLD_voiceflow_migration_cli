@@ -86,6 +86,10 @@ type ExecuteMigrationWorkflowHandler = (
   workflowData: unknown,
   secretFileContents?: unknown,
 ) => Promise<PluginEnvelope>;
+type CreateFolderWorkflowHandler = (
+  token: string,
+  workflowData: unknown,
+) => Promise<PluginEnvelope>;
 
 type ExecuteMigrationHandler = (
   token: string,
@@ -119,6 +123,7 @@ export type OperationHandlers = Readonly<{
   readonly initialize_migration_workflow?: InitializeMigrationWorkflowHandler;
   readonly initialize_execution_workflow?: InitializeExecutionWorkflowHandler;
   readonly execute_migration_workflow?: ExecuteMigrationWorkflowHandler;
+  readonly create_folder_workflow?: CreateFolderWorkflowHandler;
 }>;
 
 export type PluginInputChunk = Uint8Array | string;

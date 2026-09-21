@@ -113,7 +113,14 @@ function installDependencyMocks(): void {
   mock.module("../xyops/voiceflow/export", () => ({ exportVersion }));
   mock.module("../xyops/voiceflow/import", () => ({ importVersion }));
   mock.module("../xyops/voiceflow/api_key", () => ({ retrieveApiKeyStatus }));
-  mock.module("../xyops/voiceflow/catalog", () => ({ loadProjects }));
+  mock.module("../xyops/voiceflow/catalog", () => ({
+    loadProjects,
+    loadFolders: mock(async () => [{
+      id: selection.destinationFolderID,
+      label: "Destination Folder",
+      workspaceID: selection.destinationWorkspaceID,
+    }]),
+  }));
 }
 
 function restoreDependencyModules(): void {

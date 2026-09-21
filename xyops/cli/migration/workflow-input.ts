@@ -4,7 +4,7 @@ import {
   type MigrationWorkflowConfig,
   type MigrationWorkflowData,
 } from "../../migration-workflow-data";
-import type { MigrationPlan, XYOpsWorkflowInput } from "../types";
+import type { JSONValue, WorkflowMigrationPlan, XYOpsWorkflowInput } from "../types";
 
 type WorkflowConfig = MigrationWorkflowConfig;
 type WorkflowSelection = MigrationWorkflowData["selection"];
@@ -18,16 +18,24 @@ const assignDefined = <T extends Record<string, string | undefined>>(
 
 type ToWorkflowInput = (config: MigrationFileConfig | undefined) => XYOpsWorkflowInput;
 export type ToExecutionWorkflowInput = (
-  plan: MigrationPlan,
+  plan: WorkflowMigrationPlan,
 ) => XYOpsWorkflowInput;
 
+const toJSONValue = (value: unknown): JSONValue => {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error("Workflow input is not JSON-safe");
+  return JSON.parse(serialized) as JSONValue;
+};
+
 export const toExecutionWorkflowInput: ToExecutionWorkflowInput = (plan) =>
-  ConfirmedMigrationHandoffSchema.parse({
-    schemaVersion: 1,
-    confirmed: true,
-    planID: plan.planID,
-    plan,
-  });
+  toJSONValue(
+    ConfirmedMigrationHandoffSchema.parse({
+      schemaVersion: 1,
+      confirmed: true,
+      planID: plan.planID,
+      plan,
+    }),
+  ) as XYOpsWorkflowInput;
 // eslint-disable-next-line complexity
 export const toWorkflowInput: ToWorkflowInput = (config) => {
   const workflowConfig: WorkflowConfig = assignDefined({
