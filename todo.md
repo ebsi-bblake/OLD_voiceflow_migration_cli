@@ -1643,3 +1643,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Workflow CLI reads configured secret files only after confirmation and passes parsed entries as `SECRET_FILE_CONTENTS` to the execution workflow start; the plan/input/workflowData remain secret-free.
 - [x] Execution workflow event continues to reuse the existing plugin-side `parseSecretEntries` and secret migration logic.
 - [ ] Verify the deployed XYOps workflow propagates start params to child event params with a controlled secret-bearing test, then enable only after confirming no secret leakage in job/workflow logs.
+- [x] Attempted the approved local `migration.json` workflow run (`jmubp8hcwgi0od53`) with the execution workflow temporarily enabled.
+- [x] Planning workflow loaded session/workspaces/source catalog, then stopped at source selection with a non-secret `CONFIGURATION` failure; confirmation was never reached, so the secrets file was not read/sent and no mutation occurred.
+- [x] Disabled execution workflow `emuboe9h3jre7p5p` again after the failed pre-plan test.
+- [ ] Correct the local migration configuration/source selection or choose a currently valid catalog target before retrying; do not retry blindly.
