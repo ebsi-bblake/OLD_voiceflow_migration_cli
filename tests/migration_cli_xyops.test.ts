@@ -197,6 +197,7 @@ describe("XYOps CLI adapter", () => {
     const config = readXYOpsConfig({ XYOPS_API_KEY: "local-api-key" });
 
     expect(config.baseURL).toBe(DEFAULT_XYOPS_BASE_URL);
+    expect(config.migrationWorkflow).toEqual({ title: "Voiceflow Migration Workflow" });
     expect(config.events).toEqual({
       checkSession: { title: "voiceflow_check_session" },
       listWorkspaces: { title: "voiceflow_list_workspaces" },
@@ -219,14 +220,87 @@ describe("XYOps CLI adapter", () => {
       XYOPS_BASE_URL: "https://xyops.example.test/",
       XYOPS_EVENT_CHECK_SESSION: "id:event-check",
       XYOPS_EVENT_LIST_PROJECTS: "title:custom-projects",
+      XYOPS_WORKFLOW_MIGRATION: "id:workflow-definition",
     });
 
     expect(config.baseURL).toBe("https://xyops.example.test");
     expect(config.events.checkSession).toEqual({ id: "event-check" });
     expect(config.events.listProjects).toEqual({ title: "custom-projects" });
+    expect(config.migrationWorkflow).toEqual({ id: "workflow-definition" });
   });
 
-  test("uses an explicit ID reference in the XYOps request body", async () => {
+  test("starts a workflow with validated input data and returns its job ID", async () => {
+  const requests: string[] = [];
+  const client = createXYOpsClient(config, {
+    fetcher: async (_input, init) => {
+      requests.push(requestBody(init));
+      return new Response(JSON.stringify({ code: 0, id: "workflow-job" }), {
+        status: 200,
+      });
+    },
+  });
+
+  await expect(
+    client.startWorkflow(
+      { id: "workflow-definition" },
+      { schemaVersion: 1, config: { source_path: "Source/Project" } },
+    ),
+  ).resolves.toBe("workflow-job");
+  expect(JSON.parse(requests[0] ?? "{}")).toEqual({
+    id: "workflow-definition",
+    params: {},
+    input: {
+      data: { schemaVersion: 1, config: { source_path: "Source/Project" } },
+    },
+  });
+});
+
+test("observes a workflow through SSE and returns the terminal job", async () => {
+  const client = createXYOpsClient(config, {
+    streamer: async () => ({
+      kind: "success",
+      jobID: "workflow-job",
+      code: 0,
+      data: { workflowData: { stage: "CONFIGURED" } },
+      requiresJobResponse: false,
+    }),
+  });
+
+  await expect(client.observeWorkflow("workflow-job")).resolves.toMatchObject({
+    id: "workflow-job",
+    final: true,
+    data: { workflowData: { stage: "CONFIGURED" } },
+  });
+});
+
+test("falls back to polling the same workflow job after stream failure", async () => {
+  let polls = 0;
+  const client = createXYOpsClient(
+    { ...config, pollIntervalMs: 1, pollTimeoutMs: 100 },
+    {
+      streamer: async () => {
+        throw new Error("stream disconnected");
+      },
+      fetcher: async () => {
+        polls += 1;
+        const job =
+          polls === 1
+            ? { id: "workflow-job", state: "active", code: 0, completed: null }
+            : { id: "workflow-job", state: "complete", code: 0, completed: 1, final: true };
+        return new Response(JSON.stringify({ code: 0, job }), { status: 200 });
+      },
+      sleeper: async () => undefined,
+    },
+  );
+
+  await expect(client.observeWorkflow("workflow-job")).resolves.toMatchObject({
+    id: "workflow-job",
+    final: true,
+  });
+  expect(polls).toBe(2);
+});
+
+test("uses an explicit ID reference in the XYOps request body", async () => {
     const requests: string[] = [];
     const client = createXYOpsClient(config, {
       fetcher: async (_input, init) => { requests.push(requestBody(init)); return optionEnvelopeResponse(); },

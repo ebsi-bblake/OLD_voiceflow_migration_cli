@@ -7,6 +7,7 @@ import type {
   XYOpsClient,
   XYOpsConfig,
   XYOpsEventReference,
+  XYOpsJob,
 } from "../types";
 import { fetchJSON, defaultSleep, type Request, type Sleep } from "./http";
 import { completeJob, eventBody, pollJob, readEventOnce } from "./polling";
@@ -252,6 +253,64 @@ export const createXYOpsClient = (
       : Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH }));
   };
 
+  const isFinalJob = (job: XYOpsJob): boolean =>
+    job.final === true ||
+    job.state === "complete" ||
+    (job.completed !== undefined && job.completed !== null);
+
+  const readObservedJob = (id: string): Promise<XYOpsJob> =>
+    request(JOB_PATH, { id }, JOB_PATH).then((response) =>
+      readJobResponse(response, JOB_PATH),
+    );
+
+  const observeWorkflow: XYOpsClient["observeWorkflow"] = async (id) => {
+    try {
+      const streamed = await streamer(
+        fetcher,
+        config.baseURL,
+        config.apiKey,
+        id,
+        config.httpTimeoutMs,
+        {
+          maxBytes: config.streamMaxBytes,
+          maxFrameBytes: config.streamMaxFrameBytes,
+        },
+      );
+      if (streamed.requiresJobResponse) return await readObservedJob(id);
+      return {
+        id,
+        code: streamed.code,
+        data: streamed.data,
+        final: true,
+      };
+    } catch {
+      const deadline = Date.now() + config.pollTimeoutMs;
+      let attempt = 0;
+      while (Date.now() <= deadline) {
+        const job = await readObservedJob(id);
+        if (isFinalJob(job)) return job;
+        attempt += 1;
+        await sleeper(Math.min(config.pollIntervalMs * attempt, config.pollIntervalMs * 10));
+      }
+      throw fail("execute-outcome-unknown", {
+        endpoint: JOB_PATH,
+        nextAction: "The workflow outcome is unknown; reconcile before retrying.",
+      });
+    }
+  };
+
+  const startWorkflow: XYOpsClient["startWorkflow"] = async (
+    reference,
+    input,
+  ) => {
+    const launch = await request(
+      RUN_PATH,
+      { ...eventBody(reference, {}), input: { data: input } },
+      RUN_PATH,
+    );
+    return readLaunchID(launch, RUN_PATH);
+  };
+
   const executeEvent = async <T>(
     reference: XYOpsEventReference,
     params: EventParameters,
@@ -273,5 +332,5 @@ export const createXYOpsClient = (
     }
   };
 
-  return { readEvent, executeEvent };
+  return { readEvent, executeEvent, startWorkflow, observeWorkflow };
 };

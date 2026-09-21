@@ -60,6 +60,11 @@ const XYOpsJobSchemaBase = z
     description: responseDescriptionSchema,
     output: outputSchema,
     data: z.unknown().optional(),
+    final: z.boolean().optional(),
+    suspended: z.boolean().optional(),
+    workflowData: z.record(z.string(), z.unknown()).optional(),
+    input: z.unknown().optional(),
+    workflow: z.unknown().optional(),
   })
   .loose();
 

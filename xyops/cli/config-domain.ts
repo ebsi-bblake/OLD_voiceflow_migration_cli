@@ -36,6 +36,7 @@ export const DEFAULT_STREAM_MAX_FRAME_BYTES = 256_000;
 export const DEFAULT_XYOPS_BASE_URL = "http://localhost:5522";
 
 const DEFAULT_EVENT_TITLES = {
+  migrationWorkflow: "Voiceflow Migration Workflow",
   checkSession: "voiceflow_check_session",
   listWorkspaces: "voiceflow_list_workspaces",
   listProjects: "voiceflow_list_projects",
@@ -129,6 +130,11 @@ export const mapXYOpsEnvironment = (environment: unknown): XYOpsConfig => {
   return {
     baseURL: readBaseURL(values),
     apiKey: requiredEnvironment(values, "XYOPS_API_KEY"),
+    migrationWorkflow: readEventReference(
+      values,
+      "XYOPS_WORKFLOW_MIGRATION",
+      DEFAULT_EVENT_TITLES.migrationWorkflow,
+    ),
     events,
     httpTimeoutMs: readDuration(values, "XYOPS_HTTP_TIMEOUT_MS", DEFAULT_HTTP_TIMEOUT_MS),
     pollIntervalMs: readDuration(values, "XYOPS_POLL_INTERVAL_MS", DEFAULT_POLL_INTERVAL_MS),

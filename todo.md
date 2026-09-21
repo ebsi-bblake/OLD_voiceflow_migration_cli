@@ -1546,3 +1546,14 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added `voiceflow_check_session` event node (`emtalivkniyc8gcd`).
 - [x] Verified the workflow definition after creation.
 - [ ] Implement workflow start/observation in the CLI before enabling the workflow.
+
+## Phase 2 implementation progress
+
+- [x] Added the configured migration workflow reference with default title `Voiceflow Migration Workflow` and `XYOPS_WORKFLOW_MIGRATION` override.
+- [x] Added typed workflow input JSON values.
+- [x] Added workflow start support using the verified XYOps run-event boundary and `input.data`.
+- [x] Added workflow observation support with SSE primary and same-job polling fallback.
+- [x] Added terminal workflow job fields to the response boundary.
+- [x] Preserved the existing event-by-event CLI orchestration; it remains the active path.
+- [ ] Wire the CLI migration command to opt into workflow start/observation.
+- [ ] Add the workflow initializer stage and validated workflowData emission before enabling the remote workflow.

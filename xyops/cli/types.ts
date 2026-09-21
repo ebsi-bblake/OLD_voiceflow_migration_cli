@@ -110,6 +110,11 @@ export type XYOpsJob = Readonly<{
   description?: string;
   output?: string | null;
   data?: unknown;
+  final?: boolean;
+  suspended?: boolean;
+  workflowData?: Record<string, unknown>;
+  input?: unknown;
+  workflow?: unknown;
 }>;
 export type XYOpsJobResponse = XYOpsResponse &
   Readonly<{ job: XYOpsJob & Readonly<{ id: string }> }>;
@@ -157,9 +162,18 @@ export type XYOpsEventConfig = Readonly<{
 }>;
 export type XYOpsEventReference =
   string | Readonly<{ id: string }> | Readonly<{ title: string }>;
+export type JSONValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JSONValue[]
+  | { readonly [key: string]: JSONValue };
+export type XYOpsWorkflowInput = Readonly<Record<string, JSONValue>>;
 export type XYOpsConfig = Readonly<{
   baseURL: string;
   apiKey: string;
+  migrationWorkflow?: XYOpsEventReference;
   events: XYOpsEventConfig;
   httpTimeoutMs: number;
   pollIntervalMs: number;
@@ -209,4 +223,9 @@ export type XYOpsClient = Readonly<{
     params: EventParameters,
     envelopeGuard: ResponseSchema<VoiceflowEnvelope<T>>,
   ) => Promise<VoiceflowEnvelope<T>>;
+  startWorkflow: (
+    workflowReference: XYOpsEventReference,
+    input: XYOpsWorkflowInput,
+  ) => Promise<string>;
+  observeWorkflow: (jobID: string) => Promise<XYOpsJob>;
 }>;
