@@ -9,6 +9,7 @@ export const VoiceflowOperation = {
   ResolveSourceSelection: "resolve_source_selection",
   LoadDestinationCatalog: "load_destination_catalog",
   ResolveDestinationSelection: "resolve_destination_selection",
+  PlanMigrationWorkflow: "plan_migration_workflow",
   ListProjects: "list_projects",
   ListVersions: "list_versions",
   ListFolders: "list_folders",

@@ -1581,3 +1581,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added destination catalog loading and configured destination folder resolution.
 - [x] Created Events `emubmjj8vz9air76` and `emubmjj48yz1x591`, connected after source resolution, and deployed the updated plugin.
 - [x] Completed remote probe: workflow `jmubml09f3qsul8s` reached `DESTINATION_RESOLVED` with canonical destination workspace and folder IDs.
+- [x] Added pure workflow planning from the validated catalog snapshot.
+- [x] Created `voiceflow_plan_migration_workflow` Event `emubmpghwetl67mu` and connected it after destination resolution.
+- [x] Completed remote plan probe: workflow `jmubmq158fstv9qz` reached `PLANNED` with plan ID `d44e473f78f0936ca46b0c11` and validated labels.

@@ -41,6 +41,7 @@ type LoadSourceCatalogHandler = (token: string, workflowData: unknown) => Promis
 type ResolveSourceSelectionHandler = (workflowData: unknown) => Promise<PluginEnvelope>;
 type LoadDestinationCatalogHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
 type ResolveDestinationSelectionHandler = (workflowData: unknown) => Promise<PluginEnvelope>;
+type PlanMigrationWorkflowHandler = (workflowData: unknown) => Promise<PluginEnvelope>;
 
 type ListProjectsHandler = (
   token: string,
@@ -100,6 +101,7 @@ export type OperationHandlers = Readonly<{
   readonly resolve_source_selection?: ResolveSourceSelectionHandler;
   readonly load_destination_catalog?: LoadDestinationCatalogHandler;
   readonly resolve_destination_selection?: ResolveDestinationSelectionHandler;
+  readonly plan_migration_workflow?: PlanMigrationWorkflowHandler;
   readonly list_projects: ListProjectsHandler;
   readonly list_versions: ListVersionsHandler;
   readonly list_folders: ListFoldersHandler;

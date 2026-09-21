@@ -11,6 +11,7 @@ import { main as loadSourceCatalog } from "../voiceflow/load-migration-source-ca
 import { main as resolveSourceSelection } from "../voiceflow/resolve-migration-source";
 import { main as loadDestinationCatalog } from "../voiceflow/load-migration-destination-catalog";
 import { main as resolveDestinationSelection } from "../voiceflow/resolve-migration-destination";
+import { main as planMigrationWorkflow } from "../voiceflow/plan-migration-workflow";
 import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
@@ -34,6 +35,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   resolve_source_selection: resolveSourceSelection,
   load_destination_catalog: loadDestinationCatalog,
   resolve_destination_selection: resolveDestinationSelection,
+  plan_migration_workflow: planMigrationWorkflow,
   list_projects: listProjects,
   list_versions: listVersions,
   list_folders: listFolders,
@@ -144,6 +146,12 @@ const operationInvocations: OperationInvocations = {
     if (resolve === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
     return resolve(workflowDataInput(job));
+  },
+  plan_migration_workflow: (job, _token, handlers) => {
+    const plan = handlers.plan_migration_workflow;
+    if (plan === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return plan(workflowDataInput(job));
   },
   list_projects: (job, token, handlers) =>
     handlers["list_projects"](
