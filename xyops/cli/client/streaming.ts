@@ -162,7 +162,8 @@ const readSSEResponse: ReadSSEResponse = async (response, limits) => {
     jobID: latest.id,
     code: latest.code,
     data: latest,
-    requiresJobResponse: true,
+    requiresJobResponse:
+      latest.output === undefined && latest.data === undefined,
   } as const;
   return latest.code === 0 || latest.code === "0"
     ? { kind: "success", ...result }

@@ -85,14 +85,14 @@ export type XYOpsStreamResult =
       jobID: string;
       code: number | string;
       data: Record<string, unknown>;
-      requiresJobResponse: true;
+      requiresJobResponse: boolean;
     }>
   | Readonly<{
       kind: "failure";
       jobID: string;
       code: number | string;
       data: Record<string, unknown>;
-      requiresJobResponse: true;
+      requiresJobResponse: boolean;
     }>;
 // These are the states currently documented by XYOps; unknown server states remain strings and are ignored safely.
 export const XYOpsJobState = {

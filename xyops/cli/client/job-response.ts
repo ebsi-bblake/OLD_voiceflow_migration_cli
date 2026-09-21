@@ -217,8 +217,18 @@ export const readJobOutput = (
   job: XYOpsJobResult,
   endpoint: string,
 ): unknown => {
-  if (hasReadableOutput(job)) return parseJobOutput(job.output, endpoint);
-  if ("data" in job) return job.data;
+  if (hasReadableOutput(job)) {
+    try {
+      return parseJobOutput(job.output, endpoint);
+    } catch (error: unknown) {
+      // Failed XYOps jobs can put human-readable text in `output` and the
+      // structured plugin envelope in `data`. Prefer the structured result
+      // when it is available instead of misreporting the text as malformed JSON.
+      if (job.data !== undefined && job.data !== null) return job.data;
+      throw error;
+    }
+  }
+  if (job.data !== undefined) return job.data;
   throw fail("job", {
     endpoint,
     nextAction: "XYOps returned empty job output.",

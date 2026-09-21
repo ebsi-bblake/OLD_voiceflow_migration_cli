@@ -5,7 +5,7 @@ import {
   CatalogOptionResultSchema,
   CreatedFolderResultSchema,
 } from "../schemas/catalog-results";
-import { CliError, fail } from "../diagnostics";
+import { fail } from "../diagnostics";
 import type {
   EventParameters,
   MigrationSelection,
@@ -275,24 +275,12 @@ const readConfiguredOptions: ReadConfiguredOptions = async (
   parameters,
   field,
 ) => {
-  try {
-    const response = await client.readEvent(
-      eventReference,
-      parameters,
-      createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
-    );
-    return readOptions(response, field);
-  } catch (error: unknown) {
-    if (
-      error instanceof CliError &&
-      ["timeout", "network", "http"].includes(error.diagnostic.code)
-    )
-      throw fail("configuration", {
-        endpoint: error.diagnostic.endpoint,
-        nextAction: `Unable to validate ${field}; verify that the configured value exists and XYOps is reachable.`,
-      });
-    throw error;
-  }
+  const response = await client.readEvent(
+    eventReference,
+    parameters,
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+  );
+  return readOptions(response, field);
 };
 
 type SourceSelection = Pick<

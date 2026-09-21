@@ -335,6 +335,39 @@ describe("XYOps CLI adapter", () => {
     expect(String(error)).not.toContain(rawOutput);
   });
 
+  test("uses structured job data when failed jobs also contain plain-text output", async () => {
+    const envelope = {
+      ok: false,
+      operation: "list_projects",
+      operationID: "operation-timeout",
+      error: {
+        code: "DEPENDENCY_TIMEOUT",
+        message: "The Voiceflow dependency timed out.",
+        retryable: true,
+      },
+    };
+    const client = createXYOpsClient(config, {
+      fetcher: async () => new Response(JSON.stringify({
+        code: 0,
+        job: {
+          id: "job-plugin-timeout",
+          code: 0,
+          completed: true,
+          output: "[pluginVersion=0.0.6] The Voiceflow dependency timed out.",
+          data: { voiceflow: envelope },
+        },
+      }), { status: 200 }),
+    });
+
+    await expect(
+      client.readEvent(
+        "event-projects",
+        { operation: "list_projects" },
+        createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+      ),
+    ).resolves.toEqual(envelope);
+  });
+
   test("reports a plain-text wait job failure before parsing its output", async () => {
     const failureDescription = "The Voiceflow plugin could not complete the request.";
     const client = createXYOpsClient(config, {

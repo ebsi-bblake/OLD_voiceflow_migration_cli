@@ -50,7 +50,7 @@ const readEventAttempt = <T>(
     )
     .then((data) => requireEnvelope(data, guard, WAIT_PATH));
 
-const completeJob = <T>(
+export const completeJob = <T>(
   job: XYOpsJob,
   guard: ResponseSchema<VoiceflowEnvelope<T>>,
 ): VoiceflowEnvelope<T> => {
