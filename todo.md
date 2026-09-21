@@ -1585,3 +1585,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Created `voiceflow_plan_migration_workflow` Event `emubmpghwetl67mu` and connected it after destination resolution.
 - [x] Completed remote plan probe: workflow `jmubmq158fstv9qz` reached `PLANNED` with plan ID `d44e473f78f0936ca46b0c11` and validated labels.
 - [x] Workflow CLI now renders the validated `PLANNED` migration plan using the existing display contract without starting mutation.
+- [x] Verified the current workflow graph has no first-class suspension node; its node types are event/job/trigger/limit/action/controller/note.
+- [x] Verified XYOps exposes `resumeJob` for an already-suspended active job, but no suspension mechanism is currently present in this workflow or native plugin path.
+- [ ] Do not implement confirmation resume until a real suspended workflow job and its resume payload are verified.
