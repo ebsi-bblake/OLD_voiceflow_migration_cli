@@ -1588,3 +1588,18 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Verified the current workflow graph has no first-class suspension node; its node types are event/job/trigger/limit/action/controller/note.
 - [x] Verified XYOps exposes `resumeJob` for an already-suspended active job, but no suspension mechanism is currently present in this workflow or native plugin path.
 - [ ] Do not implement confirmation resume until a real suspended workflow job and its resume payload are verified.
+
+## Confirmed human-in-the-loop composition strategy
+
+- [x] Confirmed the current planning workflow should produce a validated `PLANNED` handoff and stop without mutation.
+- [x] Confirmed native workflow suspension is not required for the intended design.
+- [x] Adopted composed workflows as the human-in-the-loop boundary:
+  - Planning workflow loads catalogs, resolves canonical selections, and generates the plan.
+  - CLI displays the plan and obtains explicit human confirmation.
+  - Execution workflow receives the confirmed plan as JSON input and performs mutation stages.
+- [ ] Define and validate the plan-to-execution handoff contract, bound to the exact `planID` and canonical selection.
+- [ ] Ensure execution revalidates current Voiceflow state before irreversible operations.
+- [ ] Ensure execution workflow start is idempotent and duplicate starts reconcile the existing execution before retrying.
+- [ ] Keep secret values out of workflow input and workflowData; define the approved secret transport for the execution workflow.
+- [ ] Add a dedicated execution workflow that accepts only confirmed, validated plan input.
+- [ ] Add end-to-end tests for plan handoff, confirmation rejection, duplicate execution starts, unknown outcomes, and final result reporting.
