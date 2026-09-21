@@ -258,6 +258,7 @@ describe("XYOps CLI adapter", () => {
     expect(config.baseURL).toBe(DEFAULT_XYOPS_BASE_URL);
     expect(config.migrationMode).toBe("events");
     expect(config.migrationWorkflow).toEqual({ title: "Voiceflow Migration Workflow" });
+    expect(config.executionWorkflow).toEqual({ title: "Voiceflow Migration Execution Workflow" });
     expect(config.events).toEqual({
       checkSession: { title: "voiceflow_check_session" },
       listWorkspaces: { title: "voiceflow_list_workspaces" },
@@ -281,6 +282,7 @@ describe("XYOps CLI adapter", () => {
       XYOPS_EVENT_CHECK_SESSION: "id:event-check",
       XYOPS_EVENT_LIST_PROJECTS: "title:custom-projects",
       XYOPS_WORKFLOW_MIGRATION: "id:workflow-definition",
+      XYOPS_WORKFLOW_EXECUTION: "id:execution-workflow-definition",
       XYOPS_MIGRATION_MODE: "workflow",
     });
 
@@ -289,6 +291,7 @@ describe("XYOps CLI adapter", () => {
     expect(config.events.checkSession).toEqual({ id: "event-check" });
     expect(config.events.listProjects).toEqual({ title: "custom-projects" });
     expect(config.migrationWorkflow).toEqual({ id: "workflow-definition" });
+    expect(config.executionWorkflow).toEqual({ id: "execution-workflow-definition" });
   });
 
   test("starts a workflow with validated input data and returns its job ID", async () => {

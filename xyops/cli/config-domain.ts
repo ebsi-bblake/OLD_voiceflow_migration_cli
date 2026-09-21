@@ -37,6 +37,7 @@ export const DEFAULT_XYOPS_BASE_URL = "http://localhost:5522";
 
 const DEFAULT_EVENT_TITLES = {
   migrationWorkflow: "Voiceflow Migration Workflow",
+  executionWorkflow: "Voiceflow Migration Execution Workflow",
   checkSession: "voiceflow_check_session",
   listWorkspaces: "voiceflow_list_workspaces",
   listProjects: "voiceflow_list_projects",
@@ -141,6 +142,11 @@ export const mapXYOpsEnvironment = (environment: unknown): XYOpsConfig => {
       values,
       "XYOPS_WORKFLOW_MIGRATION",
       DEFAULT_EVENT_TITLES.migrationWorkflow,
+    ),
+    executionWorkflow: readEventReference(
+      values,
+      "XYOPS_WORKFLOW_EXECUTION",
+      DEFAULT_EVENT_TITLES.executionWorkflow,
     ),
     events,
     httpTimeoutMs: readDuration(values, "XYOPS_HTTP_TIMEOUT_MS", DEFAULT_HTTP_TIMEOUT_MS),

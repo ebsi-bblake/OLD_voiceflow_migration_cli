@@ -31,7 +31,10 @@ import { readSecretsForMigration } from "./secret-input";
 import { progress } from "../progress";
 import { VoiceflowOperation } from "../../voiceflow/types";
 import { MigrationWorkflowDataSchema } from "../../migration-workflow-data";
-import { toWorkflowInput } from "./workflow-input";
+import {
+  toExecutionWorkflowInput,
+  toWorkflowInput,
+} from "./workflow-input";
 
 type PrintHelp = () => void;
 const printHelp: PrintHelp = () => {
@@ -71,7 +74,7 @@ const readWorkflowDataCandidate: ReadWorkflowDataCandidate = (job) => {
 
 type PerformWorkflowMigration = (context: MigrationContext) => Promise<void>;
 // eslint-disable-next-line complexity
-const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig }) => {
+const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig, reader }) => {
   const workflowJobID = await progress.run("start_migration_workflow", () =>
     client.startWorkflow(config.migrationWorkflow ?? { title: "Voiceflow Migration Workflow" }, toWorkflowInput(migrationConfig)),
   );
@@ -91,8 +94,43 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
     throw fail("envelope", {
       nextAction: "The migration workflow returned invalid workflowData.",
     });
-  if (parsedWorkflowData?.success && parsedWorkflowData.data.stage === "PLANNED")
-    displayPlan(parsedWorkflowData.data.plan);
+  const planned = parsedWorkflowData?.success && parsedWorkflowData.data.stage === "PLANNED"
+    ? parsedWorkflowData.data
+    : undefined;
+  if (planned !== undefined) {
+    displayPlan(planned.plan);
+    const confirmed = await requestMigrationConfirmation(reader);
+    if (!confirmed) return;
+    if (migrationConfig?.secrets !== undefined &&
+      (typeof migrationConfig.secrets === "string" || migrationConfig.secrets.length > 0))
+      throw fail("configuration", {
+        nextAction:
+          "Workflow execution cannot receive secret values until secure secret transport is configured.",
+      });
+    const executionWorkflowID = await progress.run("start_execution_workflow", () =>
+      client.startWorkflow(
+        config.executionWorkflow ?? { title: "Voiceflow Migration Execution Workflow" },
+        toExecutionWorkflowInput(planned.plan),
+      ),
+    );
+    const executionJob = await progress.run("observe_execution_workflow", () =>
+      client.observeWorkflow(executionWorkflowID),
+    );
+    if (executionJob.code !== undefined && executionJob.code !== 0 && executionJob.code !== "0")
+      throw fail("job", { nextAction: "The execution workflow failed." });
+    console.log(JSON.stringify({
+      migrationWorkflow: {
+        jobID: workflowJobID,
+        stage: planned.stage,
+        workflowData: planned,
+      },
+      executionWorkflow: {
+        jobID: executionWorkflowID,
+        job: executionJob,
+      },
+    }));
+    return;
+  }
   console.log(JSON.stringify({
     migrationWorkflow: {
       jobID: workflowJobID,

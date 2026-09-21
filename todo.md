@@ -1632,3 +1632,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Verified the deployed workflow graph and event references by exporting the created workflow.
 - [ ] Add the CLI execution-workflow reference and confirmed handoff start/observation path.
 - [ ] Keep the execution workflow disabled until secret transport, current-state revalidation, and duplicate-start reconciliation are verified.
+- [x] Added `XYOPS_WORKFLOW_EXECUTION` / `executionWorkflow` configuration with default title `Voiceflow Migration Execution Workflow`.
+- [x] Workflow CLI path now prompts for confirmation after `PLANNED`, then starts and observes the separate execution workflow with the validated plan handoff.
+- [x] Workflow execution refuses configured or inline non-empty secrets until secure secret transport exists; no secret values enter workflow input.
+- [ ] Add an integration test covering the full planned → confirmed → execution-workflow start/observe path.

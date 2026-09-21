@@ -176,6 +176,7 @@ export type XYOpsConfig = Readonly<{
   apiKey: string;
   migrationMode: MigrationExecutionMode;
   migrationWorkflow?: XYOpsEventReference;
+  executionWorkflow?: XYOpsEventReference;
   events: XYOpsEventConfig;
   httpTimeoutMs: number;
   pollIntervalMs: number;
