@@ -15,6 +15,7 @@ describe("Voiceflow unexpected error diagnostics", () => {
       "check_session", "check_session_workflow", "list_workspaces", "load_workspaces", "load_source_catalog", "resolve_source_selection", "load_destination_catalog", "resolve_destination_selection", "plan_migration_workflow", "list_projects", "list_versions",
       "list_folders", "create_folder", "plan_migration", "execute_migration",
       "initialize_migration_workflow", "initialize_execution_workflow",
+      "execute_migration_workflow",
     ]);
     expect(Object.values(ErrorCode)).toContain("INTERNAL_ERROR");
     expect(Object.values(WarningCode)).toEqual(["NOT_IDEMPOTENT", "API_KEY_RETRIEVAL_FAILED"]);

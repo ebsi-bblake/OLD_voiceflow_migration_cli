@@ -1612,3 +1612,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added `initialize_execution_workflow`, which accepts only the confirmed, secret-free handoff and emits validated `EXECUTION_READY` workflowData.
 - [x] Registered the execution-workflow initializer through the plugin operation and response workflowData validation.
 - [ ] Deploy the initializer event and compose the production execution workflow after confirming the workflow event mapping and approved secret transport.
+- [x] Added `execute_migration_workflow`, which consumes only `EXECUTION_READY` workflowData and delegates to the existing migration execution state machine.
+- [x] Kept optional secret input outside workflowData; workflow execution still requires an approved secure secret transport before production use.
+- [ ] Deploy and verify the initializer/execution events and compose the second workflow; do not enable it for real mutation until secret transport and duplicate-start reconciliation are verified.

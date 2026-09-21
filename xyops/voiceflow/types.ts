@@ -18,6 +18,7 @@ export const VoiceflowOperation = {
   ExecuteMigration: "execute_migration",
   InitializeMigrationWorkflow: "initialize_migration_workflow",
   InitializeExecutionWorkflow: "initialize_execution_workflow",
+  ExecuteMigrationWorkflow: "execute_migration_workflow",
 } as const;
 
 export type VoiceflowOperation =

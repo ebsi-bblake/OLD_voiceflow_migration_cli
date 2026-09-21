@@ -15,6 +15,7 @@ import { main as planMigrationWorkflow } from "../voiceflow/plan-migration-workf
 import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { main as initializeExecutionWorkflow } from "../voiceflow/initialize-execution-workflow";
+import { main as executeMigrationWorkflow } from "../voiceflow/execute-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
 import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
@@ -45,6 +46,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   execute_migration: executeMigration,
   initialize_migration_workflow: initializeMigrationWorkflow,
   initialize_execution_workflow: initializeExecutionWorkflow,
+  execute_migration_workflow: executeMigrationWorkflow,
 };
 
 const parseParameterString = (value: unknown): string => {
@@ -216,6 +218,12 @@ const operationInvocations: OperationInvocations = {
       .looseObject({ data: z.unknown() })
       .safeParse(job.input);
     return initialize(input.success ? input.data.data : undefined);
+  },
+  execute_migration_workflow: (job, token, handlers) => {
+    const execute = handlers.execute_migration_workflow;
+    if (execute === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return execute(token, workflowDataInput(job), optionalSecretInput(job, MigrationParameterName.secretFileContents));
   },
 };
 
