@@ -1537,3 +1537,12 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added progressive milestone coverage from configured state through planned state.
 - [x] Added malformed catalog, selection, config, unknown-field, secret-field, and non-JSON value tests.
 - [x] No CLI orchestration, event, catalog retrieval, planning, or execution behavior was changed.
+
+## Phase 2 XYOps scaffold
+
+- [x] Created disabled workflow `Voiceflow Migration Workflow` in XYOps.
+- [x] Workflow ID: `emubj74188ymokoo`.
+- [x] Added manual trigger `wf_start`.
+- [x] Added `voiceflow_check_session` event node (`emtalivkniyc8gcd`).
+- [x] Verified the workflow definition after creation.
+- [ ] Implement workflow start/observation in the CLI before enabling the workflow.
