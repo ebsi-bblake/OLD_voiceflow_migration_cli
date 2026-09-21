@@ -1561,3 +1561,4 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Deployed the updated Voiceflow Migration plugin to XYOps plugin `pmtal4rok7gbevqi`.
 - [x] Created initializer Event `voiceflow_initialize_migration_workflow` with ID `emubkslmbxvckcjk`.
 - [x] Updated workflow `emubj74188ymokoo` to run initializer before `voiceflow_check_session`; workflow remains disabled.
+- [x] Rebuilt and redeployed the corrected plugin artifact after the initializer input-boundary fix (plugin revision 154).
