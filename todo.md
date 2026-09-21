@@ -1636,3 +1636,5 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Workflow CLI path now prompts for confirmation after `PLANNED`, then starts and observes the separate execution workflow with the validated plan handoff.
 - [x] Workflow execution refuses configured or inline non-empty secrets until secure secret transport exists; no secret values enter workflow input.
 - [ ] Add an integration test covering the full planned → confirmed → execution-workflow start/observe path.
+- [x] Extracted the confirmed execution workflow start/observe adapter and wired the workflow CLI path through it.
+- [x] Added integration coverage proving one execution-workflow start followed by observation of the same job ID.

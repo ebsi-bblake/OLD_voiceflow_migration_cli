@@ -31,10 +31,8 @@ import { readSecretsForMigration } from "./secret-input";
 import { progress } from "../progress";
 import { VoiceflowOperation } from "../../voiceflow/types";
 import { MigrationWorkflowDataSchema } from "../../migration-workflow-data";
-import {
-  toExecutionWorkflowInput,
-  toWorkflowInput,
-} from "./workflow-input";
+import { toWorkflowInput } from "./workflow-input";
+import { runExecutionWorkflow } from "./execution-workflow";
 
 type PrintHelp = () => void;
 const printHelp: PrintHelp = () => {
@@ -107,15 +105,15 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
         nextAction:
           "Workflow execution cannot receive secret values until secure secret transport is configured.",
       });
-    const executionWorkflowID = await progress.run("start_execution_workflow", () =>
-      client.startWorkflow(
+    const execution = await progress.run("execution_workflow", () =>
+      runExecutionWorkflow(
+        client,
         config.executionWorkflow ?? { title: "Voiceflow Migration Execution Workflow" },
-        toExecutionWorkflowInput(planned.plan),
+        planned.plan,
       ),
     );
-    const executionJob = await progress.run("observe_execution_workflow", () =>
-      client.observeWorkflow(executionWorkflowID),
-    );
+    const executionWorkflowID = execution.jobID;
+    const executionJob = execution.job;
     if (executionJob.code !== undefined && executionJob.code !== 0 && executionJob.code !== "0")
       throw fail("job", { nextAction: "The execution workflow failed." });
     console.log(JSON.stringify({

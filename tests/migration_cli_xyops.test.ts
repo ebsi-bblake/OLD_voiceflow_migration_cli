@@ -10,6 +10,7 @@ import { CatalogOptionResultSchema } from "../xyops/cli/schemas/catalog-results"
 import { CheckSessionResultSchema } from "../xyops/cli/schemas/session";
 import { run } from "../xyops/cli/index";
 import { cliErrorOutput } from "../xyops/cli/diagnostics";
+import { runExecutionWorkflow } from "../xyops/cli/migration/execution-workflow";
 import {
   toExecutionWorkflowInput,
   toWorkflowInput,
@@ -101,6 +102,48 @@ test("builds a confirmed secret-free execution workflow handoff", () => {
         destinationFolder: "Destination Folder",
       },
     },
+  });
+});
+
+test("starts and observes the confirmed execution workflow exactly once", async () => {
+  const calls: string[] = [];
+  const job = { id: "execution-job", code: 0, final: true } as const;
+  const client = {
+    startWorkflow: async (workflow: unknown, input: unknown) => {
+      calls.push(JSON.stringify({ action: "start", workflow, input }));
+      return "execution-job";
+    },
+    observeWorkflow: async (jobID: string) => {
+      calls.push(JSON.stringify({ action: "observe", jobID }));
+      return job;
+    },
+  } as never;
+  const result = await runExecutionWorkflow(
+    client,
+    { id: "execution-workflow" },
+    {
+      planID: "plan-1",
+      selection,
+      labels: {
+        sourceWorkspace: "Source Workspace",
+        sourceProject: "Source Project",
+        sourceVersion: "Source Version",
+        destinationWorkspace: "Destination Workspace",
+        destinationFolder: "Destination Folder",
+      },
+    },
+  );
+
+  expect(result).toEqual({ jobID: "execution-job", job });
+  expect(calls).toHaveLength(2);
+  expect(JSON.parse(calls[0] ?? "{}")).toMatchObject({
+    action: "start",
+    workflow: { id: "execution-workflow" },
+    input: { confirmed: true, planID: "plan-1" },
+  });
+  expect(JSON.parse(calls[1] ?? "{}")).toEqual({
+    action: "observe",
+    jobID: "execution-job",
   });
 });
 
