@@ -91,6 +91,8 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
     throw fail("envelope", {
       nextAction: "The migration workflow returned invalid workflowData.",
     });
+  if (parsedWorkflowData?.success && parsedWorkflowData.data.stage === "PLANNED")
+    displayPlan(parsedWorkflowData.data.plan);
   console.log(JSON.stringify({
     migrationWorkflow: {
       jobID: workflowJobID,

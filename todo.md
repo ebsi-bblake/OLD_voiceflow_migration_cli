@@ -1584,3 +1584,4 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added pure workflow planning from the validated catalog snapshot.
 - [x] Created `voiceflow_plan_migration_workflow` Event `emubmpghwetl67mu` and connected it after destination resolution.
 - [x] Completed remote plan probe: workflow `jmubmq158fstv9qz` reached `PLANNED` with plan ID `d44e473f78f0936ca46b0c11` and validated labels.
+- [x] Workflow CLI now renders the validated `PLANNED` migration plan using the existing display contract without starting mutation.
