@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { resolveVoiceflowAuth } from "./auth";
 import { success, failure } from "./contracts";
@@ -16,14 +17,13 @@ type Main = (
   workflowData: unknown,
 ) => Promise<Envelope<WorkspacesLoadedResult>>;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
 
 const readConfiguredWorkflowData = (value: unknown) => {
-  const record = isRecord(value) ? value : undefined;
-  const voiceflow = record?.voiceflow;
-  const envelopeResult = isRecord(voiceflow) ? voiceflow.result : undefined;
-  const unwrapped = envelopeResult ?? value;
+  const wrapped = WorkflowEnvelopeSchema.safeParse(value);
+  const unwrapped = wrapped.success ? wrapped.data.voiceflow.result : value;
   const parsed = MigrationWorkflowDataSchema.safeParse(unwrapped);
   if (!parsed.success || parsed.data.stage !== "CONFIGURED")
     throw new OperationFault("INVALID_ARGUMENT");

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { failure, OperationFault, success } from "./contracts";
 import { folderOptions } from "./catalog";
@@ -6,16 +7,17 @@ import { createUUID } from "./uuid";
 
 type DestinationResolvedResult = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "DESTINATION_RESOLVED" }>;
 type Main = (workflowData: unknown) => Promise<Envelope<DestinationResolvedResult>>;
-type RecordValue = Record<string, unknown>;
-const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
-const readWorkflowData = (value: unknown): unknown => isRecord(value) && isRecord(value.voiceflow) ? value.voiceflow.result : value;
-const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
-const configuredFolder = (config: RecordValue): string | undefined => {
-  if (typeof config.destination_folder === "string") return config.destination_folder;
-  if (typeof config.destination_path === "string") return config.destination_path.split("/").slice(1).join("/");
-  return undefined;
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
+const readWorkflowData = (value: unknown): unknown => {
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
 };
-const resolveFolder = (config: RecordValue, options: readonly { value: string; label: string }[]): string => {
+const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
+const configuredFolder = (config: { destination_folder?: string; destination_path?: string }): string | undefined =>
+  config.destination_folder ?? config.destination_path?.split("/").slice(1).join("/");
+const resolveFolder = (config: { destination_folder?: string; destination_path?: string }, options: readonly { value: string; label: string }[]): string => {
   const value = configuredFolder(config);
   if (value === undefined || value === "") throw new OperationFault("CONFIGURATION");
   const exact = options.find((option) => option.value === value);

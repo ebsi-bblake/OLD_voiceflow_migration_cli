@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { main as checkSession } from "./check_session";
 import { failure, OperationFault, success } from "./contracts";
@@ -6,11 +7,12 @@ import { createUUID } from "./uuid";
 
 type WorkflowData = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "CONFIGURED" }>;
 type Main = (token: string, workflowData: unknown) => Promise<Envelope<WorkflowData>>;
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
 const readWorkflowData = (value: unknown): unknown => {
-  if (!isRecord(value)) return value;
-  const voiceflow = value.voiceflow;
-  return isRecord(voiceflow) ? voiceflow.result : value;
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
 };
 export const main: Main = async (token, input) => {
   const id = createUUID();

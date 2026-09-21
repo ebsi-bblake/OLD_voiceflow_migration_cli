@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { resolveVoiceflowAuth } from "./auth";
 import { failure, OperationFault, success } from "./contracts";
@@ -14,23 +15,16 @@ type Main = (
   workflowData: unknown,
 ) => Promise<Envelope<SourceCatalogLoadedResult>>;
 
-type RecordValue = Record<string, unknown>;
-const isRecord = (value: unknown): value is RecordValue =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
 const readWorkflowData = (value: unknown): unknown => {
-  if (!isRecord(value)) return value;
-  const voiceflow = value.voiceflow;
-  return isRecord(voiceflow) ? voiceflow.result : value;
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
 };
 
-const readSourceWorkspaceValue = (config: RecordValue): string | undefined => {
-  const configured = config.source_workspace;
-  if (typeof configured === "string" && configured.trim() !== "") return configured;
-  const path = config.source_path;
-  if (typeof path !== "string") return undefined;
-  return path.split("/")[0]?.trim();
-};
+const readSourceWorkspaceValue = (config: { source_workspace?: string; source_path?: string }): string | undefined =>
+  config.source_workspace ?? config.source_path?.split("/")[0]?.trim();
 
 const normalizeName = (value: string): string => value.normalize("NFC").trim().toLowerCase();
 
@@ -42,7 +36,7 @@ const readConfiguredData = (value: unknown) => {
 };
 
 const resolveWorkspace = (
-  config: RecordValue,
+  config: { source_workspace?: string; source_path?: string },
   workspaces: readonly { id: string; label: string }[],
 ): string => {
   const value = readSourceWorkspaceValue(config);

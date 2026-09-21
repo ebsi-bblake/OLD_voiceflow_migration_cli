@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { resolveVoiceflowAuth } from "./auth";
 import { failure, OperationFault, success } from "./contracts";
@@ -7,16 +8,17 @@ import { createUUID } from "./uuid";
 
 type DestinationCatalogLoadedResult = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "DESTINATION_CATALOG_LOADED" }>;
 type Main = (token: string, workflowData: unknown) => Promise<Envelope<DestinationCatalogLoadedResult>>;
-type RecordValue = Record<string, unknown>;
-const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
-const readWorkflowData = (value: unknown): unknown => isRecord(value) && isRecord(value.voiceflow) ? value.voiceflow.result : value;
-const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
-const configuredWorkspace = (config: RecordValue): string | undefined => {
-  if (typeof config.destination_workspace === "string") return config.destination_workspace;
-  if (typeof config.destination_path === "string") return config.destination_path.split("/")[0]?.trim();
-  return undefined;
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
+const readWorkflowData = (value: unknown): unknown => {
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
 };
-const resolveWorkspace = (config: RecordValue, workspaces: readonly { id: string; label: string }[]): string => {
+const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
+const configuredWorkspace = (config: { destination_workspace?: string; destination_path?: string }): string | undefined =>
+  config.destination_workspace ?? config.destination_path?.split("/")[0]?.trim();
+const resolveWorkspace = (config: { destination_workspace?: string; destination_path?: string }, workspaces: readonly { id: string; label: string }[]): string => {
   const value = configuredWorkspace(config);
   if (value === undefined || value === "") throw new OperationFault("CONFIGURATION");
   const exact = workspaces.find((workspace) => workspace.id === value);

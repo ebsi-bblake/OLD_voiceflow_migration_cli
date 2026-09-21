@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { failure, OperationFault, success } from "./contracts";
 import { projectOptions, versionOptions } from "./catalog";
@@ -6,19 +7,16 @@ import { createUUID } from "./uuid";
 
 type SourceResolvedResult = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "SOURCE_RESOLVED" }>;
 type Main = (workflowData: unknown) => Promise<Envelope<SourceResolvedResult>>;
-type RecordValue = Record<string, unknown>;
-const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
 const readWorkflowData = (value: unknown): unknown => {
-  if (!isRecord(value)) return value;
-  const voiceflow = value.voiceflow;
-  return isRecord(voiceflow) ? voiceflow.result : value;
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
 };
 const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
-const readConfiguredProject = (config: RecordValue): string | undefined => {
-  if (typeof config.source_project === "string") return config.source_project;
-  if (typeof config.source_path !== "string") return undefined;
-  return config.source_path.split("/").slice(1).join("/");
-};
+const readConfiguredProject = (config: { source_project?: string; source_path?: string }): string | undefined =>
+  config.source_project ?? config.source_path?.split("/").slice(1).join("/");
 const resolveOption = (value: string | undefined, options: readonly { value: string; label: string }[]): string => {
   if (value === undefined || value.trim() === "") throw new OperationFault("CONFIGURATION");
   const exact = options.find((option) => option.value === value);
@@ -27,8 +25,8 @@ const resolveOption = (value: string | undefined, options: readonly { value: str
   if (matches.length !== 1) throw new OperationFault("CONFIGURATION");
   return matches[0].value;
 };
-const readConfiguredVersion = (config: RecordValue, options: readonly { value: string; label: string }[]): string => {
-  if (typeof config.source_version === "string") return resolveOption(config.source_version, options);
+const readConfiguredVersion = (config: { source_version?: string }, options: readonly { value: string; label: string }[]): string => {
+  if (config.source_version !== undefined) return resolveOption(config.source_version, options);
   const development = options.find((option) => option.label.includes("[Draft]") && option.label.includes("— Development"));
   if (development !== undefined) return development.value;
   throw new OperationFault("CONFIGURATION");

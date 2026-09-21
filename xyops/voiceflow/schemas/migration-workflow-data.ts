@@ -211,23 +211,16 @@ const PlannedWorkflowDataSchema = z
   })
   .strict();
 
-const isJSONPrimitive = (value: unknown): boolean =>
-  value === null ||
-  typeof value === "string" ||
-  typeof value === "boolean" ||
-  (typeof value === "number" && Number.isFinite(value));
-
-const isPlainObject = (value: object): boolean => {
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-};
-
-const isJSONSafe = (value: unknown): boolean => {
-  if (isJSONPrimitive(value)) return true;
-  if (Array.isArray(value)) return value.every(isJSONSafe);
-  if (typeof value !== "object" || value === null) return false;
-  return isPlainObject(value) && Object.values(value).every(isJSONSafe);
-};
+const JSONValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(JSONValueSchema),
+    z.record(z.string(), JSONValueSchema),
+  ]),
+);
 
 const MigrationWorkflowDataStructureSchema = z.discriminatedUnion("stage", [
   ConfiguredWorkflowDataSchema,
@@ -240,9 +233,9 @@ const MigrationWorkflowDataStructureSchema = z.discriminatedUnion("stage", [
 ]);
 
 /** Strict boundary schema for progressive, JSON-safe migration workflow data. */
-export const MigrationWorkflowDataSchema = z
-  .custom<unknown>(isJSONSafe, "workflowData must contain JSON-safe values")
-  .pipe(MigrationWorkflowDataStructureSchema);
+export const MigrationWorkflowDataSchema = JSONValueSchema.pipe(
+  MigrationWorkflowDataStructureSchema,
+);
 
 export type MigrationWorkflowData = z.infer<
   typeof MigrationWorkflowDataSchema

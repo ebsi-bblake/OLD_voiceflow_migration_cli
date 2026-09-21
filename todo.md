@@ -1603,3 +1603,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Keep secret values out of workflow input and workflowData; define the approved secret transport for the execution workflow.
 - [ ] Add a dedicated execution workflow that accepts only confirmed, validated plan input.
 - [ ] Add end-to-end tests for plan handoff, confirmation rejection, duplicate execution starts, unknown outcomes, and final result reporting.
+- [x] Replaced hand-rolled workflow-envelope and workflowData shape checks in the newly added workflow-stage modules with Zod schemas.
+- [x] Replaced recursive JSON-safety validation in `migration-workflow-data` with a recursive Zod JSON-value schema.
+- [x] Verified changed workflow boundaries with typecheck, lint, and focused tests.

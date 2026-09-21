@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "../migration-workflow-data";
 import { failure, OperationFault, success } from "./contracts";
 import { folderOptions, projectOptions, versionOptions, workspaceOptions } from "./catalog";
@@ -7,9 +8,13 @@ import { createUUID } from "./uuid";
 
 type PlannedResult = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "PLANNED" }>;
 type Main = (workflowData: unknown) => Promise<Envelope<PlannedResult>>;
-type RecordValue = Record<string, unknown>;
-const isRecord = (value: unknown): value is RecordValue => typeof value === "object" && value !== null && !Array.isArray(value);
-const readWorkflowData = (value: unknown): unknown => isRecord(value) && isRecord(value.voiceflow) ? value.voiceflow.result : value;
+const WorkflowEnvelopeSchema = z.object({
+  voiceflow: z.object({ result: z.unknown() }).passthrough(),
+}).passthrough();
+const readWorkflowData = (value: unknown): unknown => {
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
+};
 const labelFor = (options: readonly { value: string; label: string }[], value: string): string => {
   const option = options.find((candidate) => candidate.value === value);
   if (option === undefined) throw new OperationFault("NOT_FOUND");
