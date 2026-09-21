@@ -1,11 +1,12 @@
 import type { MigrationFileConfig } from "../config";
 import {
   ConfirmedMigrationHandoffSchema,
+  type MigrationWorkflowConfig,
   type MigrationWorkflowData,
 } from "../../migration-workflow-data";
 import type { MigrationPlan, XYOpsWorkflowInput } from "../types";
 
-type WorkflowConfig = MigrationWorkflowData["config"];
+type WorkflowConfig = MigrationWorkflowConfig;
 type WorkflowSelection = MigrationWorkflowData["selection"];
 
 const assignDefined = <T extends Record<string, string | undefined>>(

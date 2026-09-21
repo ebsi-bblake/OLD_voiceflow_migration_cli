@@ -1609,3 +1609,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Defined a secret-free confirmed execution handoff containing `schemaVersion`, literal `confirmed: true`, `planID`, and the validated plan; schema binding rejects mismatched plan IDs, unknown fields, and secret payloads.
 - [x] Added `toExecutionWorkflowInput` to construct the validated handoff from the planned migration.
 - [ ] Add and deploy the dedicated execution workflow that accepts this handoff.
+- [x] Added `initialize_execution_workflow`, which accepts only the confirmed, secret-free handoff and emits validated `EXECUTION_READY` workflowData.
+- [x] Registered the execution-workflow initializer through the plugin operation and response workflowData validation.
+- [ ] Deploy the initializer event and compose the production execution workflow after confirming the workflow event mapping and approved secret transport.

@@ -78,6 +78,9 @@ type PlanMigrationHandler = (
 type InitializeMigrationWorkflowHandler = (
   input: unknown,
 ) => Promise<PluginEnvelope>;
+type InitializeExecutionWorkflowHandler = (
+  input: unknown,
+) => Promise<PluginEnvelope>;
 
 type ExecuteMigrationHandler = (
   token: string,
@@ -109,6 +112,7 @@ export type OperationHandlers = Readonly<{
   readonly plan_migration: PlanMigrationHandler;
   readonly execute_migration: ExecuteMigrationHandler;
   readonly initialize_migration_workflow?: InitializeMigrationWorkflowHandler;
+  readonly initialize_execution_workflow?: InitializeExecutionWorkflowHandler;
 }>;
 
 export type PluginInputChunk = Uint8Array | string;

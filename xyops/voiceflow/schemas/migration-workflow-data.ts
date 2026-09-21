@@ -225,6 +225,19 @@ export const ConfirmedMigrationHandoffSchema = z
     path: ["planID"],
   });
 
+const ExecutionReadyWorkflowDataSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    stage: z.literal("EXECUTION_READY"),
+    planID: nonEmptyString,
+    selection: CompleteSelectionSchema,
+    plan: MigrationPlanSchema,
+  })
+  .strict()
+  .refine(({ planID, plan, selection }) =>
+    planID === plan.planID && JSON.stringify(selection) === JSON.stringify(plan.selection),
+  );
+
 type JSONValueSchemaType = z.ZodType<unknown>;
 const JSONValueSchema: JSONValueSchemaType = z.lazy(() =>
   z.union([
@@ -245,6 +258,7 @@ const MigrationWorkflowDataStructureSchema = z.discriminatedUnion("stage", [
   DestinationCatalogLoadedWorkflowDataSchema,
   DestinationResolvedWorkflowDataSchema,
   PlannedWorkflowDataSchema,
+  ExecutionReadyWorkflowDataSchema,
 ]);
 
 /** Strict boundary schema for progressive, JSON-safe migration workflow data. */
@@ -260,4 +274,7 @@ export type MigrationWorkflowConfig = z.infer<
 >;
 export type ConfirmedMigrationHandoff = z.infer<
   typeof ConfirmedMigrationHandoffSchema
+>;
+export type ExecutionReadyWorkflowData = z.infer<
+  typeof ExecutionReadyWorkflowDataSchema
 >;
