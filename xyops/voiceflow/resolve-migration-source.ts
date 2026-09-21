@@ -7,9 +7,9 @@ import { createUUID } from "./uuid";
 
 type SourceResolvedResult = Extract<Awaited<ReturnType<typeof MigrationWorkflowDataSchema.parse>>, { stage: "SOURCE_RESOLVED" }>;
 type Main = (workflowData: unknown) => Promise<Envelope<SourceResolvedResult>>;
-const WorkflowEnvelopeSchema = z.object({
-  voiceflow: z.object({ result: z.unknown() }).passthrough(),
-}).passthrough();
+const WorkflowEnvelopeSchema = z.looseObject({
+  voiceflow: z.looseObject({ result: z.unknown() }),
+});
 const readWorkflowData = (value: unknown): unknown => {
   const parsed = WorkflowEnvelopeSchema.safeParse(value);
   return parsed.success ? parsed.data.voiceflow.result : value;

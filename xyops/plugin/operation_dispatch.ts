@@ -92,8 +92,7 @@ const requiredConfirmation: RequiredConfirmation = (job) => {
 const workflowDataInput = (job: NativePluginJob): unknown => {
   if (job.workflowData !== undefined) return job.workflowData;
   const input = z
-    .object({ data: z.unknown() })
-    .passthrough()
+    .looseObject({ data: z.unknown() })
     .safeParse(job.input);
   return input.success ? input.data.data : undefined;
 };
@@ -203,8 +202,7 @@ const operationInvocations: OperationInvocations = {
     if (initialize === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
     const input = z
-      .object({ data: z.unknown() })
-      .passthrough()
+      .looseObject({ data: z.unknown() })
       .safeParse(job.input);
     return initialize(input.success ? input.data.data : undefined);
   },

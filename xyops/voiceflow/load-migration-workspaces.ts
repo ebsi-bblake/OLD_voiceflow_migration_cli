@@ -17,9 +17,9 @@ type Main = (
   workflowData: unknown,
 ) => Promise<Envelope<WorkspacesLoadedResult>>;
 
-const WorkflowEnvelopeSchema = z.object({
-  voiceflow: z.object({ result: z.unknown() }).passthrough(),
-}).passthrough();
+const WorkflowEnvelopeSchema = z.looseObject({
+  voiceflow: z.looseObject({ result: z.unknown() }),
+});
 
 const readConfiguredWorkflowData = (value: unknown) => {
   const wrapped = WorkflowEnvelopeSchema.safeParse(value);
