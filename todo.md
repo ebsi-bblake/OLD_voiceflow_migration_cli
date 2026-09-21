@@ -1628,3 +1628,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Re-ran the initializer probe on `df2v-moves-d01` (`jmubocshghre3ucv`); plugin spawned successfully and returned validated `EXECUTION_READY` data.
 - [x] The prior Node spawn error was target-selection related, not a broken Node script.
 - [ ] Compose the second execution workflow using the verified Moves Servers target and validate its event handoff before enabling real execution.
+- [x] Composed disabled execution workflow `emuboe9h3jre7p5p` targeting the Moves Servers workflow event, with initializer `emubo4mwn5lo80yv` followed by execution `emubo4nah5vnhb7w` on success.
+- [x] Verified the deployed workflow graph and event references by exporting the created workflow.
+- [ ] Add the CLI execution-workflow reference and confirmed handoff start/observation path.
+- [ ] Keep the execution workflow disabled until secret transport, current-state revalidation, and duplicate-start reconciliation are verified.
