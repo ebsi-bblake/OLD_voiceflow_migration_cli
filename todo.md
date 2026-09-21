@@ -1565,3 +1565,5 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Wired the CLI to start and observe the migration workflow when `XYOPS_MIGRATION_MODE=workflow` is set.
 - [x] Added non-secret initial workflow input mapping and retained `events` as the compatibility default.
 - [x] Validated observed workflowData before reporting the workflow terminal state.
+- [x] Enabled the development workflow and completed a remote no-mutation probe: initializer and check-session stages completed successfully in job `jmublabsoh2tzg3c`.
+- [x] Confirmed remote workflow results merge `workflowData` into job `data` alongside the Voiceflow envelope; CLI extraction now handles that shape.

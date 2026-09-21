@@ -58,6 +58,17 @@ const requireActiveSession = (active: boolean): void => {
     });
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+type ReadWorkflowDataCandidate = (job: { workflowData?: Record<string, unknown>; data?: unknown }) => unknown;
+const readWorkflowDataCandidate: ReadWorkflowDataCandidate = (job) => {
+  if (job.workflowData !== undefined) return job.workflowData;
+  if (!isRecord(job.data)) return undefined;
+  const { voiceflow: _voiceflow, ...workflowData } = job.data;
+  return workflowData;
+};
+
 type PerformWorkflowMigration = (context: MigrationContext) => Promise<void>;
 // eslint-disable-next-line complexity
 const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig }) => {
@@ -71,7 +82,7 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
     throw fail("job", {
       nextAction: "The migration workflow failed.",
     });
-  const workflowData = workflowJob.workflowData;
+  const workflowData = readWorkflowDataCandidate(workflowJob);
   const parsedWorkflowData =
     workflowData === undefined
       ? undefined
