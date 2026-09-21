@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { parseXYOpsURL } from "../voiceflow/urls";
 import { MigrationFileConfigSchema, XYOpsEnvironmentSchema } from "./schemas/migration-config";
-import type { SecretEntries, XYOpsConfig, XYOpsEventConfig, XYOpsEventReference } from "./types";
+import type { MigrationExecutionMode, SecretEntries, XYOpsConfig, XYOpsEventConfig, XYOpsEventReference } from "./types";
 
 export type Environment = z.infer<typeof XYOpsEnvironmentSchema>;
 export type MigrationFileConfigInput = z.infer<typeof MigrationFileConfigSchema>;
@@ -100,6 +100,12 @@ const readDuration = (environment: Environment, name: string, fallback: number):
   return raw ? parseDuration(raw, name) : fallback;
 };
 
+const readMigrationMode = (environment: Environment): MigrationExecutionMode => {
+  const value = readTrimmedEnvironment(environment, "XYOPS_MIGRATION_MODE") ?? "events";
+  if (value === "events" || value === "workflow") return value;
+  throw new ConfigDomainError("XYOPS_MIGRATION_MODE must be events or workflow.");
+};
+
 const readBaseURL = (environment: Environment): string => {
   const value = readTrimmedEnvironment(environment, "XYOPS_BASE_URL") || DEFAULT_XYOPS_BASE_URL;
   try {
@@ -130,6 +136,7 @@ export const mapXYOpsEnvironment = (environment: unknown): XYOpsConfig => {
   return {
     baseURL: readBaseURL(values),
     apiKey: requiredEnvironment(values, "XYOPS_API_KEY"),
+    migrationMode: readMigrationMode(values),
     migrationWorkflow: readEventReference(
       values,
       "XYOPS_WORKFLOW_MIGRATION",

@@ -30,6 +30,8 @@ import {
 import { readSecretsForMigration } from "./secret-input";
 import { progress } from "../progress";
 import { VoiceflowOperation } from "../../voiceflow/types";
+import { MigrationWorkflowDataSchema } from "../../migration-workflow-data";
+import { toWorkflowInput } from "./workflow-input";
 
 type PrintHelp = () => void;
 const printHelp: PrintHelp = () => {
@@ -40,6 +42,7 @@ const printHelp: PrintHelp = () => {
     "Optional --config=<JSON-file> supplies migration resource names or IDs, schema version, and project secrets.",
     'Config format: { "source_workspace": "...", "target_schema_version": "13.1", "secrets": "./secrets.json" }.',
     "Configured IDs or exact catalog names are resolved before planning; missing values are selected interactively.",
+    "XYOPS_MIGRATION_MODE=workflow starts and observes the migration workflow; events is the compatibility default.",
     "Optional XYOPS_EVENT_* overrides accept title:<event-title> or id:<event-id>.",
     "Default event titles must match the configured XYOps Event titles.",
     "Optional --debug enables stderr diagnostics; --debug=<name[,name...]> narrows them by logger name.",
@@ -53,6 +56,37 @@ const requireActiveSession = (active: boolean): void => {
     throw fail("envelope", {
       nextAction: "The configured Voiceflow session is not active.",
     });
+};
+
+type PerformWorkflowMigration = (context: MigrationContext) => Promise<void>;
+// eslint-disable-next-line complexity
+const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig }) => {
+  const workflowJobID = await progress.run("start_migration_workflow", () =>
+    client.startWorkflow(config.migrationWorkflow ?? { title: "Voiceflow Migration Workflow" }, toWorkflowInput(migrationConfig)),
+  );
+  const workflowJob = await progress.run("observe_migration_workflow", () =>
+    client.observeWorkflow(workflowJobID),
+  );
+  if (workflowJob.code !== undefined && workflowJob.code !== 0 && workflowJob.code !== "0")
+    throw fail("job", {
+      nextAction: "The migration workflow failed.",
+    });
+  const workflowData = workflowJob.workflowData;
+  const parsedWorkflowData =
+    workflowData === undefined
+      ? undefined
+      : MigrationWorkflowDataSchema.safeParse(workflowData);
+  if (parsedWorkflowData !== undefined && !parsedWorkflowData.success)
+    throw fail("envelope", {
+      nextAction: "The migration workflow returned invalid workflowData.",
+    });
+  console.log(JSON.stringify({
+    migrationWorkflow: {
+      jobID: workflowJobID,
+      stage: parsedWorkflowData?.success ? parsedWorkflowData.data.stage : undefined,
+      workflowData: parsedWorkflowData?.success ? parsedWorkflowData.data : undefined,
+    },
+  }));
 };
 
 type PerformMigration = (context: MigrationContext) => Promise<void>;
@@ -145,7 +179,10 @@ export const run: Run = async () => {
     afterAsk: progress.resume,
   });
   try {
-    await performMigration({ reader, client, config, migrationConfig });
+    const context = { reader, client, config, migrationConfig };
+    if (config.migrationMode === "workflow")
+      await performWorkflowMigration(context);
+    else await performMigration(context);
   } finally {
     reader.close();
   }

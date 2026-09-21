@@ -10,6 +10,7 @@ import { CatalogOptionResultSchema } from "../xyops/cli/schemas/catalog-results"
 import { CheckSessionResultSchema } from "../xyops/cli/schemas/session";
 import { run } from "../xyops/cli/index";
 import { cliErrorOutput } from "../xyops/cli/diagnostics";
+import { toWorkflowInput } from "../xyops/cli/migration/workflow-input";
 import {
   executeParameters,
   listFoldersParameters,
@@ -22,6 +23,7 @@ import {
 const config = {
   baseURL: "https://xyops.example.test",
   apiKey: "api-key-must-not-leak",
+  migrationMode: "events",
   events: {
     checkSession: "event-check",
     listWorkspaces: "event-workspaces",
@@ -44,6 +46,31 @@ const selection = {
   destinationFolderID: "destination-folder",
   targetSchemaVersion: "13.1",
 } as const;
+
+test("builds non-secret workflow input from parsed migration configuration", () => {
+  expect(toWorkflowInput({
+    sourceWorkspaceID: "workspace-1",
+    sourcePath: "Workspace/Project",
+    destinationWorkspaceID: "workspace-2",
+    targetSchemaVersion: "13.1",
+    secrets: [{ key: "TOKEN", value: "secret-value", type: "" }],
+  })).toEqual({
+    schemaVersion: 1,
+    stage: "CONFIGURED",
+    config: {
+      source_workspace: "workspace-1",
+      source_path: "Workspace/Project",
+      destination_workspace: "workspace-2",
+      target_schema_version: "13.1",
+    },
+    catalog: {},
+    selection: {
+      sourceWorkspaceID: "workspace-1",
+      destinationWorkspaceID: "workspace-2",
+      targetSchemaVersion: "13.1",
+    },
+  });
+});
 
 test("does not redispatch a timed-out event wait request", async () => {
   let requests = 0;
@@ -197,6 +224,7 @@ describe("XYOps CLI adapter", () => {
     const config = readXYOpsConfig({ XYOPS_API_KEY: "local-api-key" });
 
     expect(config.baseURL).toBe(DEFAULT_XYOPS_BASE_URL);
+    expect(config.migrationMode).toBe("events");
     expect(config.migrationWorkflow).toEqual({ title: "Voiceflow Migration Workflow" });
     expect(config.events).toEqual({
       checkSession: { title: "voiceflow_check_session" },
@@ -221,9 +249,11 @@ describe("XYOps CLI adapter", () => {
       XYOPS_EVENT_CHECK_SESSION: "id:event-check",
       XYOPS_EVENT_LIST_PROJECTS: "title:custom-projects",
       XYOPS_WORKFLOW_MIGRATION: "id:workflow-definition",
+      XYOPS_MIGRATION_MODE: "workflow",
     });
 
     expect(config.baseURL).toBe("https://xyops.example.test");
+    expect(config.migrationMode).toBe("workflow");
     expect(config.events.checkSession).toEqual({ id: "event-check" });
     expect(config.events.listProjects).toEqual({ title: "custom-projects" });
     expect(config.migrationWorkflow).toEqual({ id: "workflow-definition" });

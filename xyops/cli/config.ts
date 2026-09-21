@@ -21,7 +21,7 @@ export type {
   MigrationFileConfig,
   MigrationFileConfigInput,
 } from "./config-domain";
-export type { XYOpsConfig, XYOpsEventConfig, XYOpsEventReference } from "./types";
+export type { MigrationExecutionMode, XYOpsConfig, XYOpsEventConfig, XYOpsEventReference } from "./types";
 
 export {
   DEFAULT_HTTP_TIMEOUT_MS,

@@ -170,9 +170,11 @@ export type JSONValue =
   | readonly JSONValue[]
   | { readonly [key: string]: JSONValue };
 export type XYOpsWorkflowInput = Readonly<Record<string, JSONValue>>;
+export type MigrationExecutionMode = "events" | "workflow";
 export type XYOpsConfig = Readonly<{
   baseURL: string;
   apiKey: string;
+  migrationMode: MigrationExecutionMode;
   migrationWorkflow?: XYOpsEventReference;
   events: XYOpsEventConfig;
   httpTimeoutMs: number;

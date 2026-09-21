@@ -1562,3 +1562,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Created initializer Event `voiceflow_initialize_migration_workflow` with ID `emubkslmbxvckcjk`.
 - [x] Updated workflow `emubj74188ymokoo` to run initializer before `voiceflow_check_session`; workflow remains disabled.
 - [x] Rebuilt and redeployed the corrected plugin artifact after the initializer input-boundary fix (plugin revision 154).
+- [x] Wired the CLI to start and observe the migration workflow when `XYOPS_MIGRATION_MODE=workflow` is set.
+- [x] Added non-secret initial workflow input mapping and retained `events` as the compatibility default.
+- [x] Validated observed workflowData before reporting the workflow terminal state.
