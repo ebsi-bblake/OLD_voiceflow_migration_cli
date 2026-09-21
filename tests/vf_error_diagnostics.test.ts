@@ -123,6 +123,23 @@ describe("Voiceflow unexpected error diagnostics", () => {
     );
   });
 
+  test("preserves staged secret failure details without exposing secret data", () => {
+    const result = toOperationError(
+      new OperationFault(
+        "DEPENDENCY_TIMEOUT",
+        true,
+        "stage=SECRET_CREATION logux-unknown-outcome",
+        { stage: "SECRET_CREATION" },
+      ),
+    );
+
+    expect(result.message).toContain("stage=logux-unknown-outcome");
+    expect(result.diagnostic).toMatchObject({
+      stage: "SECRET_CREATION",
+      context: { detail: "logux-unknown-outcome" },
+    });
+  });
+
   test("redacts Zod issue inputs while preserving safe issue metadata", () => {
     const schema = z.object({ token: z.string() });
     const result = schema.safeParse({ token: { value: "secret-token" } });

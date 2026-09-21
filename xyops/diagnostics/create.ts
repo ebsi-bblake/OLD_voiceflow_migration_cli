@@ -56,7 +56,9 @@ const MAX_FIELD_LENGTH = 120;
 const boundedField = (value: string): string =>
   value.slice(0, MAX_FIELD_LENGTH);
 const safeDiagnosticDetail = (value: string): string | undefined =>
-  /^[a-z0-9][a-z0-9_-]{0,79}$/i.test(value) ? value : undefined;
+  /^[a-z0-9][a-z0-9_-]{0,79}$/i.test(value)
+    ? value
+    : value.match(/^stage=[A-Z_]+ ([a-z0-9][a-z0-9_-]{0,79})$/i)?.[1];
 const safeCause = (cause: DiagnosticCause): DiagnosticCause => ({
   domain: cause.domain,
   code: boundedField(cause.code),
@@ -66,17 +68,21 @@ const safeCause = (cause: DiagnosticCause): DiagnosticCause => ({
 });
 
 const actionFor = (code: string): string => {
-  if (code === "AUTHENTICATION_FAILED")
-    return "Check authentication and sign in again";
-  if (code === "INVALID_ARGUMENT" || code === "CONFIGURATION")
-    return "Check configuration and migration inputs";
-  if (code === "IMPORT_OUTCOME_UNKNOWN")
-    return "Reconcile the destination project before retrying";
-  if (code === "EXECUTE_OUTCOME_UNKNOWN")
-    return "Reconcile the execute job before retrying";
-  if (code === "PLAN_MISMATCH")
-    return "Re-run planning and confirm the plan ID";
-  return "Retry only when the diagnostic policy permits it";
+  switch (code) {
+    case "AUTHENTICATION_FAILED":
+      return "Check authentication and sign in again";
+    case "INVALID_ARGUMENT":
+    case "CONFIGURATION":
+      return "Check configuration and migration inputs";
+    case "IMPORT_OUTCOME_UNKNOWN":
+      return "Reconcile the destination project before retrying";
+    case "EXECUTE_OUTCOME_UNKNOWN":
+      return "Reconcile the execute job before retrying";
+    case "PLAN_MISMATCH":
+      return "Re-run planning and confirm the plan ID";
+    default:
+      return "Retry only when the diagnostic policy permits it";
+  }
 };
 
 const safeDetailContext = (diagnostic: string | undefined): SafeContext => {

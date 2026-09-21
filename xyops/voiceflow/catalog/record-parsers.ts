@@ -30,10 +30,10 @@ const parseCatalogRecord = (value: unknown): RawCatalogRow | undefined => {
   return parsed.success ? parsed.data : undefined;
 };
 
-const normalizeOptionalID = (
-  value: string | number | undefined,
-): string | undefined =>
-  value === undefined ? undefined : nonEmptyID(String(value).trim());
+const normalizeOptionalID = (value: unknown): string | undefined =>
+  typeof value === "string" || typeof value === "number"
+    ? nonEmptyID(String(value).trim())
+    : undefined;
 const nonEmptyID = (value: string): string | undefined =>
   value === "" ? undefined : value;
 
@@ -60,9 +60,11 @@ const readEnvironmentRows = (value: unknown): readonly RawCatalogRow[] =>
 
 const readOptionalVersion = (
   key: VersionField,
-  value: string | number | undefined,
+  value: unknown,
 ): Partial<EnvironmentRecord> =>
-  value === undefined ? {} : { [key]: String(value) };
+  typeof value === "string" || typeof value === "number"
+    ? { [key]: String(value) }
+    : {};
 
 const readEnvironment = (row: RawCatalogRow): EnvironmentRecord => ({
   label: readLabel(row, "Environment"),

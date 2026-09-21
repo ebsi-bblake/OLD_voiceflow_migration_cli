@@ -1,4 +1,5 @@
 import type { AuthContext, ExistingSecret, SecretEntry } from "../types";
+import { debugLog } from "../debug";
 import { OperationFault } from "../contracts";
 import { createUUID } from "../uuid";
 import { loadExistingSecrets } from "../secrets";
@@ -61,7 +62,24 @@ export const syncCatalog: SyncCatalog = (auth, channel, wanted) => {
       }
     };
     const dispatch = (event: CatalogEvent): void => {
+      const previousState = state;
       const transition = transitionCatalogState(state, event);
+      state = transition.state;
+      if (event.kind === "catalog-action")
+        debugLog("catalog", "action", {
+          actionType: event.type,
+          channel: event.channel,
+          eventRowCount: event.rows.length,
+          accepted: transition.accepted,
+          previousState: previousState.kind,
+          nextState: transition.state.kind,
+          seenTypes:
+            "seenTypes" in transition.state
+              ? [...transition.state.seenTypes]
+              : [],
+          accumulatedRowCount:
+            "rows" in transition.state ? transition.state.rows.length : 0,
+        });
       state = transition.state;
       executeEffects(transition.effects);
     };

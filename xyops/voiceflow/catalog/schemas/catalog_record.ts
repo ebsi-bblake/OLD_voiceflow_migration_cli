@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-const catalogIDSchema = z.union([z.string(), z.number()]).optional();
+// Catalog payloads contain provider-specific ID aliases. Validate identity when
+// projecting rows rather than rejecting an entire snapshot for one malformed alias.
+const catalogIDSchema = z.unknown().optional();
 
 /** Structural catalog row shape; identity and alias policies remain projections. */
 export const CatalogRecordSchema = z

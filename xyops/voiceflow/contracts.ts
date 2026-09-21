@@ -62,10 +62,14 @@ const maxDiagnosticLength = 240;
 const trustedFaultDetails = new Set([
   "exported artifact must contain JSON version metadata with _version in the form major.minor",
 ]);
-const safeFaultDetail = (value: string): string =>
-  /^[a-z0-9][a-z0-9_-]{0,79}$/i.test(value) || trustedFaultDetails.has(value)
-    ? value
-    : "unsafe-failure-detail";
+const safeFaultDetail = (value: string): string => {
+  if (/^[a-z0-9][a-z0-9_-]{0,79}$/i.test(value) || trustedFaultDetails.has(value))
+    return value;
+  const staged = value.match(
+    /^stage=[A-Z_]+ ([a-z0-9][a-z0-9_-]{0,79})$/i,
+  );
+  return staged?.[1] ?? "unsafe-failure-detail";
+};
 const errorDetail = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const safeUnexpectedErrorMessage = (error: unknown): string => {
