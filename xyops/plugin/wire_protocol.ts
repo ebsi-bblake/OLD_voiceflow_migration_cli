@@ -17,11 +17,14 @@ const validatePluginResponse: ValidatePluginResponse = (value) => {
 type MapVoiceflowEnvelope = (
   envelope: VoiceflowEnvelope,
 ) => XYOpsPluginResponse;
+// eslint-disable-next-line complexity
 export const mapVoiceflowEnvelope: MapVoiceflowEnvelope = (envelope) => {
   if (envelope.ok) {
     const workflowData =
       envelope.operation === "initialize_migration_workflow" ||
-      envelope.operation === "load_workspaces"
+      envelope.operation === "check_session_workflow" ||
+      envelope.operation === "load_workspaces" ||
+      envelope.operation === "load_source_catalog"
         ? MigrationWorkflowDataSchema.safeParse(envelope.result)
         : undefined;
     return validatePluginResponse({

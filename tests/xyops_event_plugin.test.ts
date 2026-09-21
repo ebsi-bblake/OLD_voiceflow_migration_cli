@@ -29,6 +29,10 @@ const createFakeHandlers = (calls: string[]): OperationHandlers => ({
     calls.push(`check_session:${token}`);
     return fakeEnvelope("check_session");
   },
+  "check_session_workflow": (token, workflowData) => {
+    calls.push(`check_session_workflow:${token}:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("check_session_workflow");
+  },
   "list_workspaces": (token) => {
     calls.push(`list_workspaces:${token}`);
     return fakeEnvelope("list_workspaces");
@@ -36,6 +40,10 @@ const createFakeHandlers = (calls: string[]): OperationHandlers => ({
   "load_workspaces": (token, workflowData) => {
     calls.push(`load_workspaces:${token}:${JSON.stringify(workflowData)}`);
     return fakeEnvelope("load_workspaces");
+  },
+  "load_source_catalog": (token, workflowData) => {
+    calls.push(`load_source_catalog:${token}:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("load_source_catalog");
   },
   "list_projects": (token, workspaceID) => {
     calls.push(`list_projects:${token}:${workspaceID}`);
@@ -182,8 +190,10 @@ describe("native XYOps event plugin boundary", () => {
 
   test.each([
     "check_session",
+    "check_session_workflow",
     "list_workspaces",
     "load_workspaces",
+    "load_source_catalog",
     "list_projects",
     "list_versions",
     "list_folders",

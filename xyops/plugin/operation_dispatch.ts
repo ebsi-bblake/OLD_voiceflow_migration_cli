@@ -1,4 +1,5 @@
 import { main as checkSession } from "../voiceflow/check_session";
+import { main as checkSessionWorkflow } from "../voiceflow/check-migration-workflow-session";
 import { main as executeMigration } from "../voiceflow/execute_migration";
 import { main as listFolders } from "../voiceflow/list_folders";
 import { main as createFolder } from "../voiceflow/create_folder";
@@ -6,6 +7,7 @@ import { main as listProjects } from "../voiceflow/list_projects";
 import { main as listVersions } from "../voiceflow/list_versions";
 import { main as listWorkspaces } from "../voiceflow/list_workspaces";
 import { main as loadWorkspaces } from "../voiceflow/load-migration-workspaces";
+import { main as loadSourceCatalog } from "../voiceflow/load-migration-source-catalog";
 import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
@@ -22,8 +24,10 @@ type PluginEnvelope = Envelope<unknown>;
 type DefaultOperationHandlers = OperationHandlers;
 const defaultOperationHandlers: DefaultOperationHandlers = {
   check_session: checkSession,
+  check_session_workflow: checkSessionWorkflow,
   list_workspaces: listWorkspaces,
   load_workspaces: loadWorkspaces,
+  load_source_catalog: loadSourceCatalog,
   list_projects: listProjects,
   list_versions: listVersions,
   list_folders: listFolders,
@@ -77,6 +81,15 @@ const requiredConfirmation: RequiredConfirmation = (job) => {
   return true;
 };
 
+const workflowDataInput = (job: NativePluginJob): unknown => {
+  if (job.workflowData !== undefined) return job.workflowData;
+  const input = z
+    .object({ data: z.unknown() })
+    .passthrough()
+    .safeParse(job.input);
+  return input.success ? input.data.data : undefined;
+};
+
 type OperationInvocation = (
   job: NativePluginJob,
   token: string,
@@ -88,17 +101,25 @@ type OperationInvocations = Readonly<
 >;
 const operationInvocations: OperationInvocations = {
   check_session: (_job, token, handlers) => handlers["check_session"](token),
+  check_session_workflow: (job, token, handlers) => {
+    const check = handlers.check_session_workflow;
+    if (check === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return check(token, workflowDataInput(job));
+  },
   list_workspaces: (_job, token, handlers) =>
     handlers["list_workspaces"](token),
   load_workspaces: (job, token, handlers) => {
     const load = handlers.load_workspaces;
     if (load === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
-    const input = z
-      .object({ data: z.unknown() })
-      .passthrough()
-      .safeParse(job.input);
-    return load(token, job.workflowData ?? (input.success ? input.data.data : undefined));
+    return load(token, workflowDataInput(job));
+  },
+  load_source_catalog: (job, token, handlers) => {
+    const load = handlers.load_source_catalog;
+    if (load === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return load(token, workflowDataInput(job));
   },
   list_projects: (job, token, handlers) =>
     handlers["list_projects"](

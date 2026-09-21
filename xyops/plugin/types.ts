@@ -33,9 +33,11 @@ export type PluginValidationCode =
 type PluginEnvelope = Envelope<unknown>;
 
 type CheckSessionHandler = (token: string) => Promise<PluginEnvelope>;
+type CheckSessionWorkflowHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
 
 type ListWorkspacesHandler = (token: string) => Promise<PluginEnvelope>;
 type LoadWorkspacesHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
+type LoadSourceCatalogHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
 
 type ListProjectsHandler = (
   token: string,
@@ -88,8 +90,10 @@ type ExecuteMigrationHandler = (
 
 export type OperationHandlers = Readonly<{
   readonly check_session: CheckSessionHandler;
+  readonly check_session_workflow?: CheckSessionWorkflowHandler;
   readonly list_workspaces: ListWorkspacesHandler;
   readonly load_workspaces?: LoadWorkspacesHandler;
+  readonly load_source_catalog?: LoadSourceCatalogHandler;
   readonly list_projects: ListProjectsHandler;
   readonly list_versions: ListVersionsHandler;
   readonly list_folders: ListFoldersHandler;

@@ -2,8 +2,10 @@ import type { Diagnostic } from "../diagnostics/types";
 
 export const VoiceflowOperation = {
   CheckSession: "check_session",
+  CheckSessionWorkflow: "check_session_workflow",
   ListWorkspaces: "list_workspaces",
   LoadWorkspaces: "load_workspaces",
+  LoadSourceCatalog: "load_source_catalog",
   ListProjects: "list_projects",
   ListVersions: "list_versions",
   ListFolders: "list_folders",

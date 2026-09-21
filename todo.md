@@ -1570,3 +1570,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added `load_workspaces` workflow operation and normalized workspace milestone emission.
 - [x] Deployed plugin revision 156, created Event `voiceflow_load_workspaces` (`emublhe8jreazq4v`), and inserted it into workflow `emubj74188ymokoo`.
 - [x] Completed a remote Phase 3 probe: workflow job `jmublk2kvwl8s0ay` loaded two normalized workspace records and then completed session validation successfully.
+- [x] Fixed workflow ordering: initialization -> workflow-aware session check -> workspace loading.
+- [x] Added `check_session_workflow` (`emublxqwmowth7l2`) so the session gate preserves workflowData for downstream stages.
+- [x] Remote probe succeeded in order: `voiceflow_initialize_migration_workflow`, `voiceflow_check_migration_workflow_session`, `voiceflow_load_workspaces`.

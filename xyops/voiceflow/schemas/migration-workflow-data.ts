@@ -30,7 +30,7 @@ const ProjectRecordSchema = z
     label: nonEmptyString,
     workspaceID: nonEmptyString,
     folderID: optionalNonEmptyString,
-    environments: z.array(EnvironmentRecordSchema),
+    environments: z.array(EnvironmentRecordSchema).readonly(),
   })
   .strict();
 
