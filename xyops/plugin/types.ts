@@ -1,4 +1,5 @@
 import type { Envelope } from "../voiceflow/contracts";
+import type { MigrationWorkflowData } from "../migration-workflow-data";
 import type { supportedPluginOperations } from "./operations";
 
 export type PluginOperation = (typeof supportedPluginOperations)[number];
@@ -8,6 +9,7 @@ export type PluginParameters = Readonly<Record<string, unknown>>;
 export type NativePluginJob = Readonly<{
   readonly params: PluginParameters;
   readonly operation: PluginOperation;
+  readonly input?: unknown;
 }>;
 
 export type VoiceflowEnvelope = Envelope<unknown>;
@@ -21,6 +23,7 @@ export type XYOpsPluginResponse = Readonly<{
   readonly complete: true;
   readonly code: 0 | string;
   readonly data?: XYOpsPluginData;
+  readonly workflowData?: MigrationWorkflowData;
   readonly description?: string;
 }>;
 
@@ -64,6 +67,10 @@ type PlanMigrationHandler = (
   targetSchemaVersion?: string,
 ) => Promise<PluginEnvelope>;
 
+type InitializeMigrationWorkflowHandler = (
+  input: unknown,
+) => Promise<PluginEnvelope>;
+
 type ExecuteMigrationHandler = (
   token: string,
   planID: string,
@@ -86,6 +93,7 @@ export type OperationHandlers = Readonly<{
   readonly create_folder: CreateFolderHandler;
   readonly plan_migration: PlanMigrationHandler;
   readonly execute_migration: ExecuteMigrationHandler;
+  readonly initialize_migration_workflow?: InitializeMigrationWorkflowHandler;
 }>;
 
 export type PluginInputChunk = Uint8Array | string;

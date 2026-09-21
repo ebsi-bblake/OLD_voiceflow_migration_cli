@@ -8,6 +8,7 @@ export const NativePluginJobSchema = z
     xy: z.literal(1),
     type: z.literal("event"),
     params: z.record(z.string(), z.unknown()),
+    input: z.unknown().optional(),
   })
   .loose();
 

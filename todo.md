@@ -1557,3 +1557,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Preserved the existing event-by-event CLI orchestration; it remains the active path.
 - [ ] Wire the CLI migration command to opt into workflow start/observation.
 - [ ] Add the workflow initializer stage and validated workflowData emission before enabling the remote workflow.
+- [x] Added `initialize_migration_workflow` plugin operation to validate and emit workflowData from workflow input.
+- [x] Deployed the updated Voiceflow Migration plugin to XYOps plugin `pmtal4rok7gbevqi`.
+- [x] Created initializer Event `voiceflow_initialize_migration_workflow` with ID `emubkslmbxvckcjk`.
+- [x] Updated workflow `emubj74188ymokoo` to run initializer before `voiceflow_check_session`; workflow remains disabled.

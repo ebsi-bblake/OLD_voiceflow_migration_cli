@@ -191,6 +191,29 @@ describe("native XYOps event plugin boundary", () => {
     expect(calls[0]).toContain(`${operation}:test-token`);
   });
 
+  test("initializes workflowData from validated workflow input", async () => {
+    const workflowData = {
+      schemaVersion: 1,
+      stage: "CONFIGURED",
+      config: {},
+      catalog: {},
+      selection: {},
+    } as const;
+    const result = await dispatchOperation(
+      {
+        ...jobFor("initialize_migration_workflow"),
+        input: { data: workflowData },
+      },
+      "test-token",
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      operation: "initialize_migration_workflow",
+      result: workflowData,
+    });
+  });
+
   test("validates string operation parameters through the schema adapter", async () => {
     const calls: string[] = [];
     const result = await dispatchOperation(

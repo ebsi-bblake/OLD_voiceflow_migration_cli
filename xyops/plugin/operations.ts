@@ -7,6 +7,7 @@ export const PluginOperation = {
   CreateFolder: "create_folder",
   PlanMigration: "plan_migration",
   ExecuteMigration: "execute_migration",
+  InitializeMigrationWorkflow: "initialize_migration_workflow",
 } as const;
 
 export const supportedPluginOperations = Object.values(PluginOperation);

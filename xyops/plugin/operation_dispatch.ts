@@ -6,6 +6,7 @@ import { main as listProjects } from "../voiceflow/list_projects";
 import { main as listVersions } from "../voiceflow/list_versions";
 import { main as listWorkspaces } from "../voiceflow/list_workspaces";
 import { main as planMigration } from "../voiceflow/plan_migration";
+import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
 import { createUUID } from "../voiceflow/uuid";
 import type { NativePluginJob, OperationHandlers } from "./types";
@@ -13,6 +14,7 @@ import type { VoiceflowOperation } from "../voiceflow/types";
 import { configureDebug } from "../voiceflow/debug";
 import { MigrationParameterName } from "../migration-parameters";
 import { OperationParameterStringSchema } from "./schemas/operation_parameter";
+import { z } from "zod";
 export type { OperationHandlers } from "./types";
 
 type PluginEnvelope = Envelope<unknown>;
@@ -26,6 +28,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   create_folder: createFolder,
   plan_migration: planMigration,
   execute_migration: executeMigration,
+  initialize_migration_workflow: initializeMigrationWorkflow,
 };
 
 const parseParameterString = (value: unknown): string => {
@@ -130,6 +133,16 @@ const operationInvocations: OperationInvocations = {
       requiredConfirmation(job),
       optionalSecretInput(job, MigrationParameterName.secretFileContents),
     ),
+  initialize_migration_workflow: (job, _token, handlers) => {
+    const initialize = handlers.initialize_migration_workflow;
+    if (initialize === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    const input = z
+      .object({ data: z.unknown() })
+      .passthrough()
+      .safeParse(job.input);
+    return initialize(input.success ? input.data.data : undefined);
+  },
 };
 
 type InvokeOperation = (

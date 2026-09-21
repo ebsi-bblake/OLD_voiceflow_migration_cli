@@ -9,6 +9,7 @@ export const VoiceflowOperation = {
   CreateFolder: "create_folder",
   PlanMigration: "plan_migration",
   ExecuteMigration: "execute_migration",
+  InitializeMigrationWorkflow: "initialize_migration_workflow",
 } as const;
 
 export type VoiceflowOperation =
