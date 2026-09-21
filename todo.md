@@ -1615,7 +1615,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Added `execute_migration_workflow`, which consumes only `EXECUTION_READY` workflowData and delegates to the existing migration execution state machine.
 - [x] Kept optional secret input outside workflowData; workflow execution still requires an approved secure secret transport before production use.
 - [ ] Deploy and verify the initializer/execution events and compose the second workflow; do not enable it for real mutation until secret transport and duplicate-start reconciliation are verified.
-- [x] Built and deployed native plugin revision 164 containing the execution workflow operations.
+- [x] Built and deployed native plugin revision 163 containing the execution workflow operations.
 - [x] Created `voiceflow_initialize_execution_workflow` (`emubo4mwn5lo80yv`).
 - [x] Created `voiceflow_execute_migration_workflow` (`emubo4nah5vnhb7w`).
 - [x] Ran a non-mutating initializer probe with invalid input; the event launch succeeded but the XYOps server failed to spawn `C:\\xysat\\bin\\node.exe`, so plugin execution was not verified.
