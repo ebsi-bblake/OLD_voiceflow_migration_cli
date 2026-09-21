@@ -45,6 +45,10 @@ const createFakeHandlers = (calls: string[]): OperationHandlers => ({
     calls.push(`load_source_catalog:${token}:${JSON.stringify(workflowData)}`);
     return fakeEnvelope("load_source_catalog");
   },
+  "resolve_source_selection": (workflowData) => {
+    calls.push(`resolve_source_selection:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("resolve_source_selection");
+  },
   "list_projects": (token, workspaceID) => {
     calls.push(`list_projects:${token}:${workspaceID}`);
     return fakeEnvelope("list_projects");

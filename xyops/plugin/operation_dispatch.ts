@@ -8,6 +8,7 @@ import { main as listVersions } from "../voiceflow/list_versions";
 import { main as listWorkspaces } from "../voiceflow/list_workspaces";
 import { main as loadWorkspaces } from "../voiceflow/load-migration-workspaces";
 import { main as loadSourceCatalog } from "../voiceflow/load-migration-source-catalog";
+import { main as resolveSourceSelection } from "../voiceflow/resolve-migration-source";
 import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
@@ -28,6 +29,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   list_workspaces: listWorkspaces,
   load_workspaces: loadWorkspaces,
   load_source_catalog: loadSourceCatalog,
+  resolve_source_selection: resolveSourceSelection,
   list_projects: listProjects,
   list_versions: listVersions,
   list_folders: listFolders,
@@ -120,6 +122,12 @@ const operationInvocations: OperationInvocations = {
     if (load === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
     return load(token, workflowDataInput(job));
+  },
+  resolve_source_selection: (job, _token, handlers) => {
+    const resolve = handlers.resolve_source_selection;
+    if (resolve === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return resolve(workflowDataInput(job));
   },
   list_projects: (job, token, handlers) =>
     handlers["list_projects"](

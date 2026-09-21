@@ -24,7 +24,8 @@ export const mapVoiceflowEnvelope: MapVoiceflowEnvelope = (envelope) => {
       envelope.operation === "initialize_migration_workflow" ||
       envelope.operation === "check_session_workflow" ||
       envelope.operation === "load_workspaces" ||
-      envelope.operation === "load_source_catalog"
+      envelope.operation === "load_source_catalog" ||
+      envelope.operation === "resolve_source_selection"
         ? MigrationWorkflowDataSchema.safeParse(envelope.result)
         : undefined;
     return validatePluginResponse({

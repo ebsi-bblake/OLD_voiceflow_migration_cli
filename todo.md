@@ -1575,3 +1575,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Remote probe succeeded in order: `voiceflow_initialize_migration_workflow`, `voiceflow_check_migration_workflow_session`, `voiceflow_load_workspaces`.
 - [x] Created `voiceflow_load_source_catalog` Event `emubm9h8qeaob14o` and connected it after workspace loading.
 - [x] Completed remote source-catalog probe with configured workspace `empyrean-ci`: 48 projects and 12 folders loaded into `SOURCE_CATALOG_LOADED` workflowData (job `jmubma81efk6xqjj`).
+- [x] Added `resolve_source_selection` and connected it after source catalog loading.
+- [x] Created Event `voiceflow_resolve_source_selection` (`emubmei7pojidh80`) and deployed the updated plugin.
+- [x] Completed remote source-resolution probe: workflow `jmubmf85xpumwm3e` reached `SOURCE_RESOLVED` with canonical workspace, project, and draft version IDs.
