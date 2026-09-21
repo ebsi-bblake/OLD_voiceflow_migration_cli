@@ -10,7 +10,10 @@ import { CatalogOptionResultSchema } from "../xyops/cli/schemas/catalog-results"
 import { CheckSessionResultSchema } from "../xyops/cli/schemas/session";
 import { run } from "../xyops/cli/index";
 import { cliErrorOutput } from "../xyops/cli/diagnostics";
-import { toWorkflowInput } from "../xyops/cli/migration/workflow-input";
+import {
+  toExecutionWorkflowInput,
+  toWorkflowInput,
+} from "../xyops/cli/migration/workflow-input";
 import {
   executeParameters,
   listFoldersParameters,
@@ -68,6 +71,35 @@ test("builds non-secret workflow input from parsed migration configuration", () 
       sourceWorkspaceID: "workspace-1",
       destinationWorkspaceID: "workspace-2",
       targetSchemaVersion: "13.1",
+    },
+  });
+});
+
+test("builds a confirmed secret-free execution workflow handoff", () => {
+  expect(toExecutionWorkflowInput({
+    planID: "plan-1",
+    selection,
+    labels: {
+      sourceWorkspace: "Source Workspace",
+      sourceProject: "Source Project",
+      sourceVersion: "Source Version",
+      destinationWorkspace: "Destination Workspace",
+      destinationFolder: "Destination Folder",
+    },
+  })).toEqual({
+    schemaVersion: 1,
+    confirmed: true,
+    planID: "plan-1",
+    plan: {
+      planID: "plan-1",
+      selection,
+      labels: {
+        sourceWorkspace: "Source Workspace",
+        sourceProject: "Source Project",
+        sourceVersion: "Source Version",
+        destinationWorkspace: "Destination Workspace",
+        destinationFolder: "Destination Folder",
+      },
     },
   });
 });

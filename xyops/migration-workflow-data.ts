@@ -1,8 +1,10 @@
 export {
+  ConfirmedMigrationHandoffSchema,
   MigrationWorkflowConfigSchema,
   MigrationWorkflowDataSchema,
 } from "./voiceflow/schemas/migration-workflow-data";
 export type {
+  ConfirmedMigrationHandoff,
   MigrationWorkflowConfig,
   MigrationWorkflowData,
 } from "./voiceflow/schemas/migration-workflow-data";

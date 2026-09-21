@@ -1,6 +1,9 @@
 import type { MigrationFileConfig } from "../config";
-import type { MigrationWorkflowData } from "../../migration-workflow-data";
-import type { XYOpsWorkflowInput } from "../types";
+import {
+  ConfirmedMigrationHandoffSchema,
+  type MigrationWorkflowData,
+} from "../../migration-workflow-data";
+import type { MigrationPlan, XYOpsWorkflowInput } from "../types";
 
 type WorkflowConfig = MigrationWorkflowData["config"];
 type WorkflowSelection = MigrationWorkflowData["selection"];
@@ -13,6 +16,17 @@ const assignDefined = <T extends Record<string, string | undefined>>(
   );
 
 type ToWorkflowInput = (config: MigrationFileConfig | undefined) => XYOpsWorkflowInput;
+export type ToExecutionWorkflowInput = (
+  plan: MigrationPlan,
+) => XYOpsWorkflowInput;
+
+export const toExecutionWorkflowInput: ToExecutionWorkflowInput = (plan) =>
+  ConfirmedMigrationHandoffSchema.parse({
+    schemaVersion: 1,
+    confirmed: true,
+    planID: plan.planID,
+    plan,
+  });
 // eslint-disable-next-line complexity
 export const toWorkflowInput: ToWorkflowInput = (config) => {
   const workflowConfig: WorkflowConfig = assignDefined({

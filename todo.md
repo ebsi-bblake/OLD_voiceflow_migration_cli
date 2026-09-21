@@ -1606,3 +1606,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Replaced hand-rolled workflow-envelope and workflowData shape checks in the newly added workflow-stage modules with Zod schemas.
 - [x] Replaced recursive JSON-safety validation in `migration-workflow-data` with a recursive Zod JSON-value schema.
 - [x] Verified changed workflow boundaries with typecheck, lint, and focused tests.
+- [x] Defined a secret-free confirmed execution handoff containing `schemaVersion`, literal `confirmed: true`, `planID`, and the validated plan; schema binding rejects mismatched plan IDs, unknown fields, and secret payloads.
+- [x] Added `toExecutionWorkflowInput` to construct the validated handoff from the planned migration.
+- [ ] Add and deploy the dedicated execution workflow that accepts this handoff.

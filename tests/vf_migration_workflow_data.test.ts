@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  ConfirmedMigrationHandoffSchema,
   MigrationWorkflowDataSchema,
   type MigrationWorkflowData,
 } from "../xyops/migration-workflow-data";
@@ -209,6 +210,35 @@ test("rejects malformed catalog and selection records", () => {
         destinationWorkspaceID: "destination-workspace",
         destinationFolderID: "",
       },
+    }).success,
+  ).toBe(false);
+});
+
+test("binds confirmed execution handoff to the exact plan and excludes secrets", () => {
+  const handoff = {
+    schemaVersion: 1,
+    confirmed: true,
+    planID: plan.planID,
+    plan,
+  };
+
+  expect(ConfirmedMigrationHandoffSchema.safeParse(handoff).success).toBe(true);
+  expect(
+    ConfirmedMigrationHandoffSchema.safeParse({
+      ...handoff,
+      planID: "different-plan",
+    }).success,
+  ).toBe(false);
+  expect(
+    ConfirmedMigrationHandoffSchema.safeParse({
+      ...handoff,
+      secrets: [{ name: "TOKEN", value: "secret" }],
+    }).success,
+  ).toBe(false);
+  expect(
+    ConfirmedMigrationHandoffSchema.safeParse({
+      ...handoff,
+      confirmed: false,
     }).success,
   ).toBe(false);
 });

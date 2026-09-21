@@ -211,7 +211,22 @@ const PlannedWorkflowDataSchema = z
   })
   .strict();
 
-const JSONValueSchema: z.ZodType<unknown> = z.lazy(() =>
+/** Confirmed, secret-free handoff from planning to the execution workflow. */
+export const ConfirmedMigrationHandoffSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    confirmed: z.literal(true),
+    planID: nonEmptyString,
+    plan: MigrationPlanSchema,
+  })
+  .strict()
+  .refine(({ planID, plan }) => planID === plan.planID, {
+    message: "planID must match plan.planID",
+    path: ["planID"],
+  });
+
+type JSONValueSchemaType = z.ZodType<unknown>;
+const JSONValueSchema: JSONValueSchemaType = z.lazy(() =>
   z.union([
     z.string(),
     z.number().finite(),
@@ -242,4 +257,7 @@ export type MigrationWorkflowData = z.infer<
 >;
 export type MigrationWorkflowConfig = z.infer<
   typeof MigrationWorkflowConfigSchema
+>;
+export type ConfirmedMigrationHandoff = z.infer<
+  typeof ConfirmedMigrationHandoffSchema
 >;
