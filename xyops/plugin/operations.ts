@@ -1,6 +1,7 @@
 export const PluginOperation = {
   CheckSession: "check_session",
   ListWorkspaces: "list_workspaces",
+  LoadWorkspaces: "load_workspaces",
   ListProjects: "list_projects",
   ListVersions: "list_versions",
   ListFolders: "list_folders",

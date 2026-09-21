@@ -33,6 +33,10 @@ const createFakeHandlers = (calls: string[]): OperationHandlers => ({
     calls.push(`list_workspaces:${token}`);
     return fakeEnvelope("list_workspaces");
   },
+  "load_workspaces": (token, workflowData) => {
+    calls.push(`load_workspaces:${token}:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("load_workspaces");
+  },
   "list_projects": (token, workspaceID) => {
     calls.push(`list_projects:${token}:${workspaceID}`);
     return fakeEnvelope("list_projects");
@@ -179,6 +183,7 @@ describe("native XYOps event plugin boundary", () => {
   test.each([
     "check_session",
     "list_workspaces",
+    "load_workspaces",
     "list_projects",
     "list_versions",
     "list_folders",
@@ -314,6 +319,16 @@ describe("native XYOps event plugin boundary", () => {
   test("maps Voiceflow success and failure envelopes to protocol responses", () => {
     const successResponse = mapVoiceflowEnvelope(success("check_session", "operation-1", { active: true }));
     expect(successResponse).toMatchObject({ xy: 1, complete: true, code: 0, data: { voiceflow: { ok: true } } });
+    const workspaceResponse = mapVoiceflowEnvelope(success("load_workspaces", "operation-workspaces", {
+      schemaVersion: 1,
+      stage: "WORKSPACES_LOADED",
+      config: {},
+      catalog: { workspaces: [{ id: "workspace-1", label: "Workspace 1" }] },
+      selection: {},
+    }));
+    expect(workspaceResponse).toMatchObject({
+      workflowData: { stage: "WORKSPACES_LOADED", catalog: { workspaces: [{ id: "workspace-1" }] } },
+    });
 
     const failureResponse = mapVoiceflowEnvelope(failure("check_session", "operation-2", new OperationFault("AUTHENTICATION_FAILED")));
     expect(failureResponse).toMatchObject({ xy: 1, complete: true, code: "AUTHENTICATION_FAILED", description: `[pluginVersion=${PLUGIN_VERSION}] Authentication failed. (code=AUTHENTICATION_FAILED)` });

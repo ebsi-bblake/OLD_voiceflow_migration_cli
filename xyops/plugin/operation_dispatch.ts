@@ -5,6 +5,7 @@ import { main as createFolder } from "../voiceflow/create_folder";
 import { main as listProjects } from "../voiceflow/list_projects";
 import { main as listVersions } from "../voiceflow/list_versions";
 import { main as listWorkspaces } from "../voiceflow/list_workspaces";
+import { main as loadWorkspaces } from "../voiceflow/load-migration-workspaces";
 import { main as planMigration } from "../voiceflow/plan_migration";
 import { main as initializeMigrationWorkflow } from "../voiceflow/initialize-migration-workflow";
 import { failure, OperationFault, type Envelope } from "../voiceflow/contracts";
@@ -22,6 +23,7 @@ type DefaultOperationHandlers = OperationHandlers;
 const defaultOperationHandlers: DefaultOperationHandlers = {
   check_session: checkSession,
   list_workspaces: listWorkspaces,
+  load_workspaces: loadWorkspaces,
   list_projects: listProjects,
   list_versions: listVersions,
   list_folders: listFolders,
@@ -88,6 +90,16 @@ const operationInvocations: OperationInvocations = {
   check_session: (_job, token, handlers) => handlers["check_session"](token),
   list_workspaces: (_job, token, handlers) =>
     handlers["list_workspaces"](token),
+  load_workspaces: (job, token, handlers) => {
+    const load = handlers.load_workspaces;
+    if (load === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    const input = z
+      .object({ data: z.unknown() })
+      .passthrough()
+      .safeParse(job.input);
+    return load(token, job.workflowData ?? (input.success ? input.data.data : undefined));
+  },
   list_projects: (job, token, handlers) =>
     handlers["list_projects"](
       token,

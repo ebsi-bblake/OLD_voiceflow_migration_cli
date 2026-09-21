@@ -9,6 +9,7 @@ export const NativePluginJobSchema = z
     type: z.literal("event"),
     params: z.record(z.string(), z.unknown()),
     input: z.unknown().optional(),
+    workflowData: z.unknown().optional(),
   })
   .loose();
 

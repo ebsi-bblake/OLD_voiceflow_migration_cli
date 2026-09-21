@@ -10,6 +10,7 @@ export type NativePluginJob = Readonly<{
   readonly params: PluginParameters;
   readonly operation: PluginOperation;
   readonly input?: unknown;
+  readonly workflowData?: unknown;
 }>;
 
 export type VoiceflowEnvelope = Envelope<unknown>;
@@ -34,6 +35,7 @@ type PluginEnvelope = Envelope<unknown>;
 type CheckSessionHandler = (token: string) => Promise<PluginEnvelope>;
 
 type ListWorkspacesHandler = (token: string) => Promise<PluginEnvelope>;
+type LoadWorkspacesHandler = (token: string, workflowData: unknown) => Promise<PluginEnvelope>;
 
 type ListProjectsHandler = (
   token: string,
@@ -87,6 +89,7 @@ type ExecuteMigrationHandler = (
 export type OperationHandlers = Readonly<{
   readonly check_session: CheckSessionHandler;
   readonly list_workspaces: ListWorkspacesHandler;
+  readonly load_workspaces?: LoadWorkspacesHandler;
   readonly list_projects: ListProjectsHandler;
   readonly list_versions: ListVersionsHandler;
   readonly list_folders: ListFoldersHandler;

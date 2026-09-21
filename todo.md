@@ -1567,3 +1567,6 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Validated observed workflowData before reporting the workflow terminal state.
 - [x] Enabled the development workflow and completed a remote no-mutation probe: initializer and check-session stages completed successfully in job `jmublabsoh2tzg3c`.
 - [x] Confirmed remote workflow results merge `workflowData` into job `data` alongside the Voiceflow envelope; CLI extraction now handles that shape.
+- [x] Added `load_workspaces` workflow operation and normalized workspace milestone emission.
+- [x] Deployed plugin revision 156, created Event `voiceflow_load_workspaces` (`emublhe8jreazq4v`), and inserted it into workflow `emubj74188ymokoo`.
+- [x] Completed a remote Phase 3 probe: workflow job `jmublk2kvwl8s0ay` loaded two normalized workspace records and then completed session validation successfully.

@@ -20,7 +20,8 @@ type MapVoiceflowEnvelope = (
 export const mapVoiceflowEnvelope: MapVoiceflowEnvelope = (envelope) => {
   if (envelope.ok) {
     const workflowData =
-      envelope.operation === "initialize_migration_workflow"
+      envelope.operation === "initialize_migration_workflow" ||
+      envelope.operation === "load_workspaces"
         ? MigrationWorkflowDataSchema.safeParse(envelope.result)
         : undefined;
     return validatePluginResponse({
