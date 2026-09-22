@@ -1780,7 +1780,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Deploy ledger changes while the execution workflow remains disabled.
 - [ ] Exercise the complete lifecycle with a safe test plan.
 - [ ] Simulate lost responses and concurrent starts.
-- [ ] Verify bucket records contain no secrets.
+- [x] Verify bucket records contain no secrets; bucket `bmuc1r0bokku4tz9` currently contains one record with only `planId`, `status`, and `timestamp`.
 - [ ] Verify SSE/polling reconnects observe the same job.
 - [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; it is initialized empty.
 - [ ] Confirm no duplicate Voiceflow mutations.
@@ -1788,6 +1788,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 
 ### 9. Enablement gate
 
+- [x] Confirm execution workflow `emuboe9h3jre7p5p` remains disabled with job limit `1`, queue limit `0`, and retry limit `0`.
 - [ ] Enable `emuboe9h3jre7p5p` only after atomic ledger behavior is verified.
 - [ ] Confirm reconciliation tests pass.
 - [ ] Confirm ambiguous outcomes safely block instead of relaunching.
