@@ -1701,6 +1701,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Rebuilt and redeployed plugin `pmtal4rok7gbevqi` after ledger/folder-safety changes; verified the deployed script contains `resolve_source_schema_workflow` and remains execution-disabled.
 - [x] Approved execution attempt `jmucwolw4adr5ylk` stopped at `PLAN_MISMATCH` before export/import; canonical plan-ID fix deployed as plugin `v0.0.11`.
 - [ ] Retry execution: `jmucwrzjxxn5us2i` reached Voiceflow import and failed with retryable `DEPENDENCY_FAILURE`; destination-folder catalog visibility caused a second folder creation (`111` then `112`). Treat the migration as unresolved and reconcile before any retry.
+- [ ] Clean-run execution `jmucx2jcbjbhh9ru` created fresh folder `113`, reached import, and failed with `DEPENDENCY_FAILURE`. Import diagnostics recorded plan `770a77496777943dff205259`, destination workspace/folder, schema `1.2`, and artifact size without secrets; reconcile before retrying.
 
 ## Execution-ledger implementation plan
 
