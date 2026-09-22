@@ -1784,7 +1784,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Verify SSE/polling reconnects observe the same job; focused CLI/streaming/runtime suites cover same-job polling fallback and no redispatch.
 - [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; it is initialized empty.
 - [ ] Confirm no duplicate Voiceflow mutations.
-- [ ] Record rollback and manual-reconciliation procedures.
+- [x] Record rollback and manual-reconciliation procedures in `docs/workflow-migration-rollback.md`.
 
 ### 9. Enablement gate
 
