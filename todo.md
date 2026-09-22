@@ -1753,6 +1753,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Simulate lost responses and concurrent starts.
 - [ ] Verify bucket records contain no secrets.
 - [ ] Verify SSE/polling reconnects observe the same job.
+- [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; it is initialized empty.
 - [ ] Confirm no duplicate Voiceflow mutations.
 - [ ] Record rollback and manual-reconciliation procedures.
 
