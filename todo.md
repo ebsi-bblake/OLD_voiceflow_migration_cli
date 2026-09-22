@@ -1667,3 +1667,93 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Stop safely on ambiguity, duplicate creation, timeout, or unknown creation outcome.
 - [x] Connect `create_folder_workflow` before `execute_migration_workflow` in the disabled execution workflow.
 - [ ] Add tests for missing-folder planning, cancellation, reappeared folders, creation success, and unknown outcomes.
+
+## Execution-ledger implementation plan
+
+### 1. Confirm XYOps primitives
+
+- [x] Verify authoritative bucket read behavior and JSON data retrieval. `xy bucket <id> --format json` returns bucket metadata, JSON data, files, and revision.
+- [x] Verify authoritative bucket write behavior and revision/conflict responses. The installed SDK exposes `writeBucketData` as a shallow merge with optional fetch; no revision or conditional-write field is exposed.
+- [ ] Verify whether bucket create/update supports an atomic create-if-absent or compare-and-swap lock. Current SDK request types expose no conditional-write primitive.
+- [ ] Verify whether bucket writes are serialized strongly enough for concurrent execution claims. Requires a controlled concurrent-write probe.
+- [x] Verify job lookup by returned job ID and determine whether lookup by `planID` or execution fingerprint is supported. `getJob`/`getJobs` support IDs; no native `planID` lookup was found in the CLI/SDK surface.
+- [x] Verify SSE/stream observation and bounded polling behavior for workflow jobs. The SDK exposes `streamJob`; CLI job retrieval provides polling-compatible reads.
+- [x] Verify workflow/job status, log, terminal-result, timeout, and reconnect semantics from the installed SDK/CLI surface. `getJob`, `getJobLog`, `streamJob`, `getWorkflowJobSummary`, and workflow job records are available; reconnect/timeout behavior still needs a live failure probe.
+- [ ] Document consistency, race, retention, and failure limitations before choosing the ledger adapter.
+
+### 2. Define the ledger contract
+
+- [x] Reuse the existing Logux operation state machines for Voiceflow mutation acknowledgement and `UNKNOWN_OUTCOME`; the ledger must not duplicate operation-level acknowledgement logic.
+- [ ] Key each ledger record by `planID` plus execution fingerprint.
+- [ ] Define the states `starting`, `running`, `completed`, `failed`, and `unknown`.
+- [ ] Store timestamps, workflow ID, job ID, fingerprint, owner/correlation data, and safe diagnostics.
+- [ ] Store the execution state-machine terminal classification without duplicating Logux action receipts or raw frames.
+- [ ] Define immutable fields and allowed state transitions.
+- [ ] Define lease/expiry and recovery behavior for stale `starting` or `running` records.
+- [ ] Prohibit credentials, secret values, raw protocol frames, and unnecessary Voiceflow payloads.
+- [ ] Add runtime validation and redaction tests for ledger records.
+
+### 3. Claim before launch
+
+- [ ] Atomically create the ledger entry before calling XYOps.
+- [ ] Reject or reconcile an existing active claim instead of starting another job.
+- [ ] Reject a request when the same `planID` has a different execution fingerprint.
+- [ ] Make concurrent claims deterministic and test the race boundary.
+
+### 4. Launch and record
+
+- [ ] Start the XYOps execution workflow only after a successful ledger claim.
+- [ ] Persist the returned workflow/job ID immediately.
+- [ ] If the launch response is lost, retain `starting` rather than assuming failure.
+- [ ] Ensure a retry cannot launch a second workflow while the original claim is unresolved.
+
+### 5. Reconcile before retry
+
+- [ ] Reconcile `starting` and `unknown` records before allowing a retry.
+- [ ] Inspect the recorded XYOps workflow/job status and logs.
+- [ ] Resume observation when the original job is found.
+- [ ] Distinguish confirmed non-start, confirmed execution, terminal failure, and ambiguity.
+- [ ] Block when evidence remains ambiguous.
+- [ ] Never blindly relaunch a migration after an unknown outcome.
+
+### 6. Settle terminal state
+
+- [ ] Mark `completed` only after the existing migration execution state machine confirms the final Voiceflow outcome.
+- [ ] Mark `failed` only for a confirmed non-mutating or terminal failure outcome from the existing operation policies.
+- [ ] Mark `unknown` when the existing Logux/migration state machines classify a dispatched mutation as unknown.
+- [ ] Preserve the original workflow/job identity and diagnostic context without duplicating operation-level receipts.
+- [ ] Make settlement idempotent and safe against duplicate observations.
+
+### 7. Add concurrency and failure tests
+
+- [ ] Concurrent starts for the same plan.
+- [ ] Different fingerprints for the same plan.
+- [ ] Lost XYOps launch response.
+- [ ] Duplicate CLI retry.
+- [ ] Existing `starting` entry.
+- [ ] Existing `unknown` entry.
+- [ ] Original job found during reconciliation.
+- [ ] No job found during reconciliation.
+- [ ] Successful terminal outcome.
+- [ ] Confirmed failed terminal outcome.
+- [ ] Ambiguous terminal outcome.
+- [ ] Duplicate settlement and stale-claim recovery.
+
+### 8. Production-like verification
+
+- [ ] Deploy ledger changes while the execution workflow remains disabled.
+- [ ] Exercise the complete lifecycle with a safe test plan.
+- [ ] Simulate lost responses and concurrent starts.
+- [ ] Verify bucket records contain no secrets.
+- [ ] Verify SSE/polling reconnects observe the same job.
+- [ ] Confirm no duplicate Voiceflow mutations.
+- [ ] Record rollback and manual-reconciliation procedures.
+
+### 9. Enablement gate
+
+- [ ] Enable `emuboe9h3jre7p5p` only after atomic ledger behavior is verified.
+- [ ] Confirm reconciliation tests pass.
+- [ ] Confirm ambiguous outcomes safely block instead of relaunching.
+- [ ] Confirm production-like validation shows no duplicate starts or mutations.
+- [ ] Run the final typecheck, lint, focused tests, and full test suite.
+- [ ] Update this TODO with evidence, deployment IDs, and the final enablement decision.
