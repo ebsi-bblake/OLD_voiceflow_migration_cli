@@ -1644,7 +1644,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Execution workflow event continues to reuse the existing plugin-side `parseSecretEntries` and secret migration logic.
 - [ ] Verify the deployed XYOps workflow propagates start params to child event params with a controlled secret-bearing test, then enable only after confirming no secret leakage in job/workflow logs.
 - [x] Confirmed the existing `Voiceflow` Secret Vault contains `XYOPS_API_KEY` and is assigned to `emubo4nah5vnhb7w`; the value was not read or exposed.
-- [x] Deployed plugin revision 171 containing the execution-ledger bucket guard and injected test seam; the execution workflow remains disabled.
+- [x] Deployed plugin revision 172 containing the execution-ledger bucket guard, injected test seam, and workflow-envelope unwrapping; the execution workflow remains disabled.
 - [x] Ran a missing-input probe against `emubo4nah5vnhb7w`; it failed validation before any ledger or Voiceflow mutation.
 - [x] Added a non-mutating test seam proving a completed ledger record blocks the migration executor.
 - [x] Attempted the approved local `migration.json` workflow run (`jmubp8hcwgi0od53`) with the execution workflow temporarily enabled.
@@ -1658,6 +1658,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Planning now produces a validated plan for `migration.json`, including the planned destination-folder creation action; the run was answered `no` at confirmation, so no folder or migration mutation occurred.
 - [x] Executed the approved `migration.json` handoff after explicit confirmation; planning succeeded, but the execution workflow aborted before child jobs with `Could not find linked trigger definition: exec_start`.
 - [x] Disabled `emuboe9h3jre7p5p` again after the failed execution attempt; the execution ledger bucket remains empty and no Voiceflow mutation was observed.
+- [x] Diagnosed the next execution failure: the child event received the prior workflow result under `input.data.voiceflow.result`; updated the ledger guard to unwrap that envelope before validation.
 - [x] Repaired the execution workflow trigger by adding the missing trigger ID `exec_start` to its manual trigger definition.
 - [x] Enabled the repaired workflow for a missing-input probe; `exec_start` advanced to `exec_initialize`, which rejected invalid input before mutation; disabled the workflow again.
 - [x] Added equivalent generated-ID suffix normalization for destination folder labels; deployed plugin revision 166.
