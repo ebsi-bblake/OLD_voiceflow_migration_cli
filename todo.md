@@ -1644,8 +1644,9 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Execution workflow event continues to reuse the existing plugin-side `parseSecretEntries` and secret migration logic.
 - [ ] Verify the deployed XYOps workflow propagates start params to child event params with a controlled secret-bearing test, then enable only after confirming no secret leakage in job/workflow logs.
 - [x] Confirmed the existing `Voiceflow` Secret Vault contains `XYOPS_API_KEY` and is assigned to `emubo4nah5vnhb7w`; the value was not read or exposed.
-- [x] Deployed plugin revision 170 containing the execution-ledger bucket guard; the execution workflow remains disabled.
+- [x] Deployed plugin revision 171 containing the execution-ledger bucket guard and injected test seam; the execution workflow remains disabled.
 - [x] Ran a missing-input probe against `emubo4nah5vnhb7w`; it failed validation before any ledger or Voiceflow mutation.
+- [x] Added a non-mutating test seam proving a completed ledger record blocks the migration executor.
 - [x] Attempted the approved local `migration.json` workflow run (`jmubp8hcwgi0od53`) with the execution workflow temporarily enabled.
 - [x] Planning workflow loaded session/workspaces/source catalog, then stopped at source selection with a non-secret `CONFIGURATION` failure; confirmation was never reached, so the secrets file was not read/sent and no mutation occurred.
 - [x] Disabled execution workflow `emuboe9h3jre7p5p` again after the failed pre-plan test.
