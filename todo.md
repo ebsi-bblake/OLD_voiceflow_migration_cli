@@ -1729,8 +1729,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 ### 3. Claim before launch
 
 - [x] Use the XYOps execution-workflow max-concurrency limit of `1` as the serialization guard.
-- [ ] Write `in-flight` before any Voiceflow mutation.
-- [ ] Stop when an existing record is `in-flight`, `completed`, or `unknown`.
+- [x] Write `in-flight` before any Voiceflow mutation.
+- [x] Stop when an existing record is `in-flight`, `completed`, or `unknown`.
 - [x] Use `planId` as the migration identity; a reused plan ID is conservatively blocked.
 - [x] Fail closed when the bucket cannot be read or written.
 - [x] Add tests for duplicate and missing-record decisions.
@@ -1767,7 +1767,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Lost XYOps launch response.
 - [ ] Duplicate CLI retry.
 - [ ] Existing `starting` entry.
-- [ ] Existing `unknown` entry.
+- [x] Existing `unknown` entry.
 - [ ] Original job found during reconciliation.
 - [ ] No job found during reconciliation.
 - [ ] Successful terminal outcome.

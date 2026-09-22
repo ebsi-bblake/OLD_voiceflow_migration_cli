@@ -173,6 +173,63 @@ describe("execution ledger policy", () => {
     });
   });
 
+  test.each(["in-flight", "unknown"] as const)(
+    "blocks a %s workflow before the migration executor",
+    async (status) => {
+      let executed = false;
+      const result = await executeWorkflow(
+        "voiceflow-token",
+        {
+          schemaVersion: 1,
+          stage: "EXECUTION_READY",
+          planID: "plan-1",
+          selection: {
+            sourceWorkspaceID: "source-workspace",
+            sourceProjectID: "source-project",
+            sourceVersionID: "source-version",
+            destinationWorkspaceID: "destination-workspace",
+            destinationFolderID: "destination-folder",
+          },
+          plan: {
+            planID: "plan-1",
+            selection: {
+              sourceWorkspaceID: "source-workspace",
+              sourceProjectID: "source-project",
+              sourceVersionID: "source-version",
+              destinationWorkspaceID: "destination-workspace",
+              destinationFolderID: "destination-folder",
+            },
+            labels: {
+              sourceWorkspace: "Source Workspace",
+              sourceProject: "Source Project",
+              sourceVersion: "Source Version",
+              destinationWorkspace: "Destination Workspace",
+              destinationFolder: "Destination Folder",
+            },
+          },
+        },
+        undefined,
+        {
+          ledgerStore: {
+            read: async () => createExecutionLedgerRecord("plan-1", status, timestamp),
+            write: async () => {},
+          },
+          executeMigration: async () => {
+            executed = true;
+            throw new Error("executor must not run");
+          },
+          now: () => timestamp,
+        },
+      );
+
+      expect(executed).toBe(false);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "IMPORT_OUTCOME_UNKNOWN" },
+      });
+    },
+  );
+
   test("claims a missing record and writes only the minimal plan entry", async () => {
     const requests: Request[] = [];
     const store = createXYOpsExecutionLedgerStore({
