@@ -88,7 +88,7 @@ type OptionalSecretInput = (
   name: MigrationParameterName,
 ) => unknown;
 const optionalSecretInput: OptionalSecretInput = (job, name) =>
-  job.params[name];
+  job.params[name] ?? job.workflow?.params?.[name];
 
 type RequiredConfirmation = (job: NativePluginJob) => true;
 const requiredConfirmation: RequiredConfirmation = (job) => {

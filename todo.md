@@ -1644,6 +1644,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Execution workflow event continues to reuse the existing plugin-side `parseSecretEntries` and secret migration logic.
 - [ ] Verify the deployed XYOps workflow propagates start params to child event params with a controlled secret-bearing test, then enable only after confirming no secret leakage in job/workflow logs.
 - [x] Controlled sentinel probe on plugin `v0.0.9`: XYOps propagated `SECRET_FILE_CONTENTS` to child job metadata under `workflow.params`; child job `jmucwiex5sd461id` showed the sentinel in `workflow.params` but not normal params, input, data, output, activity, or logs. The initializer rejected invalid input before mutation; execution workflow was disabled again.
+- [x] Plugin `v0.0.10` now parses and reads `workflow.params.SECRET_FILE_CONTENTS`; unit coverage passes and the deployed invalid-handoff probe `jmucwmlwlxm9rdzi`/`jmucwmlwpxxus89j` confirmed the new plugin version ran before mutation.
 - [x] Confirmed the existing `Voiceflow` Secret Vault contains `XYOPS_API_KEY` and is assigned to `emubo4nah5vnhb7w`; the value was not read or exposed.
 - [x] Deployed plugin revision 172 containing the execution-ledger bucket guard, injected test seam, and workflow-envelope unwrapping; the execution workflow remains disabled.
 - [x] Ran a missing-input probe against `emubo4nah5vnhb7w`; it failed validation before any ledger or Voiceflow mutation.
@@ -1693,7 +1694,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Add tests for omitted override, explicit override, malformed source metadata, schema mismatch, and plan-ID stability.
 - [x] Remove the temporary `target_schema_version` workaround from `migration.json` after the discovery path is deployed and verified; omitted-override probe `jmucv6pus3gt24l1` resolved source and target schema `1.2`.
 - [ ] Keep the execution workflow disabled until source-schema discovery and plan-ID consistency pass production-like validation.
-- [ ] Add an explicit plugin `workflow.params` boundary and determine whether its operator-visible job metadata is an acceptable secret transport before any valid execution handoff.
+- [x] Add an explicit plugin `workflow.params` boundary; determine whether its operator-visible job metadata is an acceptable secret transport before any valid execution handoff remains pending.
 - [x] Updated plugin `pmtal4rok7gbevqi` and verified the planning workflow graph: source resolution -> schema discovery -> destination catalog.
 - [x] Enabled read-only schema event `emucv0djeip9zdlg` for workflow invocation and completed planning probe `jmucv4pz4t80i1th`; resolved source schema `1.2`, honored target override `13.1`, produced plan `642a1c34ea8aaba9395b6466`, and declined confirmation without mutation.
 - [x] Reconciled job evidence: aborted probe `jmucv3vzyn6wi70a` was a confirmed pre-schema non-start caused by a disabled event; successful probe `jmucv4pz4t80i1th` completed all planning nodes and returned `PLANNED` data.

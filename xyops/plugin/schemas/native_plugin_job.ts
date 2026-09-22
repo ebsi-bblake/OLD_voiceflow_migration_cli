@@ -10,6 +10,9 @@ export const NativePluginJobSchema = z
     params: z.record(z.string(), z.unknown()),
     input: z.unknown().optional(),
     workflowData: z.unknown().optional(),
+    workflow: z
+      .looseObject({ params: z.record(z.string(), z.unknown()).optional() })
+      .optional(),
   })
   .loose();
 

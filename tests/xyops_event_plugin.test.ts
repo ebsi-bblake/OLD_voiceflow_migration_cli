@@ -283,6 +283,36 @@ describe("native XYOps event plugin boundary", () => {
     ]);
   });
 
+  test("reads secret input from workflow params for child event jobs", async () => {
+    let received: unknown;
+    const result = await dispatchOperation(
+      {
+        ...jobFor("execute_migration"),
+        params: { ...baseParameters, operation: "execute_migration" },
+        workflow: {
+          params: {
+            SECRET_FILE_CONTENTS: [
+              { key: "VF_WORKFLOW_SECRET", value: "sentinel", type: "" },
+            ],
+          },
+        },
+      },
+      "test-token",
+      {
+        ...createFakeHandlers([]),
+        "execute_migration": (...args) => {
+          received = args[9];
+          return fakeEnvelope("execute_migration");
+        },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(received).toEqual([
+      { key: "VF_WORKFLOW_SECRET", value: "sentinel", type: "" },
+    ]);
+  });
+
   test("uses a UUID for a dispatch failure fallback", async () => {
     const handlers = createFakeHandlers([]);
     const result = await dispatchOperation(

@@ -11,6 +11,9 @@ export type NativePluginJob = Readonly<{
   readonly operation: PluginOperation;
   readonly input?: unknown;
   readonly workflowData?: unknown;
+  readonly workflow?: Readonly<{
+    readonly params?: PluginParameters;
+  }>;
 }>;
 
 export type VoiceflowEnvelope = Envelope<unknown>;
