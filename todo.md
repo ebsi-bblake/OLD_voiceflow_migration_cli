@@ -1684,7 +1684,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Inventory the installed SDK's relevant native controls: event/job limits can constrain an event's concurrency, job tags can carry searchable metadata, and workflow/job lookup plus SSE are available.
 - [x] Accept that event/job limits are global to the execution workflow rather than keyed by execution fingerprint; this is intentional defense-in-depth and may serialize independent migrations.
 - [x] Accept that run-event tags and input fields are metadata/input only, not native idempotency keys; deduplication is implemented by the first execution step.
-- [ ] Verify the configured execution workflow limit is `job=1` with the duplicate-status guard as the authoritative safety policy.
+- [x] Verify the configured execution workflow limit is `job=1` with the duplicate-status guard as the authoritative safety policy. Workflow `emuboe9h3jre7p5p` is disabled and reports job limit `1`, queue limit `0`, and retry limit `0`.
 
 ### 2. Define the ledger contract
 
