@@ -12,12 +12,13 @@ export type { ExportArtifact } from "./types";
 const EXPORT_URL = `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/export-json`;
 type RecordValue = Readonly<Record<string, unknown>>;
 
-const exportedSchemaMetadata = (value: RecordValue): unknown => {
-  if (value._version !== undefined) return value._version;
-  if (isRecord(value.version) && value.version._version !== undefined)
-    return value.version._version;
-  if (isRecord(value.project) && value.project._version !== undefined)
-    return value.project._version;
+const exportedSchemaMetadata = (value: RecordValue): unknown =>
+  isRecord(value.version) ? value.version._version : undefined;
+
+type NormalizeSchemaVersion = (value: unknown) => string | undefined;
+const normalizeSchemaVersion: NormalizeSchemaVersion = (value) => {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
 };
 
@@ -40,16 +41,17 @@ export const readExportedSchemaVersion: ReadExportedSchemaVersion = (
   const rawVersion = parsed.success
     ? exportedSchemaMetadata(parsed.data)
     : undefined;
+  const normalizedVersion = normalizeSchemaVersion(rawVersion);
   if (
-    typeof rawVersion !== "string" ||
-    !VoiceflowRegex.schemaVersion.test(rawVersion.trim())
+    normalizedVersion === undefined ||
+    !VoiceflowRegex.schemaVersion.test(normalizedVersion)
   )
     throw new OperationFault(
       "CONFIGURATION",
       false,
       "exported artifact must contain JSON version metadata with _version in the form major.minor",
     );
-  return parseSchemaVersion(rawVersion);
+  return parseSchemaVersion(normalizedVersion);
 };
 
 type ResolveTargetSchemaVersion = (

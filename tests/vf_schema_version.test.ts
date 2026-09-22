@@ -16,16 +16,32 @@ const artifactFor = (value: unknown): ExportArtifact => ({
 
 describe("exported schema version", () => {
   test("uses the version metadata when no target is configured", () => {
-    expect(readExportedSchemaVersion(artifactFor({ _version: "13.1" }))).toBe("13.1");
-    expect(resolveTargetSchemaVersion(artifactFor({ _version: "13.1" }))).toBe("13.1");
+    expect(
+      readExportedSchemaVersion(artifactFor({ version: { _version: "13.1" } })),
+    ).toBe("13.1");
+    expect(
+      resolveTargetSchemaVersion(artifactFor({ version: { _version: "13.1" } })),
+    ).toBe("13.1");
+    expect(
+      readExportedSchemaVersion(artifactFor({ version: { _version: 13.1 } })),
+    ).toBe("13.1");
   });
 
   test("keeps an explicitly configured target", () => {
-    expect(resolveTargetSchemaVersion(artifactFor({ _version: "13.1" }), "12.0")).toBe("12.0");
+    expect(
+      resolveTargetSchemaVersion(
+        artifactFor({ version: { _version: "13.1" } }),
+        "12.0",
+      ),
+    ).toBe("12.0");
   });
 
   test("rejects missing and malformed metadata without exposing the payload", () => {
-    for (const value of [{}, { _version: "not-a-schema" }]) {
+    for (const value of [
+      {},
+      { _version: "13.1" },
+      { version: { _version: "not-a-schema" } },
+    ]) {
       let failure: unknown;
       try {
         readExportedSchemaVersion(artifactFor(value));
