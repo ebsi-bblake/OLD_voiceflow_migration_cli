@@ -4,6 +4,7 @@ import {
   createExecutionLedgerRecord,
   ExecutionLedgerRecordSchema,
   readExecutionLedgerDecision,
+  settleExecutionLedger,
   transitionExecutionLedgerRecord,
 } from "../xyops/voiceflow/execution-ledger";
 import { createXYOpsExecutionLedgerStore } from "../xyops/voiceflow/xyops-execution-ledger-store";
@@ -72,6 +73,33 @@ describe("execution ledger policy", () => {
         "2026-09-21T20:01:00.000Z",
       ),
     ).toEqual(unknown);
+  });
+
+  test("settles a claimed record once and preserves a terminal duplicate settlement", async () => {
+    const writes = [] as string[];
+    const record = createExecutionLedgerRecord("plan-1", "in-flight", timestamp);
+    const store = {
+      read: async () => record,
+      write: async (next: typeof record) => {
+        writes.push(next.status);
+      },
+    };
+
+    await expect(
+      settleExecutionLedger(store, "plan-1", "completed", "2026-09-21T20:01:00.000Z"),
+    ).resolves.toMatchObject({ status: "completed" });
+    await expect(
+      settleExecutionLedger(
+        {
+          ...store,
+          read: async () => createExecutionLedgerRecord("plan-1", "completed", "2026-09-21T20:01:00.000Z"),
+        },
+        "plan-1",
+        "failed",
+        "2026-09-21T20:02:00.000Z",
+      ),
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(writes).toEqual(["completed"]);
   });
 
   test("validates the minimal secret-free record", () => {

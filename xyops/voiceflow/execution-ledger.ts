@@ -59,6 +59,8 @@ export const transitionExecutionLedgerRecord: TransitionExecutionLedgerRecord = 
 ) => {
   if (record.status === "completed" || record.status === "unknown")
     return record;
+  if (record.status === "failed" && status !== "in-flight" && status !== "failed")
+    return record;
   return createExecutionLedgerRecord(record.planId, status, timestamp);
 };
 
@@ -66,6 +68,26 @@ export type ExecutionLedgerStore = Readonly<{
   readonly read: (planId: string) => Promise<ExecutionLedgerRecord | undefined>;
   readonly write: (record: ExecutionLedgerRecord) => Promise<void>;
 }>;
+
+type SettleExecutionLedger = (
+  store: ExecutionLedgerStore,
+  planId: string,
+  status: ExecutionLedgerStatus,
+  timestamp: string,
+) => Promise<ExecutionLedgerRecord>;
+export const settleExecutionLedger: SettleExecutionLedger = async (
+  store,
+  planId,
+  status,
+  timestamp,
+) => {
+  const existing = await store.read(planId);
+  if (existing === undefined)
+    throw new Error("execution-ledger-record-missing");
+  const settled = transitionExecutionLedgerRecord(existing, status, timestamp);
+  if (settled !== existing) await store.write(settled);
+  return settled;
+};
 
 export type ExecutionLedgerClaim = "execute" | "skip" | "reconcile";
 

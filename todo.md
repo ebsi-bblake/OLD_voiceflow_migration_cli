@@ -1752,11 +1752,11 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 
 ### 6. Settle terminal state
 
-- [ ] Mark `completed` only after the existing migration execution state machine confirms the final Voiceflow outcome.
-- [ ] Mark `failed` only for a confirmed non-mutating or terminal failure outcome from the existing operation policies.
-- [ ] Mark `unknown` when the existing Logux/migration state machines classify a dispatched mutation as unknown.
-- [ ] Preserve the original workflow/job identity and diagnostic context without duplicating operation-level receipts.
-- [ ] Make settlement idempotent and safe against duplicate observations.
+- [x] Mark `completed` only after the existing migration execution state machine confirms the final Voiceflow outcome.
+- [x] Mark `failed` only for a confirmed non-mutating or terminal failure outcome from the existing operation policies.
+- [x] Mark `unknown` when the existing Logux/migration state machines classify a dispatched mutation as unknown.
+- [x] Preserve the original workflow/job identity and diagnostic context without duplicating operation-level receipts.
+- [x] Make settlement idempotent and safe against duplicate observations; terminal ledger records cannot be overwritten.
 
 ### 7. Add concurrency and failure tests
 

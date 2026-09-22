@@ -7,7 +7,7 @@ import type { ExecutionReadyWorkflowData } from "./schemas/migration-workflow-da
 import { createUUID } from "./uuid";
 import {
   claimExecutionLedger,
-  createExecutionLedgerRecord,
+  settleExecutionLedger,
   type ExecutionLedgerStore,
 } from "./execution-ledger";
 import { createXYOpsExecutionLedgerStore } from "./xyops-execution-ledger-store";
@@ -120,8 +120,11 @@ const runClaimedExecution: RunClaimedExecution = async (
     true,
     secretFileContents,
   );
-  await store.write(
-    createExecutionLedgerRecord(input.planID, terminalStatus(result), now()),
+  await settleExecutionLedger(
+    store,
+    input.planID,
+    terminalStatus(result),
+    now(),
   );
   return withWorkflowOperation(result);
 };
