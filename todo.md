@@ -1680,36 +1680,39 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Verify SSE/stream observation and bounded polling behavior for workflow jobs. The SDK exposes `streamJob`; CLI job retrieval provides polling-compatible reads.
 - [x] Verify workflow/job status, log, terminal-result, timeout, and reconnect semantics from the installed SDK/CLI surface. `getJob`, `getJobLog`, `streamJob`, `getWorkflowJobSummary`, and workflow job records are available; reconnect/timeout behavior still needs a live failure probe.
 - [x] Document consistency, race, retention, and failure limitations before choosing the ledger adapter. Buckets are authoritative for reads and ordinary writes, but are unsuitable as the atomic claim/lock unless XYOps exposes a lower-level conditional API not present in the installed SDK.
-- [ ] Identify and verify an XYOps-native idempotency, deduplication, queue-concurrency, or conditional-storage primitive before implementing a custom ledger.
+- [x] Decide against a custom atomic store: use the XYOps execution-workflow max-concurrency limit of `1` as the serialization guard and a minimal bucket status record as the safety record.
 - [x] Inventory the installed SDK's relevant native controls: event/job limits can constrain an event's concurrency, job tags can carry searchable metadata, and workflow/job lookup plus SSE are available.
-- [ ] Verify whether event/job limits can be keyed by execution fingerprint; current type/API surfaces suggest limits apply to the event/job generally, not to one plan identity.
-- [ ] Verify whether run-event tags or input fields participate in atomic deduplication; current SDK surfaces expose them as metadata/input only, not an idempotency key.
+- [x] Accept that event/job limits are global to the execution workflow rather than keyed by execution fingerprint; this is intentional defense-in-depth and may serialize independent migrations.
+- [x] Accept that run-event tags and input fields are metadata/input only, not native idempotency keys; deduplication is implemented by the first execution step.
+- [ ] Verify the configured execution workflow limit is `job=1` with the duplicate-status guard as the authoritative safety policy.
 
 ### 2. Define the ledger contract
 
 - [x] Reuse the existing Logux operation state machines for Voiceflow mutation acknowledgement and `UNKNOWN_OUTCOME`; the ledger must not duplicate operation-level acknowledgement logic.
-- [ ] Key each ledger record by `planID` plus execution fingerprint.
-- [ ] Define the states `starting`, `running`, `completed`, `failed`, and `unknown`.
-- [ ] Store timestamps, workflow ID, job ID, fingerprint, owner/correlation data, and safe diagnostics.
-- [ ] Store the execution state-machine terminal classification without duplicating Logux action receipts or raw frames.
-- [ ] Define immutable fields and allowed state transitions.
-- [ ] Define lease/expiry and recovery behavior for stale `starting` or `running` records.
-- [ ] Prohibit credentials, secret values, raw protocol frames, and unnecessary Voiceflow payloads.
+- [x] Key each ledger record by `planId`.
+- [x] Define the minimal states `in-flight`, `completed`, `failed`, and `unknown`.
+- [x] Store only `planId`, `status`, and `timestamp`; workflow/job IDs and detailed diagnostics remain in XYOps job state.
+- [x] Store the execution state-machine terminal classification without duplicating Logux action receipts or raw frames.
+- [ ] Define and enforce allowed state transitions.
+- [x] Do not automatically expire or clear stale `in-flight`/`unknown` records; require reconciliation.
+- [x] Prohibit credentials, secret values, raw protocol frames, and unnecessary payloads.
 - [ ] Add runtime validation and redaction tests for ledger records.
 
 ### 3. Claim before launch
 
-- [ ] Atomically create the ledger entry before calling XYOps.
-- [ ] Reject or reconcile an existing active claim instead of starting another job.
-- [ ] Reject a request when the same `planID` has a different execution fingerprint.
-- [ ] Make concurrent claims deterministic and test the race boundary.
+- [x] Use the XYOps execution-workflow max-concurrency limit of `1` as the serialization guard.
+- [ ] Write `in-flight` before any Voiceflow mutation.
+- [ ] Stop when an existing record is `in-flight`, `completed`, or `unknown`.
+- [x] Use `planId` as the migration identity; a reused plan ID is conservatively blocked.
+- [ ] Fail closed when the bucket cannot be read or written.
+- [ ] Add tests for duplicate and missing-record decisions.
 
 ### 4. Launch and record
 
-- [ ] Start the XYOps execution workflow only after a successful ledger claim.
-- [ ] Persist the returned workflow/job ID immediately.
-- [ ] If the launch response is lost, retain `starting` rather than assuming failure.
-- [ ] Ensure a retry cannot launch a second workflow while the original claim is unresolved.
+- [ ] Start the XYOps execution workflow only after the execution path is accepted by the existing CLI handoff.
+- [ ] Treat a lost launch response as unresolved; the queued duplicate must encounter `in-flight` or the terminal status.
+- [ ] Ensure a retry cannot proceed while the original plan record is unresolved.
+- [x] Keep detailed workflow/job identity in XYOps rather than duplicating it in the minimal bucket record.
 
 ### 5. Reconcile before retry
 
