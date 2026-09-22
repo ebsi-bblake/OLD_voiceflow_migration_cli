@@ -1499,10 +1499,10 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Duplicate start, resume, retry, reconnect, and terminal observation behavior is tested.
 - [ ] No secret values, tokens, raw protocol frames, or unbounded external payloads enter workflowData.
 - [ ] Unknown outcomes are reconciled before any retry or operator instruction to retry.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run lint` passes.
-- [ ] Focused tests pass after each phase.
-- [ ] Full `bun test` passes before workflow cutover.
+- [x] `bun run typecheck` passes.
+- [x] `bun run lint` passes.
+- [x] Focused tests pass after each phase.
+- [x] Full `bun test` passes before workflow cutover.
 - [ ] CLI and plugin artifacts are rebuilt before production-like validation.
 - [ ] Rollback to independent event orchestration is tested before enabling the workflow by default.
 
