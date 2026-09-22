@@ -1743,6 +1743,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 
 ### 5. Reconcile before retry
 
+- [x] Define a pure reconciliation policy distinguishing confirmed non-start, active, completed, failed, unknown, and ambiguous evidence; ambiguous evidence blocks relaunch.
 - [ ] Reconcile `starting` and `unknown` records before allowing a retry.
 - [ ] Inspect the recorded XYOps workflow/job status and logs.
 - [ ] Resume observation when the original job is found.
