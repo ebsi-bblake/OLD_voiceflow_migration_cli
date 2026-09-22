@@ -7,6 +7,7 @@ import {
   transitionExecutionLedgerRecord,
 } from "../xyops/voiceflow/execution-ledger";
 import { createXYOpsExecutionLedgerStore } from "../xyops/voiceflow/xyops-execution-ledger-store";
+import { main as executeWorkflow } from "../xyops/voiceflow/execute-migration-workflow";
 
 describe("execution ledger policy", () => {
   const timestamp = "2026-09-21T20:00:00.000Z";
@@ -89,6 +90,59 @@ describe("execution ledger policy", () => {
         jobId: "secret-or-extra-state",
       }).success,
     ).toBe(false);
+  });
+
+  test("blocks a completed workflow before the migration executor", async () => {
+    const result = await executeWorkflow(
+      "voiceflow-token",
+      {
+        schemaVersion: 1,
+        stage: "EXECUTION_READY",
+        planID: "plan-1",
+        selection: {
+          sourceWorkspaceID: "source-workspace",
+          sourceProjectID: "source-project",
+          sourceVersionID: "source-version",
+          destinationWorkspaceID: "destination-workspace",
+          destinationFolderID: "destination-folder",
+        },
+        plan: {
+          planID: "plan-1",
+          selection: {
+            sourceWorkspaceID: "source-workspace",
+            sourceProjectID: "source-project",
+            sourceVersionID: "source-version",
+            destinationWorkspaceID: "destination-workspace",
+            destinationFolderID: "destination-folder",
+          },
+          labels: {
+            sourceWorkspace: "Source Workspace",
+            sourceProject: "Source Project",
+            sourceVersion: "Source Version",
+            destinationWorkspace: "Destination Workspace",
+            destinationFolder: "Destination Folder",
+          },
+        },
+      },
+      undefined,
+      {
+        ledgerStore: {
+          read: async () =>
+            createExecutionLedgerRecord("plan-1", "completed", timestamp),
+          write: async () => {},
+        },
+        executeMigration: async () => {
+          throw new Error("executor must not run");
+        },
+        now: () => timestamp,
+      },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      operation: "execute_migration_workflow",
+      error: { code: "PLAN_MISMATCH" },
+    });
   });
 
   test("claims a missing record and writes only the minimal plan entry", async () => {

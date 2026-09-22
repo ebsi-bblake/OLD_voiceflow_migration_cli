@@ -15,6 +15,7 @@ const EXECUTION_LEDGER_BUCKET_ID = "bmuc1r0bokku4tz9";
 
 type MainDependencies = Readonly<{
   readonly ledgerStore: ExecutionLedgerStore;
+  readonly executeMigration?: typeof executeMigration;
   readonly now?: () => string;
 }>;
 
@@ -84,6 +85,7 @@ const rejectedClaim = (
   );
 
 type RunClaimedExecution = (
+  execute: typeof executeMigration,
   token: string,
   input: ParsedExecutionInput,
   secretFileContents: unknown,
@@ -91,13 +93,14 @@ type RunClaimedExecution = (
   now: () => string,
 ) => Promise<Envelope<ExecuteResult>>;
 const runClaimedExecution: RunClaimedExecution = async (
+  execute,
   token,
   input,
   secretFileContents,
   store,
   now,
 ) => {
-  const result = await executeMigration(
+  const result = await execute(
     token,
     input.planID,
     input.selection.sourceWorkspaceID,
@@ -121,6 +124,7 @@ type HandleExecutionClaim = (
   input: ParsedExecutionInput,
   secretFileContents: unknown,
   store: ExecutionLedgerStore,
+  execute: typeof executeMigration,
   now: () => string,
 ) => Promise<Envelope<ExecuteResult>>;
 const handleExecutionClaim: HandleExecutionClaim = (
@@ -129,11 +133,39 @@ const handleExecutionClaim: HandleExecutionClaim = (
   input,
   secretFileContents,
   store,
+  execute,
   now,
 ) =>
   claim === "execute"
-    ? runClaimedExecution(token, input, secretFileContents, store, now)
+    ? runClaimedExecution(execute, token, input, secretFileContents, store, now)
     : Promise.resolve(rejectedClaim(claim));
+
+type RunExecution = (
+  token: string,
+  input: ParsedExecutionInput,
+  secretFileContents: unknown,
+  dependencies: MainDependencies | undefined,
+) => Promise<Envelope<ExecuteResult>>;
+const runExecution: RunExecution = async (
+  token,
+  input,
+  secretFileContents,
+  dependencies,
+) => {
+  const store = dependencies?.ledgerStore ?? defaultLedgerStore();
+  const execute = dependencies?.executeMigration ?? executeMigration;
+  const now = dependencies?.now ?? (() => new Date().toISOString());
+  const claim = await claimExecutionLedger(store, input.planID, now());
+  return handleExecutionClaim(
+    claim,
+    token,
+    input,
+    secretFileContents,
+    store,
+    execute,
+    now,
+  );
+};
 
 export const main: Main = async (
   token,
@@ -149,17 +181,7 @@ export const main: Main = async (
       new OperationFault("INVALID_ARGUMENT"),
     );
   try {
-    const store = dependencies?.ledgerStore ?? defaultLedgerStore();
-    const now = dependencies?.now ?? (() => new Date().toISOString());
-    const claim = await claimExecutionLedger(store, input.planID, now());
-    return handleExecutionClaim(
-      claim,
-      token,
-      input,
-      secretFileContents,
-      store,
-      now,
-    );
+    return await runExecution(token, input, secretFileContents, dependencies);
   } catch (error: unknown) {
     return failure("execute_migration_workflow", createUUID(), error);
   }
