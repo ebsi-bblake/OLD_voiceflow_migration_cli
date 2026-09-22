@@ -1690,7 +1690,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Ensure planning, confirmation, folder creation, and execution compute the same plan ID from the resolved schema.
 - [x] Keep schema discovery read-only and independent of Voiceflow mutation stages.
 - [x] Add tests for omitted override, explicit override, malformed source metadata, schema mismatch, and plan-ID stability.
-- [ ] Remove the temporary `target_schema_version` workaround from `migration.json` after the discovery path is deployed and verified.
+- [x] Remove the temporary `target_schema_version` workaround from `migration.json` after the discovery path is deployed and verified; omitted-override probe `jmucv6pus3gt24l1` resolved source and target schema `1.2`.
 - [ ] Keep the execution workflow disabled until source-schema discovery and plan-ID consistency pass production-like validation.
 - [x] Updated plugin `pmtal4rok7gbevqi` and verified the planning workflow graph: source resolution -> schema discovery -> destination catalog.
 - [x] Enabled read-only schema event `emucv0djeip9zdlg` for workflow invocation and completed planning probe `jmucv4pz4t80i1th`; resolved source schema `1.2`, honored target override `13.1`, produced plan `642a1c34ea8aaba9395b6466`, and declined confirmation without mutation.
