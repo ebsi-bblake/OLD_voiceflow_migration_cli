@@ -128,30 +128,13 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
         secretFileContents,
       ),
     );
-    const executionWorkflowID = execution.jobID;
     const executionJob = execution.job;
     if (executionJob.code !== undefined && executionJob.code !== 0 && executionJob.code !== "0")
       throw fail("job", { nextAction: "The execution workflow failed." });
-    console.log(JSON.stringify({
-      migrationWorkflow: {
-        jobID: workflowJobID,
-        stage: planned.stage,
-        workflowData: planned,
-      },
-      executionWorkflow: {
-        jobID: executionWorkflowID,
-        job: executionJob,
-      },
-    }));
+    console.log("Migration completed successfully.");
     return;
   }
-  console.log(JSON.stringify({
-    migrationWorkflow: {
-      jobID: workflowJobID,
-      stage: parsedWorkflowData?.success ? parsedWorkflowData.data.stage : undefined,
-      workflowData: parsedWorkflowData?.success ? parsedWorkflowData.data : undefined,
-    },
-  }));
+  console.log("Migration planning completed.");
 };
 
 type PerformMigration = (context: MigrationContext) => Promise<void>;
@@ -199,7 +182,7 @@ const performMigration: PerformMigration = async (context) => {
 
   if (!confirmed) return;
 
-  const execute = await progress.run("execute_migration", () =>
+  await progress.run("execute_migration", () =>
     executeConfirmedMigration(
       context,
       selection,
@@ -207,18 +190,7 @@ const performMigration: PerformMigration = async (context) => {
       secretFileContents,
     ),
   );
-  console.log(
-    "\n" +
-      JSON.stringify({
-        migrationCompleted: true,
-        planID: plan.planID,
-        exportStatus: execute.exportStatus,
-        exportBytes: execute.exportBytes,
-        importStatus: execute.importStatus,
-        importBytes: execute.importBytes,
-        apiKeyRetrieved: execute.apiKeyRetrieved,
-      }),
-  );
+  console.log("Migration completed successfully.");
 };
 
 type Run = () => Promise<void>;
@@ -256,8 +228,9 @@ export const run: Run = async () => {
 type HandleFailure = (error: unknown) => void;
 const handleFailure: HandleFailure = (error) => {
   process.exitCode = 1;
+  const diagnostic = cliErrorOutput(asCliError(error));
   console.error(
-    JSON.stringify({ migrationFailed: cliErrorOutput(asCliError(error)) }),
+    `Migration failed: ${String(diagnostic.code)}. ${String(diagnostic.nextAction)}`,
   );
 };
 
