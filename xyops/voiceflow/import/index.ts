@@ -2,6 +2,7 @@ import type { AuthContext } from "../types";
 import type { ExportArtifact, HttpBytes, ImportedReceipt } from "../types";
 import { resolveTargetSchemaVersion } from "../export";
 import { OperationFault } from "../contracts";
+import { debugLog } from "../debug";
 import { requestBytes } from "../http";
 import { parseSchemaVersion, parseWorkspaceID } from "../validation";
 import { VOICEFLOW_REALTIME_HTTP_ORIGIN, encodePathSegment } from "../urls";
@@ -84,7 +85,7 @@ const requestImportResponse: RequestImportResponse = async (
   form,
 ) => {
   try {
-    return await requestBytes({
+    const response = await requestBytes({
       url: `${VOICEFLOW_REALTIME_HTTP_ORIGIN}/v1alpha1/assistant/import-file/${encodePathSegment(workspace)}`,
       init: {
         method: "POST",
@@ -94,7 +95,16 @@ const requestImportResponse: RequestImportResponse = async (
       maxBytes: 2_097_152,
       timeoutMs: 60_000,
     });
+    debugLog("migration.import", "http-response", {
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      responseBytes: response.bytes.byteLength,
+    });
+    return response;
   } catch (error) {
+    debugLog("migration.import", "http-request-failure", {
+      errorCode: error instanceof OperationFault ? error.code : "INTERNAL_ERROR",
+    });
     throw importRequestFault(error);
   }
 };
