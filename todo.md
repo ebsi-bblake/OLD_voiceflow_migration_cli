@@ -1702,7 +1702,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Approved execution attempt `jmucwolw4adr5ylk` stopped at `PLAN_MISMATCH` before export/import; canonical plan-ID fix deployed as plugin `v0.0.11`.
 - [ ] Retry execution: `jmucwrzjxxn5us2i` reached Voiceflow import and failed with retryable `DEPENDENCY_FAILURE`; destination-folder catalog visibility caused a second folder creation (`111` then `112`). Treat the migration as unresolved and reconcile before any retry.
 - [ ] Clean-run execution `jmucx2jcbjbhh9ru` created fresh folder `113`, reached import, and failed with `DEPENDENCY_FAILURE`. Import diagnostics recorded plan `770a77496777943dff205259`, destination workspace/folder, schema `1.2`, and artifact size without secrets; reconcile before retrying.
-- [x] Execution `jmucxopodi045obk` used `version._version` and resolved target schema `13.12`; Voiceflow returned HTTP 201 for folder `114`, but receipt parsing rejected the project-shaped response. Parser fix deployed as plugin `v0.0.17`; do not retry until the created project is reconciled.
+- [x] Execution `jmucxopodi045obk` used `version._version` and resolved target schema `13.12`; Voiceflow returned HTTP 201 for folder `114`, but receipt parsing rejected the project-shaped response. Parser fix deployed as plugin `v0.0.17`.
+- [x] Reconciled the confirmed successful import, reran plan `056d80d8ee969bdeba0cd17c`, and completed the migration successfully; execution job `jmuczvk5jwgucpje`, ledger status `completed`, import status `201`.
 - [x] Deployed plugin `v0.0.13` with safe import HTTP diagnostics for status, content type, response size, and sanitized request-failure code; do not retry until the import outcome is reconciled.
 
 ## Execution-ledger implementation plan
