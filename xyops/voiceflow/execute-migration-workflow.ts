@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { MigrationWorkflowDataSchema } from "./schemas/migration-workflow-data";
 import { main as executeMigration } from "./execute_migration";
 import { failure, OperationFault, type Envelope } from "./contracts";
@@ -12,6 +13,13 @@ import {
 import { createXYOpsExecutionLedgerStore } from "./xyops-execution-ledger-store";
 
 const EXECUTION_LEDGER_BUCKET_ID = "bmuc1r0bokku4tz9";
+const WorkflowEnvelopeSchema = z.looseObject({
+  voiceflow: z.looseObject({ result: z.unknown() }),
+});
+const readWorkflowData = (value: unknown): unknown => {
+  const parsed = WorkflowEnvelopeSchema.safeParse(value);
+  return parsed.success ? parsed.data.voiceflow.result : value;
+};
 
 type MainDependencies = Readonly<{
   readonly ledgerStore: ExecutionLedgerStore;
@@ -54,7 +62,7 @@ const defaultLedgerStore = (): ExecutionLedgerStore => {
 
 type ParseExecutionInput = (input: unknown) => ParsedExecutionInput | undefined;
 const parseExecutionInput: ParseExecutionInput = (input) => {
-  const parsed = MigrationWorkflowDataSchema.safeParse(input);
+  const parsed = MigrationWorkflowDataSchema.safeParse(readWorkflowData(input));
   if (!parsed.success || parsed.data.stage !== "EXECUTION_READY") return undefined;
   if (parsed.data.selection.destinationFolderID === undefined) return undefined;
   return { planID: parsed.data.planID, selection: parsed.data.selection };
