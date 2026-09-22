@@ -331,7 +331,7 @@ describe("XYOps CLI adapter", () => {
     const config = readXYOpsConfig({ XYOPS_API_KEY: "local-api-key" });
 
     expect(config.baseURL).toBe(DEFAULT_XYOPS_BASE_URL);
-    expect(config.migrationMode).toBe("events");
+    expect(config.migrationMode).toBe("workflow");
     expect(config.migrationWorkflow).toEqual({ title: "Voiceflow Migration Workflow" });
     expect(config.executionWorkflow).toEqual({ title: "Voiceflow Migration Execution Workflow" });
     expect(config.events).toEqual({
@@ -681,6 +681,7 @@ test("uses an explicit ID reference in the XYOps request body", async () => {
       "XYOPS_BASE_URL",
       "XYOPS_EVENT_CHECK_SESSION",
       "XYOPS_EVENT_LIST_WORKSPACES",
+      "XYOPS_MIGRATION_MODE",
     ];
     const previousEnvironment = Object.fromEntries(
       environmentNames.map((name) => [name, process.env[name]]),
@@ -693,6 +694,7 @@ test("uses an explicit ID reference in the XYOps request body", async () => {
     delete process.env.XYOPS_BASE_URL;
     delete process.env.XYOPS_EVENT_CHECK_SESSION;
     delete process.env.XYOPS_EVENT_LIST_WORKSPACES;
+    process.env.XYOPS_MIGRATION_MODE = "events";
     globalThis.fetch = async (_input, init) => {
       requests.push(requestBody(init));
       return inactiveSessionResponse();

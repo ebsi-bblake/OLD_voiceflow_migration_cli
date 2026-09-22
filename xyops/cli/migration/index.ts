@@ -44,7 +44,7 @@ const printHelp: PrintHelp = () => {
     "Optional --config=<JSON-file> supplies migration resource names or IDs, schema version, and project secrets.",
     'Config format: { "source_workspace": "...", "target_schema_version": "13.1", "secrets": "./secrets.json" }.',
     "Configured IDs or exact catalog names are resolved before planning; missing values are selected interactively.",
-    "XYOPS_MIGRATION_MODE=workflow starts and observes the migration workflow; events is the compatibility default.",
+    "XYOPS_MIGRATION_MODE=workflow starts and observes the migration workflow; events remains available as a compatibility mode.",
     "Optional XYOPS_EVENT_* overrides accept title:<event-title> or id:<event-id>.",
     "Default event titles must match the configured XYOps Event titles.",
     "Optional --debug enables stderr diagnostics; --debug=<name[,name...]> narrows them by logger name.",

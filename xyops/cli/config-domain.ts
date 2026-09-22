@@ -102,7 +102,7 @@ const readDuration = (environment: Environment, name: string, fallback: number):
 };
 
 const readMigrationMode = (environment: Environment): MigrationExecutionMode => {
-  const value = readTrimmedEnvironment(environment, "XYOPS_MIGRATION_MODE") ?? "events";
+  const value = readTrimmedEnvironment(environment, "XYOPS_MIGRATION_MODE") ?? "workflow";
   if (value === "events" || value === "workflow") return value;
   throw new ConfigDomainError("XYOPS_MIGRATION_MODE must be events or workflow.");
 };
