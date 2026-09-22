@@ -78,6 +78,10 @@ const readWorkflowDataCandidate: ReadWorkflowDataCandidate = (job) => {
   if (field.success) return field.data.workflowData;
   const wrapped = WorkflowDataEnvelopeSchema.safeParse(candidate);
   if (!wrapped.success) return source;
+  const voiceflow = z
+    .looseObject({ result: z.unknown() })
+    .safeParse(wrapped.data.voiceflow);
+  if (voiceflow.success) return voiceflow.data.result;
   const { voiceflow: _voiceflow, ...workflowData } = wrapped.data;
   return workflowData;
 };
