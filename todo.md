@@ -1656,7 +1656,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Fixed workflow CLI job-data extraction for the nested XYOps `{ data: { voiceflow, workflowData } }` response shape.
 - [x] Re-ran the local workflow: source resolution now succeeds.
 - [x] Planning now produces a validated plan for `migration.json`, including the planned destination-folder creation action; the run was answered `no` at confirmation, so no folder or migration mutation occurred.
-- [ ] Execute the approved `migration.json` handoff only after explicit confirmation that the real Voiceflow export/import is intended.
+- [x] Executed the approved `migration.json` handoff after explicit confirmation; planning succeeded, but the execution workflow aborted before child jobs with `Could not find linked trigger definition: exec_start`.
+- [x] Disabled `emuboe9h3jre7p5p` again after the failed execution attempt; the execution ledger bucket remains empty and no Voiceflow mutation was observed.
 - [x] Added equivalent generated-ID suffix normalization for destination folder labels; deployed plugin revision 166.
 
 ## Pending destination-folder creation design
