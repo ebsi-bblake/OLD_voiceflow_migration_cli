@@ -1658,6 +1658,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Planning now produces a validated plan for `migration.json`, including the planned destination-folder creation action; the run was answered `no` at confirmation, so no folder or migration mutation occurred.
 - [x] Executed the approved `migration.json` handoff after explicit confirmation; planning succeeded, but the execution workflow aborted before child jobs with `Could not find linked trigger definition: exec_start`.
 - [x] Disabled `emuboe9h3jre7p5p` again after the failed execution attempt; the execution ledger bucket remains empty and no Voiceflow mutation was observed.
+- [x] Repaired the execution workflow trigger by adding the missing trigger ID `exec_start` to its manual trigger definition.
+- [x] Enabled the repaired workflow for a missing-input probe; `exec_start` advanced to `exec_initialize`, which rejected invalid input before mutation; disabled the workflow again.
 - [x] Added equivalent generated-ID suffix normalization for destination folder labels; deployed plugin revision 166.
 
 ## Pending destination-folder creation design
