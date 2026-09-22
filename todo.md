@@ -1503,7 +1503,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] `bun run lint` passes.
 - [x] Focused tests pass after each phase.
 - [x] Full `bun test` passes before workflow cutover.
-- [ ] CLI and plugin artifacts are rebuilt before production-like validation.
+- [x] CLI and plugin artifacts are rebuilt before production-like validation.
 - [ ] Rollback to independent event orchestration is tested before enabling the workflow by default.
 
 ## Phase 1 research findings: XYOps workflowData and secrets
@@ -1695,6 +1695,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Updated plugin `pmtal4rok7gbevqi` and verified the planning workflow graph: source resolution -> schema discovery -> destination catalog.
 - [x] Enabled read-only schema event `emucv0djeip9zdlg` for workflow invocation and completed planning probe `jmucv4pz4t80i1th`; resolved source schema `1.2`, honored target override `13.1`, produced plan `642a1c34ea8aaba9395b6466`, and declined confirmation without mutation.
 - [x] Reconciled job evidence: aborted probe `jmucv3vzyn6wi70a` was a confirmed pre-schema non-start caused by a disabled event; successful probe `jmucv4pz4t80i1th` completed all planning nodes and returned `PLANNED` data.
+- [x] Rebuilt and redeployed plugin `pmtal4rok7gbevqi` after ledger/folder-safety changes; verified the deployed script contains `resolve_source_schema_workflow` and remains execution-disabled.
 
 ## Execution-ledger implementation plan
 
