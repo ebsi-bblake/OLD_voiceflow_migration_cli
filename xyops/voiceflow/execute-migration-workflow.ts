@@ -2,13 +2,35 @@ import { MigrationWorkflowDataSchema } from "./schemas/migration-workflow-data";
 import { main as executeMigration } from "./execute_migration";
 import { failure, OperationFault, type Envelope } from "./contracts";
 import type { ExecuteResult } from "./types";
+import type { ExecutionReadyWorkflowData } from "./schemas/migration-workflow-data";
 import { createUUID } from "./uuid";
+import {
+  claimExecutionLedger,
+  createExecutionLedgerRecord,
+  type ExecutionLedgerStore,
+} from "./execution-ledger";
+import { createXYOpsExecutionLedgerStore } from "./xyops-execution-ledger-store";
+
+const EXECUTION_LEDGER_BUCKET_ID = "bmuc1r0bokku4tz9";
+
+type MainDependencies = Readonly<{
+  readonly ledgerStore: ExecutionLedgerStore;
+  readonly now?: () => string;
+}>;
 
 type Main = (
   token: string,
   workflowData: unknown,
   secretFileContents?: unknown,
+  dependencies?: MainDependencies,
 ) => Promise<Envelope<ExecuteResult>>;
+
+type ParsedExecutionInput = Readonly<{
+  readonly planID: string;
+  readonly selection: ExecutionReadyWorkflowData["selection"] & {
+    readonly destinationFolderID: string;
+  };
+}>;
 
 const withWorkflowOperation = (
   result: Awaited<ReturnType<typeof executeMigration>>,
@@ -17,36 +39,128 @@ const withWorkflowOperation = (
   operation: "execute_migration_workflow",
 });
 
-export const main: Main = (token, workflowData, secretFileContents) => {
-  const parsed = MigrationWorkflowDataSchema.safeParse(workflowData);
-  if (!parsed.success || parsed.data.stage !== "EXECUTION_READY")
-    return Promise.resolve(
-      failure(
-        "execute_migration_workflow",
-        createUUID(),
-        new OperationFault("INVALID_ARGUMENT"),
-      ),
-    );
+const defaultLedgerStore = (): ExecutionLedgerStore => {
+  const baseURL = process.env.JOB_BASE_URL ?? process.env.XYOPS_BASE_URL;
+  const apiKey = process.env.XYOPS_API_KEY;
+  if (baseURL === undefined || apiKey === undefined)
+    throw new OperationFault("DEPENDENCY_FAILURE", true, "ledger-configuration");
+  return createXYOpsExecutionLedgerStore({
+    baseURL,
+    apiKey,
+    bucketID: EXECUTION_LEDGER_BUCKET_ID,
+  });
+};
 
-  const { planID, selection } = parsed.data;
-  if (selection.destinationFolderID === undefined)
-    return Promise.resolve(
-      failure(
-        "execute_migration_workflow",
-        createUUID(),
-        new OperationFault("INVALID_ARGUMENT"),
-      ),
-    );
-  return executeMigration(
+type ParseExecutionInput = (input: unknown) => ParsedExecutionInput | undefined;
+const parseExecutionInput: ParseExecutionInput = (input) => {
+  const parsed = MigrationWorkflowDataSchema.safeParse(input);
+  if (!parsed.success || parsed.data.stage !== "EXECUTION_READY") return undefined;
+  if (parsed.data.selection.destinationFolderID === undefined) return undefined;
+  return { planID: parsed.data.planID, selection: parsed.data.selection };
+};
+
+const terminalStatus = (
+  result: Awaited<ReturnType<typeof executeMigration>>,
+): "completed" | "failed" | "unknown" =>
+  result.ok && result.result !== undefined
+    ? "completed"
+    : !result.ok && result.error.code === "IMPORT_OUTCOME_UNKNOWN"
+      ? "unknown"
+      : "failed";
+
+const rejectedClaim = (
+  claim: "skip" | "reconcile",
+): Envelope<ExecuteResult> =>
+  failure(
+    "execute_migration_workflow",
+    createUUID(),
+    claim === "skip"
+      ? new OperationFault("PLAN_MISMATCH", false, "execution-already-completed")
+      : new OperationFault(
+          "IMPORT_OUTCOME_UNKNOWN",
+          true,
+          "execution-requires-reconciliation",
+        ),
+  );
+
+type RunClaimedExecution = (
+  token: string,
+  input: ParsedExecutionInput,
+  secretFileContents: unknown,
+  store: ExecutionLedgerStore,
+  now: () => string,
+) => Promise<Envelope<ExecuteResult>>;
+const runClaimedExecution: RunClaimedExecution = async (
+  token,
+  input,
+  secretFileContents,
+  store,
+  now,
+) => {
+  const result = await executeMigration(
     token,
-    planID,
-    selection.sourceWorkspaceID,
-    selection.sourceProjectID,
-    selection.sourceVersionID,
-    selection.destinationWorkspaceID,
-    selection.destinationFolderID,
-    selection.targetSchemaVersion,
+    input.planID,
+    input.selection.sourceWorkspaceID,
+    input.selection.sourceProjectID,
+    input.selection.sourceVersionID,
+    input.selection.destinationWorkspaceID,
+    input.selection.destinationFolderID,
+    input.selection.targetSchemaVersion,
     true,
     secretFileContents,
-  ).then(withWorkflowOperation);
+  );
+  await store.write(
+    createExecutionLedgerRecord(input.planID, terminalStatus(result), now()),
+  );
+  return withWorkflowOperation(result);
+};
+
+type HandleExecutionClaim = (
+  claim: Awaited<ReturnType<typeof claimExecutionLedger>>,
+  token: string,
+  input: ParsedExecutionInput,
+  secretFileContents: unknown,
+  store: ExecutionLedgerStore,
+  now: () => string,
+) => Promise<Envelope<ExecuteResult>>;
+const handleExecutionClaim: HandleExecutionClaim = (
+  claim,
+  token,
+  input,
+  secretFileContents,
+  store,
+  now,
+) =>
+  claim === "execute"
+    ? runClaimedExecution(token, input, secretFileContents, store, now)
+    : Promise.resolve(rejectedClaim(claim));
+
+export const main: Main = async (
+  token,
+  workflowData,
+  secretFileContents,
+  dependencies,
+) => {
+  const input = parseExecutionInput(workflowData);
+  if (input === undefined)
+    return failure(
+      "execute_migration_workflow",
+      createUUID(),
+      new OperationFault("INVALID_ARGUMENT"),
+    );
+  try {
+    const store = dependencies?.ledgerStore ?? defaultLedgerStore();
+    const now = dependencies?.now ?? (() => new Date().toISOString());
+    const claim = await claimExecutionLedger(store, input.planID, now());
+    return handleExecutionClaim(
+      claim,
+      token,
+      input,
+      secretFileContents,
+      store,
+      now,
+    );
+  } catch (error: unknown) {
+    return failure("execute_migration_workflow", createUUID(), error);
+  }
 };

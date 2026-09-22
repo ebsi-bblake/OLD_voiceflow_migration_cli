@@ -61,3 +61,27 @@ export const transitionExecutionLedgerRecord: TransitionExecutionLedgerRecord = 
     return record;
   return createExecutionLedgerRecord(record.planId, status, timestamp);
 };
+
+export type ExecutionLedgerStore = Readonly<{
+  readonly read: (planId: string) => Promise<ExecutionLedgerRecord | undefined>;
+  readonly write: (record: ExecutionLedgerRecord) => Promise<void>;
+}>;
+
+export type ExecutionLedgerClaim = "execute" | "skip" | "reconcile";
+
+type ClaimExecutionLedger = (
+  store: ExecutionLedgerStore,
+  planId: string,
+  timestamp: string,
+) => Promise<ExecutionLedgerClaim>;
+export const claimExecutionLedger: ClaimExecutionLedger = async (
+  store,
+  planId,
+  timestamp,
+) => {
+  const existing = await store.read(planId);
+  const decision = readExecutionLedgerDecision(existing);
+  if (decision !== "start") return decision;
+  await store.write(createExecutionLedgerRecord(planId, "in-flight", timestamp));
+  return "execute";
+};

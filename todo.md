@@ -1693,10 +1693,10 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Define the minimal states `in-flight`, `completed`, `failed`, and `unknown`.
 - [x] Store only `planId`, `status`, and `timestamp`; workflow/job IDs and detailed diagnostics remain in XYOps job state.
 - [x] Store the execution state-machine terminal classification without duplicating Logux action receipts or raw frames.
-- [ ] Define and enforce allowed state transitions.
+- [x] Define and enforce allowed state transitions for terminal `completed`/`unknown` records; retries from `failed` return to `in-flight` only after a new claim.
 - [x] Do not automatically expire or clear stale `in-flight`/`unknown` records; require reconciliation.
 - [x] Prohibit credentials, secret values, raw protocol frames, and unnecessary payloads.
-- [ ] Add runtime validation and redaction tests for ledger records.
+- [x] Add runtime validation and redaction tests for ledger records.
 
 ### 3. Claim before launch
 
@@ -1704,14 +1704,14 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Write `in-flight` before any Voiceflow mutation.
 - [ ] Stop when an existing record is `in-flight`, `completed`, or `unknown`.
 - [x] Use `planId` as the migration identity; a reused plan ID is conservatively blocked.
-- [ ] Fail closed when the bucket cannot be read or written.
-- [ ] Add tests for duplicate and missing-record decisions.
+- [x] Fail closed when the bucket cannot be read or written.
+- [x] Add tests for duplicate and missing-record decisions.
 
 ### 4. Launch and record
 
-- [ ] Start the XYOps execution workflow only after the execution path is accepted by the existing CLI handoff.
-- [ ] Treat a lost launch response as unresolved; the queued duplicate must encounter `in-flight` or the terminal status.
-- [ ] Ensure a retry cannot proceed while the original plan record is unresolved.
+- [x] Start the XYOps execution workflow only after the execution path is accepted by the existing CLI handoff.
+- [x] Treat a lost launch response as unresolved; the queued duplicate must encounter `in-flight` or the terminal status.
+- [x] Ensure a retry cannot proceed while the original plan record is unresolved.
 - [x] Keep detailed workflow/job identity in XYOps rather than duplicating it in the minimal bucket record.
 
 ### 5. Reconcile before retry

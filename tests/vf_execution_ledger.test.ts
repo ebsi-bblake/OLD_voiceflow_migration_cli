@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  claimExecutionLedger,
   createExecutionLedgerRecord,
   ExecutionLedgerRecordSchema,
   readExecutionLedgerDecision,
   transitionExecutionLedgerRecord,
 } from "../xyops/voiceflow/execution-ledger";
+import { createXYOpsExecutionLedgerStore } from "../xyops/voiceflow/xyops-execution-ledger-store";
 
 describe("execution ledger policy", () => {
   const timestamp = "2026-09-21T20:00:00.000Z";
@@ -87,5 +89,31 @@ describe("execution ledger policy", () => {
         jobId: "secret-or-extra-state",
       }).success,
     ).toBe(false);
+  });
+
+  test("claims a missing record and writes only the minimal plan entry", async () => {
+    const requests: Request[] = [];
+    const store = createXYOpsExecutionLedgerStore({
+      baseURL: "https://xyops.example.test",
+      apiKey: "api-key",
+      bucketID: "bucket-1",
+      fetcher: async (input, init) => {
+        requests.push(new Request(input, init));
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      },
+    });
+
+    expect(await claimExecutionLedger(store, "plan-1", timestamp)).toBe("execute");
+    expect(requests).toHaveLength(2);
+    expect(requests[0].url).toContain("/api/app/get_bucket/v1?id=bucket-1");
+    expect(requests[1].url).toBe(
+      "https://xyops.example.test/api/app/write_bucket_data/v1",
+    );
+    expect(await requests[1].clone().json()).toEqual({
+      id: "bucket-1",
+      data: {
+        "plan-1": { planId: "plan-1", status: "in-flight", timestamp },
+      },
+    });
   });
 });
