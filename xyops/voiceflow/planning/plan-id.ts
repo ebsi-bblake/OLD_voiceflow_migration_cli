@@ -10,7 +10,19 @@ const formatPlanID: FormatPlanID = (bytes) =>
 
 type PlanID = (selection: MigrationPlanIdentity) => Promise<string>;
 export const planID: PlanID = async (selection) => {
-  const bytes = new TextEncoder().encode(JSON.stringify(selection));
+  const canonicalSelection = {
+    sourceWorkspaceID: selection.sourceWorkspaceID,
+    sourceProjectID: selection.sourceProjectID,
+    sourceVersionID: selection.sourceVersionID,
+    destinationWorkspaceID: selection.destinationWorkspaceID,
+    ...(selection.destinationFolderID === undefined
+      ? {}
+      : { destinationFolderID: selection.destinationFolderID }),
+    ...(selection.targetSchemaVersion === undefined
+      ? {}
+      : { targetSchemaVersion: selection.targetSchemaVersion }),
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalSelection));
   return Promise.resolve().then(() =>
     formatPlanID(createHash("sha256").update(bytes).digest()),
   );

@@ -8,6 +8,7 @@ import type {
   MigrationPlan,
   MigrationSelection,
 } from "../xyops/voiceflow/contracts";
+import { planID } from "../xyops/voiceflow/planning/plan-id";
 
 const planningScenarioEnvironmentVariable =
   "VF_AUTH_PLANNING_FP_CATALOG_SCENARIO";
@@ -296,6 +297,19 @@ if (requestedPlanningScenario !== undefined) {
       });
       expect(changed.planID).toMatch(/^[a-f0-9]{24}$/);
       expect(changed.planID).not.toBe(first.planID);
+    });
+
+    test("is independent of selection property insertion order", async () => {
+      await expect(
+        planID({
+          sourceWorkspaceID: normalizedSelection.sourceWorkspaceID,
+          sourceProjectID: normalizedSelection.sourceProjectID,
+          sourceVersionID: normalizedSelection.sourceVersionID,
+          destinationWorkspaceID: normalizedSelection.destinationWorkspaceID,
+          targetSchemaVersion: normalizedSelection.targetSchemaVersion,
+          destinationFolderID: normalizedSelection.destinationFolderID,
+        }),
+      ).resolves.toBe(expectedPlanID);
     });
 
   });

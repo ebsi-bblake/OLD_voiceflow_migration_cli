@@ -1689,7 +1689,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Add the source-schema discovery event/node before plan-ID generation in the planning workflow. Event `emucv0djeip9zdlg`; workflow node `wf_resolve_source_schema`; deployed workflow `emubj74188ymokoo`.
 - [x] Pass the discovered source schema through workflowData into planning and the confirmed execution handoff.
 - [x] Use the configured `target_schema_version` only when present; otherwise use the discovered source schema.
-- [x] Ensure planning, confirmation, folder creation, and execution compute the same plan ID from the resolved schema.
+- [x] Ensure planning, confirmation, folder creation, and execution compute the same plan ID from the resolved schema using canonical selection-property ordering.
 - [x] Keep schema discovery read-only and independent of Voiceflow mutation stages.
 - [x] Add tests for omitted override, explicit override, malformed source metadata, schema mismatch, and plan-ID stability.
 - [x] Remove the temporary `target_schema_version` workaround from `migration.json` after the discovery path is deployed and verified; omitted-override probe `jmucv6pus3gt24l1` resolved source and target schema `1.2`.
@@ -1699,6 +1699,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Enabled read-only schema event `emucv0djeip9zdlg` for workflow invocation and completed planning probe `jmucv4pz4t80i1th`; resolved source schema `1.2`, honored target override `13.1`, produced plan `642a1c34ea8aaba9395b6466`, and declined confirmation without mutation.
 - [x] Reconciled job evidence: aborted probe `jmucv3vzyn6wi70a` was a confirmed pre-schema non-start caused by a disabled event; successful probe `jmucv4pz4t80i1th` completed all planning nodes and returned `PLANNED` data.
 - [x] Rebuilt and redeployed plugin `pmtal4rok7gbevqi` after ledger/folder-safety changes; verified the deployed script contains `resolve_source_schema_workflow` and remains execution-disabled.
+- [x] Approved execution attempt `jmucwolw4adr5ylk` stopped at `PLAN_MISMATCH` before export/import; canonical plan-ID fix deployed as plugin `v0.0.11`.
+- [ ] Retry execution: `jmucwrzjxxn5us2i` reached Voiceflow import and failed with retryable `DEPENDENCY_FAILURE`; destination-folder catalog visibility caused a second folder creation (`111` then `112`). Treat the migration as unresolved and reconcile before any retry.
 
 ## Execution-ledger implementation plan
 
