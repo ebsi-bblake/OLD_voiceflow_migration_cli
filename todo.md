@@ -1694,6 +1694,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Keep the execution workflow disabled until source-schema discovery and plan-ID consistency pass production-like validation.
 - [x] Updated plugin `pmtal4rok7gbevqi` and verified the planning workflow graph: source resolution -> schema discovery -> destination catalog.
 - [x] Enabled read-only schema event `emucv0djeip9zdlg` for workflow invocation and completed planning probe `jmucv4pz4t80i1th`; resolved source schema `1.2`, honored target override `13.1`, produced plan `642a1c34ea8aaba9395b6466`, and declined confirmation without mutation.
+- [x] Reconciled job evidence: aborted probe `jmucv3vzyn6wi70a` was a confirmed pre-schema non-start caused by a disabled event; successful probe `jmucv4pz4t80i1th` completed all planning nodes and returned `PLANNED` data.
 
 ## Execution-ledger implementation plan
 
@@ -1745,9 +1746,9 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 
 - [x] Define a pure reconciliation policy distinguishing confirmed non-start, active, completed, failed, unknown, and ambiguous evidence; ambiguous evidence blocks relaunch.
 - [ ] Reconcile `starting` and `unknown` records before allowing a retry.
-- [ ] Inspect the recorded XYOps workflow/job status and logs.
+- [x] Inspect the recorded XYOps workflow/job status and logs for reconciliation evidence.
 - [ ] Resume observation when the original job is found.
-- [ ] Distinguish confirmed non-start, confirmed execution, terminal failure, and ambiguity.
+- [x] Distinguish confirmed non-start, confirmed execution, terminal failure, and ambiguity for the planning probe evidence.
 - [ ] Block when evidence remains ambiguous.
 - [ ] Never blindly relaunch a migration after an unknown outcome.
 
