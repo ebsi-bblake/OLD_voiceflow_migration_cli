@@ -1674,12 +1674,16 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 
 - [x] Verify authoritative bucket read behavior and JSON data retrieval. `xy bucket <id> --format json` returns bucket metadata, JSON data, files, and revision.
 - [x] Verify authoritative bucket write behavior and revision/conflict responses. The installed SDK exposes `writeBucketData` as a shallow merge with optional fetch; no revision or conditional-write field is exposed.
-- [ ] Verify whether bucket create/update supports an atomic create-if-absent or compare-and-swap lock. Current SDK request types expose no conditional-write primitive.
-- [ ] Verify whether bucket writes are serialized strongly enough for concurrent execution claims. Requires a controlled concurrent-write probe.
+- [x] Verify whether bucket create/update supports an atomic create-if-absent or compare-and-swap lock. The current SDK request types expose no conditional-write primitive.
+- [x] Verify whether bucket writes are serialized strongly enough for concurrent execution claims. A controlled ten-writer probe showed all writes succeed, the bucket revision remains unchanged, and the final same-key value is last-writer-wins; this is not safe for atomic claims.
 - [x] Verify job lookup by returned job ID and determine whether lookup by `planID` or execution fingerprint is supported. `getJob`/`getJobs` support IDs; no native `planID` lookup was found in the CLI/SDK surface.
 - [x] Verify SSE/stream observation and bounded polling behavior for workflow jobs. The SDK exposes `streamJob`; CLI job retrieval provides polling-compatible reads.
 - [x] Verify workflow/job status, log, terminal-result, timeout, and reconnect semantics from the installed SDK/CLI surface. `getJob`, `getJobLog`, `streamJob`, `getWorkflowJobSummary`, and workflow job records are available; reconnect/timeout behavior still needs a live failure probe.
-- [ ] Document consistency, race, retention, and failure limitations before choosing the ledger adapter.
+- [x] Document consistency, race, retention, and failure limitations before choosing the ledger adapter. Buckets are authoritative for reads and ordinary writes, but are unsuitable as the atomic claim/lock unless XYOps exposes a lower-level conditional API not present in the installed SDK.
+- [ ] Identify and verify an XYOps-native idempotency, deduplication, queue-concurrency, or conditional-storage primitive before implementing a custom ledger.
+- [x] Inventory the installed SDK's relevant native controls: event/job limits can constrain an event's concurrency, job tags can carry searchable metadata, and workflow/job lookup plus SSE are available.
+- [ ] Verify whether event/job limits can be keyed by execution fingerprint; current type/API surfaces suggest limits apply to the event/job generally, not to one plan identity.
+- [ ] Verify whether run-event tags or input fields participate in atomic deduplication; current SDK surfaces expose them as metadata/input only, not an idempotency key.
 
 ### 2. Define the ledger contract
 
