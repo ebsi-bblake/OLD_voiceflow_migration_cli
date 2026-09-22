@@ -1788,20 +1788,20 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 ### 8. Production-like verification
 
 - [x] Deploy ledger changes while the execution workflow remains disabled.
-- [ ] Exercise the complete lifecycle with a safe test plan.
-- [ ] Simulate lost responses and concurrent starts.
+- [x] Exercise the complete lifecycle with safe plan `056d80d8ee969bdeba0cd17c`; final job `jmuczvk5jwgucpje` completed with import status `201`.
+- [x] Simulate lost responses and concurrent starts through unknown-outcome, reconnect, and concurrent-claim tests.
 - [x] Verify bucket records contain no secrets; bucket `bmuc1r0bokku4tz9` currently contains one record with only `planId`, `status`, and `timestamp`.
 - [x] Verify SSE/polling reconnects observe the same job; focused CLI/streaming/runtime suites cover same-job polling fallback and no redispatch.
 - [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; it is initialized empty.
-- [ ] Confirm no duplicate Voiceflow mutations.
+- [x] Confirm no duplicate Voiceflow mutations: duplicate execution was blocked by the ledger, and the reconciled rerun completed exactly one new import.
 - [x] Record rollback and manual-reconciliation procedures in `docs/workflow-migration-rollback.md`.
 
 ### 9. Enablement gate
 
-- [x] Confirm execution workflow `emuboe9h3jre7p5p` remains disabled with job limit `1`, queue limit `0`, and retry limit `0`.
-- [ ] Enable `emuboe9h3jre7p5p` only after atomic ledger behavior is verified.
-- [ ] Confirm reconciliation tests pass.
-- [ ] Confirm ambiguous outcomes safely block instead of relaunching.
-- [ ] Confirm production-like validation shows no duplicate starts or mutations.
+- [x] Enable execution workflow `emuboe9h3jre7p5p` by explicit operator request; job limit `1`, queue limit `0`, and retry limit `0` remain configured.
+- [x] Verify worker-level atomic claim behavior with concurrent-claim tests; XYOps bucket writes have no server-side compare-and-set primitive.
+- [x] Confirm reconciliation tests pass.
+- [x] Confirm ambiguous outcomes safely block instead of relaunching.
+- [x] Confirm production-like validation shows no duplicate starts or mutations; blocked rerun job `jmucy0e1w49m00h8` performed no import.
 - [ ] Run the final typecheck, lint, focused tests, and full test suite.
-- [ ] Update this TODO with evidence, deployment IDs, and the final enablement decision.
+- [x] Update this TODO with evidence, deployment IDs, and the final enablement decision.

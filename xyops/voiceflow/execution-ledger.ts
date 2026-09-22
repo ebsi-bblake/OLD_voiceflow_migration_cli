@@ -91,19 +91,42 @@ export const settleExecutionLedger: SettleExecutionLedger = async (
 
 export type ExecutionLedgerClaim = "execute" | "skip" | "reconcile";
 
+const claimLocks = new Map<string, Promise<void>>();
+
+type WithClaimLock = <A>(
+  planId: string,
+  operation: () => Promise<A>,
+) => Promise<A>;
+const withClaimLock: WithClaimLock = async (planId, operation) => {
+  const previous = claimLocks.get(planId) ?? Promise.resolve();
+  let release: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  claimLocks.set(planId, current);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release?.();
+    if (claimLocks.get(planId) === current) claimLocks.delete(planId);
+  }
+};
+
 type ClaimExecutionLedger = (
   store: ExecutionLedgerStore,
   planId: string,
   timestamp: string,
 ) => Promise<ExecutionLedgerClaim>;
-export const claimExecutionLedger: ClaimExecutionLedger = async (
+export const claimExecutionLedger: ClaimExecutionLedger = (
   store,
   planId,
   timestamp,
-) => {
-  const existing = await store.read(planId);
-  const decision = readExecutionLedgerDecision(existing);
-  if (decision !== "start") return decision;
-  await store.write(createExecutionLedgerRecord(planId, "in-flight", timestamp));
-  return "execute";
-};
+) =>
+  withClaimLock(planId, async () => {
+    const existing = await store.read(planId);
+    const decision = readExecutionLedgerDecision(existing);
+    if (decision !== "start") return decision;
+    await store.write(createExecutionLedgerRecord(planId, "in-flight", timestamp));
+    return "execute";
+  });

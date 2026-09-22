@@ -230,6 +230,24 @@ describe("execution ledger policy", () => {
     },
   );
 
+  test("serializes concurrent claims for the same plan", async () => {
+    let record: ReturnType<typeof createExecutionLedgerRecord> | undefined;
+    const store = {
+      read: async () => record,
+      write: async (next: typeof record) => {
+        record = next;
+      },
+    };
+
+    const claims = await Promise.all([
+      claimExecutionLedger(store, "plan-concurrent", timestamp),
+      claimExecutionLedger(store, "plan-concurrent", timestamp),
+    ]);
+
+    expect(claims.sort()).toEqual(["execute", "reconcile"]);
+    expect(record?.status).toBe("in-flight");
+  });
+
   test("claims a missing record and writes only the minimal plan entry", async () => {
     const requests: Request[] = [];
     const store = createXYOpsExecutionLedgerStore({
