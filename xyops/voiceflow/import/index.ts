@@ -99,6 +99,7 @@ const requestImportResponse: RequestImportResponse = async (
       status: response.status,
       contentType: response.headers.get("content-type"),
       responseBytes: response.bytes.byteLength,
+      responseDiagnostic: responseDiagnostic(response.bytes),
     });
     return response;
   } catch (error) {
@@ -141,6 +142,24 @@ const ensureSuccessfulStatus = (status: number): void => {
 
 const isSuccessfulStatus = (status: number): boolean =>
   status >= 200 && status < 300;
+
+type ResponseDiagnostic = string | Readonly<Record<string, unknown>>;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const responseDiagnostic = (bytes: ArrayBuffer): ResponseDiagnostic => {
+  const text = new TextDecoder().decode(bytes).slice(0, 500);
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!isRecord(parsed)) return text;
+    return Object.fromEntries(
+      ["code", "error", "message", "details", "status"].flatMap((key) =>
+        key in parsed ? [[key, parsed[key]]] : [],
+      ),
+    );
+  } catch {
+    return text;
+  }
+};
 const parseImportBody = (bytes: ArrayBuffer): unknown => {
   try {
     return JSON.parse(new TextDecoder().decode(bytes));
