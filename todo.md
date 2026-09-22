@@ -1659,6 +1659,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Executed the approved `migration.json` handoff after explicit confirmation; planning succeeded, but the execution workflow aborted before child jobs with `Could not find linked trigger definition: exec_start`.
 - [x] Disabled `emuboe9h3jre7p5p` again after the failed execution attempt; the execution ledger bucket remains empty and no Voiceflow mutation was observed.
 - [x] Diagnosed the next execution failure: the child event received the prior workflow result under `input.data.voiceflow.result`; updated the ledger guard to unwrap that envelope before validation.
+- [x] Diagnosed the following `PLAN_MISMATCH`: planning omitted the target schema while execution discovered `13.1` from the artifact; set `target_schema_version` to `13.1` in `migration.json` so planning and execution use the same plan identity.
+- [x] Re-ran planning with the corrected configuration; it reused the created destination folder and produced plan `c9c5148aa5f29244bb7f2af7`; no migration was run.
 - [x] Repaired the execution workflow trigger by adding the missing trigger ID `exec_start` to its manual trigger definition.
 - [x] Enabled the repaired workflow for a missing-input probe; `exec_start` advanced to `exec_initialize`, which rejected invalid input before mutation; disabled the workflow again.
 - [x] Added equivalent generated-ID suffix normalization for destination folder labels; deployed plugin revision 166.
