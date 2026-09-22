@@ -1495,7 +1495,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Standalone event behavior remains covered.
 - [ ] Selection/planning catalog retrieval counts are measured and reduced only where safe.
 - [ ] Execution current-state reads are explicitly retained and documented.
-- [ ] SSE observation has bounded polling fallback for the existing job/workflow ID.
+- [x] SSE observation has bounded polling fallback for the existing job/workflow ID.
 - [ ] Duplicate start, resume, retry, reconnect, and terminal observation behavior is tested.
 - [ ] No secret values, tokens, raw protocol frames, or unbounded external payloads enter workflowData.
 - [ ] Unknown outcomes are reconciled before any retry or operator instruction to retry.
@@ -1781,7 +1781,7 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [ ] Exercise the complete lifecycle with a safe test plan.
 - [ ] Simulate lost responses and concurrent starts.
 - [x] Verify bucket records contain no secrets; bucket `bmuc1r0bokku4tz9` currently contains one record with only `planId`, `status`, and `timestamp`.
-- [ ] Verify SSE/polling reconnects observe the same job.
+- [x] Verify SSE/polling reconnects observe the same job; focused CLI/streaming/runtime suites cover same-job polling fallback and no redispatch.
 - [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; it is initialized empty.
 - [ ] Confirm no duplicate Voiceflow mutations.
 - [ ] Record rollback and manual-reconciliation procedures.
