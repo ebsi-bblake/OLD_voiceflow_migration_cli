@@ -70,15 +70,43 @@ const resolveCurrentFolder = async (
     : folders.find((folder) => folder.id === choice.value);
 };
 
+type ResolveCurrentFolder = (
+  token: string,
+  workspaceID: string,
+  requestedPath: string,
+) => Promise<FolderRecord | undefined>;
+type CreateFolderOperation = typeof createFolder;
+type CreateFolderDependencies = Readonly<{
+  readonly resolveCurrentFolder: ResolveCurrentFolder;
+  readonly createFolder: CreateFolderOperation;
+}>;
+const defaultCreateFolderDependencies: CreateFolderDependencies = {
+  resolveCurrentFolder,
+  createFolder,
+};
+
 const createAndVerifyFolder = async (
   token: string,
   data: ExecutionReadyData,
   requestedPath: string,
+  dependencies: CreateFolderDependencies,
 ): Promise<FolderRecord> => {
   const creation = data.plan.destinationFolderCreation;
   if (creation === undefined) throw new OperationFault("INVALID_ARGUMENT");
-  const response = await createFolder(token, creation.workspaceID, requestedPath);
-  if (!response.ok) throw new OperationFault(response.error.code);
+  const response = await dependencies.createFolder(token, creation.workspaceID, requestedPath);
+  if (!response.ok) {
+    const appeared = await dependencies.resolveCurrentFolder(
+      token,
+      creation.workspaceID,
+      requestedPath,
+    );
+    if (appeared !== undefined) return appeared;
+    throw new OperationFault(
+      response.error.code,
+      response.error.retryable,
+      "destination-folder-creation-uncertain",
+    );
+  }
   const auth = await resolveVoiceflowAuth(token);
   const folders = await loadFolders(auth, creation.workspaceID);
   const created = folders.find((folder) => folder.id === response.result.folder.value);
@@ -86,26 +114,44 @@ const createAndVerifyFolder = async (
   return created;
 };
 
-type Main = (token: string, workflowData: unknown) => Promise<Envelope<unknown>>;
-export const main: Main = async (token, input) => {
+type EnsureFolder = (
+  token: string,
+  data: ExecutionReadyData,
+  dependencies: CreateFolderDependencies,
+) => Promise<ExecutionReadyData>;
+const ensureFolder: EnsureFolder = async (token, data, dependencies) => {
+  const creation = data.plan.destinationFolderCreation;
+  if (creation === undefined || data.selection.destinationFolderID !== undefined)
+    return data;
+  const existing = await dependencies.resolveCurrentFolder(
+    token,
+    creation.workspaceID,
+    creation.requestedPath,
+  );
+  const folder = existing ?? (await createAndVerifyFolder(
+    token,
+    data,
+    creation.requestedPath,
+    dependencies,
+  ));
+  return completedData(data, folder.id, folder.label);
+};
+
+type Main = (
+  token: string,
+  workflowData: unknown,
+  dependencies?: CreateFolderDependencies,
+) => Promise<Envelope<unknown>>;
+export const main: Main = async (token, input, dependencies = defaultCreateFolderDependencies) => {
   const operationID = createUUID();
   try {
     const parsed = MigrationWorkflowDataSchema.safeParse(readWorkflowData(input));
     if (!parsed.success || parsed.data.stage !== "EXECUTION_READY")
       throw new OperationFault("INVALID_ARGUMENT");
-    const creation = parsed.data.plan.destinationFolderCreation;
-    if (creation === undefined || parsed.data.selection.destinationFolderID !== undefined)
-      return success("create_folder_workflow", operationID, parsed.data);
-    const existing = await resolveCurrentFolder(
-      token,
-      creation.workspaceID,
-      creation.requestedPath,
-    );
-    const folder = existing ?? (await createAndVerifyFolder(token, parsed.data, creation.requestedPath));
     return success(
       "create_folder_workflow",
       operationID,
-      await completedData(parsed.data, folder.id, folder.label),
+      await ensureFolder(token, parsed.data, dependencies),
     );
   } catch (error) {
     return failure("create_folder_workflow", operationID, error);

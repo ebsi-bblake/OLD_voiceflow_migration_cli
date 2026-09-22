@@ -1675,9 +1675,9 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Add `create_folder_workflow` to re-read the current destination folder catalog before creation.
 - [x] Reuse a folder that appeared while planning was awaiting confirmation.
 - [x] Create the folder only when it is still absent, then verify the durable folder ID.
-- [ ] Stop safely on ambiguity, duplicate creation, timeout, or unknown creation outcome.
+- [x] Stop safely on ambiguity, duplicate creation, timeout, or unknown creation outcome.
 - [x] Connect `create_folder_workflow` before `execute_migration_workflow` in the disabled execution workflow.
-- [ ] Add tests for missing-folder planning, cancellation, reappeared folders, creation success, and unknown outcomes.
+- [x] Add tests for missing-folder planning, cancellation, reappeared folders, creation success, and unknown outcomes.
 
 ## Pending source-schema discovery and target override
 
