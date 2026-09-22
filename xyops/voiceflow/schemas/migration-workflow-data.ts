@@ -115,6 +115,7 @@ const DestinationFolderCreationSchema = z
 const MigrationPlanSchema = z
   .object({
     planID: nonEmptyString,
+    sourceSchemaVersion: optionalNonEmptyString,
     selection: PlannedSelectionSchema,
     labels: z
       .object({
@@ -192,12 +193,33 @@ const SourceResolvedWorkflowDataSchema = z
   })
   .strict();
 
+const SourceSchemaResolvedWorkflowDataSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    stage: z.literal("SOURCE_SCHEMA_RESOLVED"),
+    config: MigrationWorkflowConfigSchema,
+    catalog: SourceCatalogSchema,
+    sourceSchemaVersion: nonEmptyString,
+    selection: z
+      .object({
+        sourceWorkspaceID: nonEmptyString,
+        sourceProjectID: nonEmptyString,
+        sourceVersionID: nonEmptyString,
+        destinationWorkspaceID: optionalNonEmptyString,
+        destinationFolderID: optionalNonEmptyString,
+        targetSchemaVersion: nonEmptyString,
+      })
+      .strict(),
+  })
+  .strict();
+
 const DestinationCatalogLoadedWorkflowDataSchema = z
   .object({
     schemaVersion: z.literal(1),
     stage: z.literal("DESTINATION_CATALOG_LOADED"),
     config: MigrationWorkflowConfigSchema,
     catalog: DestinationCatalogSchema,
+    sourceSchemaVersion: optionalNonEmptyString,
     selection: z
       .object({
         sourceWorkspaceID: nonEmptyString,
@@ -217,6 +239,7 @@ const DestinationResolvedWorkflowDataSchema = z
     stage: z.literal("DESTINATION_RESOLVED"),
     config: MigrationWorkflowConfigSchema,
     catalog: CompleteCatalogSchema,
+    sourceSchemaVersion: optionalNonEmptyString,
     selection: z
       .object({
         sourceWorkspaceID: nonEmptyString,
@@ -242,6 +265,7 @@ const PlannedWorkflowDataSchema = z
     stage: z.literal("PLANNED"),
     config: MigrationWorkflowConfigSchema,
     catalog: CompleteCatalogSchema,
+    sourceSchemaVersion: optionalNonEmptyString,
     selection: PlannedSelectionSchema,
     plan: MigrationPlanSchema,
   })
@@ -296,6 +320,7 @@ const MigrationWorkflowDataStructureSchema = z.discriminatedUnion("stage", [
   WorkspacesLoadedWorkflowDataSchema,
   SourceCatalogLoadedWorkflowDataSchema,
   SourceResolvedWorkflowDataSchema,
+  SourceSchemaResolvedWorkflowDataSchema,
   DestinationCatalogLoadedWorkflowDataSchema,
   DestinationResolvedWorkflowDataSchema,
   PlannedWorkflowDataSchema,

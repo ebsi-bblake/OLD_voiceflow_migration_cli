@@ -59,11 +59,12 @@ export const main: Main = async (input) => {
   try {
     const parsed = MigrationWorkflowDataSchema.safeParse(readWorkflowData(input));
     if (!parsed.success || parsed.data.stage !== "DESTINATION_RESOLVED") throw new OperationFault("INVALID_ARGUMENT");
-    const { catalog, selection, config, destinationFolderCreation } = parsed.data;
+    const { catalog, selection, config, sourceSchemaVersion, destinationFolderCreation } = parsed.data;
     const labels = plannedLabels(parsed.data);
     const planIDValue = await planID(selection);
     const plan = {
       planID: planIDValue,
+      ...(sourceSchemaVersion === undefined ? {} : { sourceSchemaVersion }),
       selection,
       labels,
       ...(destinationFolderCreation === undefined
@@ -75,6 +76,7 @@ export const main: Main = async (input) => {
       stage: "PLANNED",
       config,
       catalog,
+      ...(sourceSchemaVersion === undefined ? {} : { sourceSchemaVersion }),
       selection,
       plan,
     });

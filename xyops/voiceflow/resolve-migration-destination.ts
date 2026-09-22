@@ -63,6 +63,9 @@ export const main: Main = async (input) => {
       stage: "DESTINATION_RESOLVED",
       config: parsed.data.config,
       catalog: parsed.data.catalog,
+      ...(parsed.data.sourceSchemaVersion === undefined
+        ? {}
+        : { sourceSchemaVersion: parsed.data.sourceSchemaVersion }),
       selection: {
         ...parsed.data.selection,
         ...(resolution.destinationFolderID === undefined

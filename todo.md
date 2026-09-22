@@ -1679,6 +1679,21 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Connect `create_folder_workflow` before `execute_migration_workflow` in the disabled execution workflow.
 - [ ] Add tests for missing-folder planning, cancellation, reappeared folders, creation success, and unknown outcomes.
 
+## Pending source-schema discovery and target override
+
+- [x] Treat `target_schema_version` as an explicit override, not the default.
+- [x] Define the source schema as the exported source artifact `_version` metadata.
+- [x] Add a read-only source-schema discovery event that exports the selected source version and returns only the validated schema version; do not persist artifact bytes in workflowData.
+- [x] Add the source-schema discovery event/node before plan-ID generation in the planning workflow. Event `emucv0djeip9zdlg`; workflow node `wf_resolve_source_schema`; deployed workflow `emubj74188ymokoo`.
+- [x] Pass the discovered source schema through workflowData into planning and the confirmed execution handoff.
+- [x] Use the configured `target_schema_version` only when present; otherwise use the discovered source schema.
+- [x] Ensure planning, confirmation, folder creation, and execution compute the same plan ID from the resolved schema.
+- [x] Keep schema discovery read-only and independent of Voiceflow mutation stages.
+- [x] Add tests for omitted override, explicit override, malformed source metadata, schema mismatch, and plan-ID stability.
+- [ ] Remove the temporary `target_schema_version` workaround from `migration.json` after the discovery path is deployed and verified.
+- [ ] Keep the execution workflow disabled until source-schema discovery and plan-ID consistency pass production-like validation.
+- [x] Updated plugin `pmtal4rok7gbevqi` and verified the planning workflow graph: source resolution -> schema discovery -> destination catalog.
+
 ## Execution-ledger implementation plan
 
 ### 1. Confirm XYOps primitives

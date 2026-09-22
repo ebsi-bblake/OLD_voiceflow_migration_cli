@@ -28,6 +28,7 @@ export const mapVoiceflowEnvelope: MapVoiceflowEnvelope = (envelope) => {
       envelope.operation === "load_workspaces" ||
       envelope.operation === "load_source_catalog" ||
       envelope.operation === "resolve_source_selection" ||
+      envelope.operation === "resolve_source_schema_workflow" ||
       envelope.operation === "load_destination_catalog" ||
       envelope.operation === "resolve_destination_selection" ||
       envelope.operation === "plan_migration_workflow" ||

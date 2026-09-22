@@ -9,6 +9,7 @@ import { main as listWorkspaces } from "../voiceflow/list_workspaces";
 import { main as loadWorkspaces } from "../voiceflow/load-migration-workspaces";
 import { main as loadSourceCatalog } from "../voiceflow/load-migration-source-catalog";
 import { main as resolveSourceSelection } from "../voiceflow/resolve-migration-source";
+import { main as resolveSourceSchemaWorkflow } from "../voiceflow/resolve-source-schema-workflow";
 import { main as loadDestinationCatalog } from "../voiceflow/load-migration-destination-catalog";
 import { main as resolveDestinationSelection } from "../voiceflow/resolve-migration-destination";
 import { main as planMigrationWorkflow } from "../voiceflow/plan-migration-workflow";
@@ -36,6 +37,7 @@ const defaultOperationHandlers: DefaultOperationHandlers = {
   load_workspaces: loadWorkspaces,
   load_source_catalog: loadSourceCatalog,
   resolve_source_selection: resolveSourceSelection,
+  resolve_source_schema_workflow: resolveSourceSchemaWorkflow,
   load_destination_catalog: loadDestinationCatalog,
   resolve_destination_selection: resolveDestinationSelection,
   plan_migration_workflow: planMigrationWorkflow,
@@ -139,6 +141,12 @@ const operationInvocations: OperationInvocations = {
     if (resolve === undefined)
       return Promise.reject(new OperationFault("INTERNAL_ERROR"));
     return resolve(workflowDataInput(job));
+  },
+  resolve_source_schema_workflow: (job, token, handlers) => {
+    const resolve = handlers.resolve_source_schema_workflow;
+    if (resolve === undefined)
+      return Promise.reject(new OperationFault("INTERNAL_ERROR"));
+    return resolve(token, workflowDataInput(job));
   },
   load_destination_catalog: (job, token, handlers) => {
     const load = handlers.load_destination_catalog;

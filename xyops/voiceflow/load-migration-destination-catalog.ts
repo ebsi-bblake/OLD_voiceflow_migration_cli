@@ -31,7 +31,7 @@ export const main: Main = async (token, input) => {
   const id = createUUID();
   try {
     const parsed = MigrationWorkflowDataSchema.safeParse(readWorkflowData(input));
-    if (!parsed.success || parsed.data.stage !== "SOURCE_RESOLVED") throw new OperationFault("INVALID_ARGUMENT");
+    if (!parsed.success || parsed.data.stage !== "SOURCE_SCHEMA_RESOLVED") throw new OperationFault("INVALID_ARGUMENT");
     const destinationWorkspaceID = resolveWorkspace(parsed.data.config, parsed.data.catalog.workspaces);
     const auth = await resolveVoiceflowAuth(token);
     const destinationFolders = await loadFolders(auth, destinationWorkspaceID);
@@ -40,6 +40,7 @@ export const main: Main = async (token, input) => {
       stage: "DESTINATION_CATALOG_LOADED",
       config: parsed.data.config,
       catalog: { ...parsed.data.catalog, destinationFolders },
+      sourceSchemaVersion: parsed.data.sourceSchemaVersion,
       selection: { ...parsed.data.selection, destinationWorkspaceID },
     });
   } catch (error) {
