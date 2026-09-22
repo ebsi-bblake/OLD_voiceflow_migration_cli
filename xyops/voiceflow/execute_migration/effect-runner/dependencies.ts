@@ -1,7 +1,7 @@
 import { exportVersion } from "../../export";
 import { importVersion } from "../../import";
 import { resolveVoiceflowAuth } from "../../auth";
-import { loadProjects } from "../../catalog";
+import { loadFolders, loadProjects } from "../../catalog";
 import { resolveConfiguredSecretValues as resolveSecrets } from "../../secrets";
 import { reconcileProjectSecrets as reconcileSecrets } from "../../logux";
 import { renameProject } from "../../logux/rename-project";
@@ -15,6 +15,7 @@ type EffectDependencies = Readonly<{
   readonly exportVersion: typeof exportVersion;
   readonly buildPlan: typeof buildPlan;
   readonly loadProjects: typeof loadProjects;
+  readonly loadFolders: typeof loadFolders;
   readonly renameProject: typeof renameProject;
   readonly confirmRename: typeof confirmRename;
   readonly importVersion: typeof importVersion;
@@ -40,6 +41,7 @@ export const defaultMigrationRuntimeDependencies: MigrationRuntimeDependencies =
     exportVersion,
     buildPlan,
     loadProjects,
+    loadFolders,
     renameProject,
     confirmRename,
     importVersion,

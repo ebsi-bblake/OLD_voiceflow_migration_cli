@@ -215,16 +215,13 @@ const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = async (
 ) => {
   if (configuredValue === undefined)
     return selectCatalog(reader, client, eventReference, parameters, title);
-  const response = await client.readEvent(
+  const options = await readConfiguredOptions(
+    client,
     eventReference,
     parameters,
-    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
-  );
-  return resolveConfiguredOption(
-    configuredValue,
-    readOptions(response, field),
     field,
   );
+  return resolveConfiguredOption(configuredValue, options, field);
 };
 
 type SelectCatalog = (
@@ -264,6 +261,26 @@ const readOptions = (
       nextAction: `${title} returned no usable options.`,
     });
   }
+};
+
+type ReadConfiguredOptions = (
+  client: ReturnType<typeof createXYOpsClient>,
+  eventReference: XYOpsEventReference,
+  parameters: EventParameters,
+  field: string,
+) => Promise<readonly { value: string; label: string }[]>;
+const readConfiguredOptions: ReadConfiguredOptions = async (
+  client,
+  eventReference,
+  parameters,
+  field,
+) => {
+  const response = await client.readEvent(
+    eventReference,
+    parameters,
+    createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+  );
+  return readOptions(response, field);
 };
 
 type SourceSelection = Pick<

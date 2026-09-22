@@ -12,8 +12,10 @@ import { appendDiagnosticCause, createDiagnostic } from "../xyops/diagnostics/cr
 describe("Voiceflow unexpected error diagnostics", () => {
   test("preserves every finite wire value during JSON serialization", () => {
     expect(Object.values(VoiceflowOperation)).toEqual([
-      "check_session", "list_workspaces", "list_projects", "list_versions",
+      "check_session", "check_session_workflow", "list_workspaces", "load_workspaces", "load_source_catalog", "resolve_source_selection", "load_destination_catalog", "resolve_destination_selection", "plan_migration_workflow", "list_projects", "list_versions",
       "list_folders", "create_folder", "plan_migration", "execute_migration",
+      "initialize_migration_workflow", "initialize_execution_workflow",
+      "execute_migration_workflow", "create_folder_workflow",
     ]);
     expect(Object.values(ErrorCode)).toContain("INTERNAL_ERROR");
     expect(Object.values(WarningCode)).toEqual(["NOT_IDEMPOTENT", "API_KEY_RETRIEVAL_FAILED"]);
@@ -121,6 +123,23 @@ describe("Voiceflow unexpected error diagnostics", () => {
     expect(toOperationError(new OperationFault("DEPENDENCY_FAILURE")).diagnostic?.nextAction).not.toBe(
       toOperationError(new OperationFault("IMPORT_OUTCOME_UNKNOWN", true)).diagnostic?.nextAction,
     );
+  });
+
+  test("preserves staged secret failure details without exposing secret data", () => {
+    const result = toOperationError(
+      new OperationFault(
+        "DEPENDENCY_TIMEOUT",
+        true,
+        "stage=SECRET_CREATION logux-unknown-outcome",
+        { stage: "SECRET_CREATION" },
+      ),
+    );
+
+    expect(result.message).toContain("stage=logux-unknown-outcome");
+    expect(result.diagnostic).toMatchObject({
+      stage: "SECRET_CREATION",
+      context: { detail: "logux-unknown-outcome" },
+    });
   });
 
   test("redacts Zod issue inputs while preserving safe issue metadata", () => {

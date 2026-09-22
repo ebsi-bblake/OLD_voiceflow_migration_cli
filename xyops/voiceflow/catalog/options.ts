@@ -1,4 +1,5 @@
 import type { AuthContext } from "../types";
+import { debugLog } from "../debug";
 import { syncCatalog } from "../logux";
 import { OperationFault } from "../contracts";
 import { requireVoiceflowString } from "../validation";
@@ -120,7 +121,16 @@ type LoadWorkspaces = (
 export const loadWorkspaces: LoadWorkspaces = (auth) =>
   syncCatalog(auth, `creator/${auth.creatorID}`, [
     "workspace.CRUD:REPLACE",
-  ]).then(projectRows(parseWorkspace));
+  ]).then((rows) => {
+    const workspaces = projectRows(parseWorkspace)(rows);
+    debugLog("catalog", "workspaces", {
+      rawRowCount: rows.length,
+      parsedRowCount: workspaces.length,
+      parsedWorkspaceIDs: workspaces.map(({ id }) => id),
+      parsedWorkspaceLabels: workspaces.map(({ label }) => label),
+    });
+    return workspaces;
+  });
 
 type LoadProjects = (
   auth: AuthContext,
@@ -144,18 +154,42 @@ const reconcileProjectFolders: ReconcileProjectFolders = (
     return folderID === undefined ? project : { ...project, folderID };
   });
 };
+const parseProjectRowsWithDebug = (
+  source: string,
+  rows: readonly RawRow[],
+): readonly ProjectRecord[] => {
+  const projects = projectRows(parseProject)(rows);
+  debugLog("catalog", "projects", {
+    source,
+    rawRowCount: rows.length,
+    parsedRowCount: projects.length,
+    parsedProjectIDs: projects.map(({ id }) => id),
+    parsedProjectWorkspaceIDs: [...new Set(projects.map(({ workspaceID }) => workspaceID))],
+  });
+  return projects;
+};
+
 export const loadProjects: LoadProjects = (auth, workspaceID) =>
   normalizeIDAsync(workspaceID).then((id) =>
     Promise.all([
-      loadCatalogRows(auth, ["project.CRUD:REPLACE"])(id).then(
-        projectRows(parseProject),
+      loadCatalogRows(auth, ["project.CRUD:REPLACE"])(id).then((rows) =>
+        parseProjectRowsWithDebug("project.CRUD:REPLACE", rows),
       ),
-      loadCatalogRows(auth, ["assistant.REPLACE"])(id).then(
-        projectRows(parseProject),
+      loadCatalogRows(auth, ["assistant.REPLACE"])(id).then((rows) =>
+        parseProjectRowsWithDebug("assistant.REPLACE", rows),
       ),
-    ]).then(([projects, assistants]) =>
-      reconcileProjectFolders(projects, assistants),
-    ),
+    ]).then(([projects, assistants]) => {
+      const reconciled = reconcileProjectFolders(projects, assistants);
+      debugLog("catalog", "project-folders", {
+        projectRowCount: projects.length,
+        assistantRowCount: assistants.length,
+        reconciledRowCount: reconciled.length,
+        reconciledFolderCount: reconciled.filter(
+          ({ folderID }) => folderID !== undefined,
+        ).length,
+      });
+      return reconciled;
+    }),
   );
 
 type LoadFolders = (
@@ -165,7 +199,15 @@ type LoadFolders = (
 export const loadFolders: LoadFolders = (auth, workspaceID) =>
   normalizeIDAsync(workspaceID)
     .then(loadCatalogRows(auth, ["workspace-folder.REPLACE"]))
-    .then(projectRows(parseFolder));
+    .then((rows) => {
+      const folders = projectRows(parseFolder)(rows);
+      debugLog("catalog", "folders", {
+        rawRowCount: rows.length,
+        parsedRowCount: folders.length,
+        parsedFolderIDs: folders.map(({ id }) => id),
+      });
+      return folders;
+    });
 
 type WorkspaceOptions = (rows: readonly WorkspaceRecord[]) => Option[];
 export const workspaceOptions: WorkspaceOptions = buildOptions;
@@ -179,7 +221,17 @@ export const projectOptions: ProjectOptions =
   (rows) => {
     const id = requireVoiceflowString(workspaceID);
     const projects = selectProjectsInWorkspace(rows, id);
-    return sortOptionsByLabel(projectOptionValues(projects, folders));
+    const options = sortOptionsByLabel(projectOptionValues(projects, folders));
+    debugLog("catalog", "project-options", {
+      requestedWorkspaceID: id,
+      inputProjectRowCount: rows.length,
+      workspaceProjectRowCount: projects.length,
+      folderRowCount: folders.length,
+      optionCount: options.length,
+      optionValues: options.map(({ value }) => value),
+      optionLabels: options.map(({ label }) => label),
+    });
+    return options;
   };
 
 type FolderOptions = (
@@ -210,7 +262,16 @@ export const versionOptions: VersionOptions =
 
 type ListWorkspaces = (auth: AuthContext) => Promise<Option[]>;
 export const listWorkspaces: ListWorkspaces = (auth) =>
-  loadWorkspaces(auth).then(buildOptions);
+  loadWorkspaces(auth).then((workspaces) => {
+    const options = buildOptions(workspaces);
+    debugLog("catalog", "workspace-options", {
+      parsedWorkspaceRowCount: workspaces.length,
+      optionCount: options.length,
+      optionValues: options.map(({ value }) => value),
+      optionLabels: options.map(({ label }) => label),
+    });
+    return options;
+  });
 
 type ListProjects = (
   auth: AuthContext,

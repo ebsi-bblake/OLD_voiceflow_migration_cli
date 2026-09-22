@@ -7,12 +7,14 @@ import type {
   XYOpsClient,
   XYOpsConfig,
   XYOpsEventReference,
+  XYOpsJob,
 } from "../types";
 import { fetchJSON, defaultSleep, type Request, type Sleep } from "./http";
-import { eventBody, pollJob, readEventWithRetry } from "./polling";
+import { completeJob, eventBody, pollJob, readEventOnce } from "./polling";
 import { streamJob, type StreamJob } from "./streaming";
 import {
   readJobOutput,
+  readJobResponse,
   readLaunchID,
   requireEnvelope,
   requireSuccessfulJob,
@@ -131,14 +133,7 @@ export const createXYOpsClient = (
     params: EventParameters,
     guard: ResponseSchema<VoiceflowEnvelope<T>>,
   ): Promise<VoiceflowEnvelope<T>> =>
-    readEventWithRetry(
-      request,
-      sleeper,
-      config.pollIntervalMs,
-      reference,
-      params,
-      guard,
-    );
+    readEventOnce(request, reference, params, guard);
 
   const readStreamOrJob = async (
     id: string,
@@ -191,11 +186,22 @@ export const createXYOpsClient = (
     }
   };
 
-  const readTerminalStream = async <T>(
+  const readTerminalStreamResult = async <T>(
     id: string,
+    streamOrJob: Awaited<ReturnType<typeof streamer>>,
     guard: ResponseSchema<VoiceflowEnvelope<T>>,
-  ): Promise<VoiceflowEnvelope<T>> =>
-    parseTerminalStream(await readStreamOrJob(id), guard);
+  ): Promise<VoiceflowEnvelope<T>> => {
+    if (!("kind" in streamOrJob) || !streamOrJob.requiresJobResponse)
+      return parseTerminalStream(streamOrJob, guard);
+    // SSE carries the terminal status, while get_job carries the plugin output.
+    // Read it once after SSE completion; do not turn this final reconciliation
+    // into a second polling loop.
+    const job = readJobResponse(
+      await request(JOB_PATH, { id }, JOB_PATH),
+      JOB_PATH,
+    );
+    return completeJob(job, guard);
+  };
 
   const startJobObservation = <T>(
     id: string,
@@ -217,16 +223,21 @@ export const createXYOpsClient = (
         useStreaming,
       );
     const stream = async (): Promise<VoiceflowEnvelope<T>> => {
+      let streamOrJob: Awaited<ReturnType<typeof streamer>>;
       try {
-        const result = await readTerminalStream(id, guard);
-        dispatch({ kind: "stream-succeeded" });
-        return result;
+        streamOrJob = await readStreamOrJob(id);
       } catch (error) {
         const effects = dispatch({ kind: "stream-failed" });
         if (effects.some((effect) => effect.kind === "start-polling"))
           return poll();
         throw error;
       }
+      // A completed SSE stream is authoritative about job completion. If the
+      // terminal output fetch fails, preserve that reconciliation failure rather
+      // than silently restarting polling after the mutation has run.
+      const result = await readTerminalStreamResult(id, streamOrJob, guard);
+      dispatch({ kind: "stream-succeeded" });
+      return result;
     };
     const effects = dispatch({ kind: "execute-dispatched", jobID: id });
     if (!useStreaming) {
@@ -240,6 +251,65 @@ export const createXYOpsClient = (
     return effects.some((effect) => effect.kind === "start-stream")
       ? stream()
       : Promise.reject(fail("execute-outcome-unknown", { endpoint: JOB_PATH }));
+  };
+
+  const isFinalJob = (job: XYOpsJob): boolean =>
+    job.final === true ||
+    job.state === "complete" ||
+    (job.completed !== undefined && job.completed !== null);
+
+  const readObservedJob = (id: string): Promise<XYOpsJob> =>
+    request(JOB_PATH, { id }, JOB_PATH).then((response) =>
+      readJobResponse(response, JOB_PATH),
+    );
+
+  const observeWorkflow: XYOpsClient["observeWorkflow"] = async (id) => {
+    try {
+      const streamed = await streamer(
+        fetcher,
+        config.baseURL,
+        config.apiKey,
+        id,
+        config.httpTimeoutMs,
+        {
+          maxBytes: config.streamMaxBytes,
+          maxFrameBytes: config.streamMaxFrameBytes,
+        },
+      );
+      if (streamed.requiresJobResponse) return await readObservedJob(id);
+      return {
+        id,
+        code: streamed.code,
+        data: streamed.data,
+        final: true,
+      };
+    } catch {
+      const deadline = Date.now() + config.pollTimeoutMs;
+      let attempt = 0;
+      while (Date.now() <= deadline) {
+        const job = await readObservedJob(id);
+        if (isFinalJob(job)) return job;
+        attempt += 1;
+        await sleeper(Math.min(config.pollIntervalMs * attempt, config.pollIntervalMs * 10));
+      }
+      throw fail("execute-outcome-unknown", {
+        endpoint: JOB_PATH,
+        nextAction: "The workflow outcome is unknown; reconcile before retrying.",
+      });
+    }
+  };
+
+  const startWorkflow: XYOpsClient["startWorkflow"] = async (
+    reference,
+    input,
+    params = {},
+  ) => {
+    const launch = await request(
+      RUN_PATH,
+      { ...eventBody(reference, params), input: { data: input } },
+      RUN_PATH,
+    );
+    return readLaunchID(launch, RUN_PATH);
   };
 
   const executeEvent = async <T>(
@@ -263,5 +333,5 @@ export const createXYOpsClient = (
     }
   };
 
-  return { readEvent, executeEvent };
+  return { readEvent, executeEvent, startWorkflow, observeWorkflow };
 };

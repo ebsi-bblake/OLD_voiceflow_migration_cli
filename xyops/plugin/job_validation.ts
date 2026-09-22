@@ -53,7 +53,7 @@ export const validatePluginJob: ValidatePluginJob = (value) => {
   const parsed = parseNativePluginJob(value);
   const params: PluginParameters = parsed.params;
   const operation = selectOperation(params);
-  return { params, operation };
+  return { params, operation, input: parsed.input };
 };
 
 type ParsePluginJob = (input: string) => NativePluginJob;

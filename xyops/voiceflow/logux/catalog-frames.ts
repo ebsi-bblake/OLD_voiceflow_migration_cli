@@ -1,4 +1,5 @@
 import type { CatalogEvent } from "./catalog-state-machine";
+import { debugLog } from "../debug";
 import { LoguxActionSchema } from "./schemas/action";
 import { CatalogRecordSchema } from "../catalog/schemas/catalog_record";
 
@@ -26,6 +27,7 @@ const normalizeSyncedFrame = (
     : { kind: "subscription-synced", syncID };
 };
 
+/* oxlint-disable complexity -- frame validation reports each boundary outcome. */
 const normalizeActionFrame = (
   frame: readonly unknown[],
   operationID: string,
@@ -37,7 +39,28 @@ const normalizeActionFrame = (
   const payload = action.data.payload;
   const rowsValue =
     payload === undefined ? undefined : (payload.values ?? payload.data);
+  const rawRows = Array.isArray(rowsValue) ? rowsValue : [];
+  const rowResults = rawRows.map((row) => CatalogRecordSchema.safeParse(row));
   const rows = CatalogRecordSchema.array().safeParse(rowsValue);
+  debugLog("catalog", "schema", {
+    actionType: action.data.type,
+    channel,
+    rawRowCount: rawRows.length,
+    schemaValidRowCount: rowResults.filter((result) => result.success).length,
+    schemaInvalidRowCount: rowResults.filter((result) => !result.success).length,
+    schemaInvalidRows: rowResults.flatMap((result, index) =>
+      result.success
+        ? []
+        : [{
+            index,
+            issues: result.error.issues.map(({ code, path }) => ({
+              code,
+              path: path.map(String),
+            })),
+          }],
+    ),
+    frameAccepted: rows.success,
+  });
   if (!rows.success) return undefined;
   const workspaceID = rows.data
     .map((row) => row.workspaceID)

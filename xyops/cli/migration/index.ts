@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
+import { z } from "zod";
 import {
   DEFAULT_XYOPS_BASE_URL,
   readMigrationFileConfig,
   readXYOpsConfig,
-  validateMigrationFileConfig,
 } from "../config";
 import { createXYOpsClient } from "../client";
 import { CheckSessionResultSchema } from "../schemas/session";
@@ -31,6 +31,9 @@ import {
 import { readSecretsForMigration } from "./secret-input";
 import { progress } from "../progress";
 import { VoiceflowOperation } from "../../voiceflow/types";
+import { MigrationWorkflowDataSchema } from "../../migration-workflow-data";
+import { toWorkflowInput } from "./workflow-input";
+import { runExecutionWorkflow } from "./execution-workflow";
 
 type PrintHelp = () => void;
 const printHelp: PrintHelp = () => {
@@ -41,6 +44,7 @@ const printHelp: PrintHelp = () => {
     "Optional --config=<JSON-file> supplies migration resource names or IDs, schema version, and project secrets.",
     'Config format: { "source_workspace": "...", "target_schema_version": "13.1", "secrets": "./secrets.json" }.',
     "Configured IDs or exact catalog names are resolved before planning; missing values are selected interactively.",
+    "XYOPS_MIGRATION_MODE=workflow starts and observes the migration workflow; events is the compatibility default.",
     "Optional XYOPS_EVENT_* overrides accept title:<event-title> or id:<event-id>.",
     "Default event titles must match the configured XYOps Event titles.",
     "Optional --debug enables stderr diagnostics; --debug=<name[,name...]> narrows them by logger name.",
@@ -54,6 +58,96 @@ const requireActiveSession = (active: boolean): void => {
     throw fail("envelope", {
       nextAction: "The configured Voiceflow session is not active.",
     });
+};
+
+const WorkflowDataEnvelopeSchema = z.looseObject({
+  voiceflow: z.unknown(),
+});
+const WorkflowDataFieldSchema = z.looseObject({
+  workflowData: z.unknown(),
+});
+const JobDataEnvelopeSchema = z.looseObject({
+  data: z.unknown(),
+});
+type ReadWorkflowDataCandidate = (job: { workflowData?: unknown; data?: unknown }) => unknown;
+const readWorkflowDataCandidate: ReadWorkflowDataCandidate = (job) => {
+  const source = job.workflowData ?? job.data;
+  const nested = JobDataEnvelopeSchema.safeParse(source);
+  const candidate = nested.success ? nested.data.data : source;
+  const field = WorkflowDataFieldSchema.safeParse(candidate);
+  if (field.success) return field.data.workflowData;
+  const wrapped = WorkflowDataEnvelopeSchema.safeParse(candidate);
+  if (!wrapped.success) return source;
+  const { voiceflow: _voiceflow, ...workflowData } = wrapped.data;
+  return workflowData;
+};
+
+type PerformWorkflowMigration = (context: MigrationContext) => Promise<void>;
+// eslint-disable-next-line complexity
+const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig, reader }) => {
+  const workflowJobID = await progress.run("start_migration_workflow", () =>
+    client.startWorkflow(config.migrationWorkflow ?? { title: "Voiceflow Migration Workflow" }, toWorkflowInput(migrationConfig)),
+  );
+  const workflowJob = await progress.run("observe_migration_workflow", () =>
+    client.observeWorkflow(workflowJobID),
+  );
+  if (workflowJob.code !== undefined && workflowJob.code !== 0 && workflowJob.code !== "0")
+    throw fail("job", {
+      nextAction: "The migration workflow failed.",
+    });
+  const workflowData = readWorkflowDataCandidate(workflowJob);
+  const parsedWorkflowData =
+    workflowData === undefined
+      ? undefined
+      : MigrationWorkflowDataSchema.safeParse(workflowData);
+  if (parsedWorkflowData !== undefined && !parsedWorkflowData.success)
+    throw fail("envelope", {
+      nextAction: "The migration workflow returned invalid workflowData.",
+    });
+  const planned = parsedWorkflowData?.success && parsedWorkflowData.data.stage === "PLANNED"
+    ? parsedWorkflowData.data
+    : undefined;
+  if (planned !== undefined) {
+    displayPlan(planned.plan);
+    const confirmed = await requestMigrationConfirmation(reader);
+    if (!confirmed) return;
+    const secretFileContents = migrationConfig?.secrets === undefined
+      ? undefined
+      : await progress.run("load_secrets", () =>
+          readSecretsForMigration(reader, migrationConfig),
+        );
+    const execution = await progress.run("execution_workflow", () =>
+      runExecutionWorkflow(
+        client,
+        config.executionWorkflow ?? { title: "Voiceflow Migration Execution Workflow" },
+        planned.plan,
+        secretFileContents,
+      ),
+    );
+    const executionWorkflowID = execution.jobID;
+    const executionJob = execution.job;
+    if (executionJob.code !== undefined && executionJob.code !== 0 && executionJob.code !== "0")
+      throw fail("job", { nextAction: "The execution workflow failed." });
+    console.log(JSON.stringify({
+      migrationWorkflow: {
+        jobID: workflowJobID,
+        stage: planned.stage,
+        workflowData: planned,
+      },
+      executionWorkflow: {
+        jobID: executionWorkflowID,
+        job: executionJob,
+      },
+    }));
+    return;
+  }
+  console.log(JSON.stringify({
+    migrationWorkflow: {
+      jobID: workflowJobID,
+      stage: parsedWorkflowData?.success ? parsedWorkflowData.data.stage : undefined,
+      workflowData: parsedWorkflowData?.success ? parsedWorkflowData.data : undefined,
+    },
+  }));
 };
 
 type PerformMigration = (context: MigrationContext) => Promise<void>;
@@ -140,15 +234,16 @@ export const run: Run = async () => {
 
   const migrationConfig = await readMigrationFileConfig();
 
-  validateMigrationFileConfig(migrationConfig);
-
   const client = createXYOpsClient(config);
   const reader = CreatePromptReader({
     beforeAsk: progress.pause,
     afterAsk: progress.resume,
   });
   try {
-    await performMigration({ reader, client, config, migrationConfig });
+    const context = { reader, client, config, migrationConfig };
+    if (config.migrationMode === "workflow")
+      await performWorkflowMigration(context);
+    else await performMigration(context);
   } finally {
     reader.close();
   }

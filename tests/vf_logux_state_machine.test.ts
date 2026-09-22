@@ -359,4 +359,35 @@ describe("Logux state machines", () => {
       transitionSecretState(state, { kind: "secret-done", actionID: "action-id" }).kind,
     ).toBe("COMPLETED");
   });
+
+  test("preserves secret completion action and assistant correlation", () => {
+    const completion = [
+      "sync",
+      20,
+      {
+        type: "secret.CREATE_ONE_DONE",
+        payload: { result: { context: { assistantID: "assistant-id" } } },
+        meta: { actionID: "action-id" },
+      },
+    ] as const;
+    expect(isSecretCompletion(completion, "other", "assistant-id")).toBe(false);
+    expect(isSecretCompletion(completion, "action-id", "other")).toBe(false);
+    expect(isSecretCompletion(completion, "action-id", "assistant-id")).toBe(true);
+  });
+
+  test("keeps secret mutation failures unknown after dispatch", () => {
+    let state = createSecretState("assistant-id", "action-id");
+    for (const event of [
+      { kind: "connection-established" as const },
+      { kind: "connected" as const },
+      { kind: "subscription-synced" as const },
+      { kind: "mutation-sent" as const, mutationSyncID: 20 },
+    ]) state = transitionSecretState(state, event);
+    expect(transitionSecretState(state, { kind: "transport-timeout" }).kind).toBe(
+      "UNKNOWN_OUTCOME",
+    );
+    expect(transitionSecretState(state, { kind: "connection-interrupted" }).kind).toBe(
+      "UNKNOWN_OUTCOME",
+    );
+  });
 });

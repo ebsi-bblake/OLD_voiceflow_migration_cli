@@ -52,10 +52,14 @@ export const createArchiveCandidateHandler =
   async (state) => {
     const auth = requireAuth(state);
     requirePlan(state);
-    const [sourceProjects, destinationProjects] = await Promise.all([
+    const [sourceProjects, destinationProjects, destinationFolders] = await Promise.all([
       dependencies.loadProjects(auth, input.selection.sourceWorkspaceID),
       dependencies.loadProjects(auth, input.selection.destinationWorkspaceID),
+      dependencies.loadFolders(auth, input.selection.destinationWorkspaceID),
     ]);
+    if (!destinationFolders.some(
+      (folder) => folder.id === input.selection.destinationFolderID,
+    )) throw new OperationFault("NOT_FOUND");
     const sourceProject = sourceProjects.find(
       (candidate) => candidate.id === input.selection.sourceProjectID,
     );

@@ -21,6 +21,31 @@ export type MigrationPlan = Readonly<{
     destinationFolder: string;
   }>;
 }>;
+export type WorkflowMigrationSelection = Readonly<{
+  sourceWorkspaceID: string;
+  sourceProjectID: string;
+  sourceVersionID: string;
+  destinationWorkspaceID: string;
+  destinationFolderID?: string;
+  targetSchemaVersion?: string;
+}>;
+export type DestinationFolderCreation = Readonly<{
+  workspaceID: string;
+  requestedPath: string;
+  action: "CREATE_DESTINATION_FOLDER";
+}>;
+export type WorkflowMigrationPlan = Readonly<{
+  planID: string;
+  selection: WorkflowMigrationSelection;
+  labels: Readonly<{
+    sourceWorkspace: string;
+    sourceProject: string;
+    sourceVersion: string;
+    destinationWorkspace: string;
+    destinationFolder: string;
+  }>;
+  destinationFolderCreation?: DestinationFolderCreation;
+}>;
 export type VoiceflowWarning = Readonly<{ code: string; message: string }>;
 export type VoiceflowSuccess<T> = Readonly<{
   ok: true;
@@ -85,14 +110,14 @@ export type XYOpsStreamResult =
       jobID: string;
       code: number | string;
       data: Record<string, unknown>;
-      requiresJobResponse: true;
+      requiresJobResponse: boolean;
     }>
   | Readonly<{
       kind: "failure";
       jobID: string;
       code: number | string;
       data: Record<string, unknown>;
-      requiresJobResponse: true;
+      requiresJobResponse: boolean;
     }>;
 // These are the states currently documented by XYOps; unknown server states remain strings and are ignored safely.
 export const XYOpsJobState = {
@@ -110,6 +135,11 @@ export type XYOpsJob = Readonly<{
   description?: string;
   output?: string | null;
   data?: unknown;
+  final?: boolean;
+  suspended?: boolean;
+  workflowData?: Record<string, unknown>;
+  input?: unknown;
+  workflow?: unknown;
 }>;
 export type XYOpsJobResponse = XYOpsResponse &
   Readonly<{ job: XYOpsJob & Readonly<{ id: string }> }>;
@@ -157,9 +187,21 @@ export type XYOpsEventConfig = Readonly<{
 }>;
 export type XYOpsEventReference =
   string | Readonly<{ id: string }> | Readonly<{ title: string }>;
+export type JSONValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JSONValue[]
+  | { readonly [key: string]: JSONValue };
+export type XYOpsWorkflowInput = Readonly<Record<string, JSONValue>>;
+export type MigrationExecutionMode = "events" | "workflow";
 export type XYOpsConfig = Readonly<{
   baseURL: string;
   apiKey: string;
+  migrationMode: MigrationExecutionMode;
+  migrationWorkflow?: XYOpsEventReference;
+  executionWorkflow?: XYOpsEventReference;
   events: XYOpsEventConfig;
   httpTimeoutMs: number;
   pollIntervalMs: number;
@@ -209,4 +251,10 @@ export type XYOpsClient = Readonly<{
     params: EventParameters,
     envelopeGuard: ResponseSchema<VoiceflowEnvelope<T>>,
   ) => Promise<VoiceflowEnvelope<T>>;
+  startWorkflow: (
+    workflowReference: XYOpsEventReference,
+    input: XYOpsWorkflowInput,
+    params?: EventParameters,
+  ) => Promise<string>;
+  observeWorkflow: (jobID: string) => Promise<XYOpsJob>;
 }>;

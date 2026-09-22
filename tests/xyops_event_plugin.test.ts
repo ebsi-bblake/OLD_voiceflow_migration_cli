@@ -29,9 +29,25 @@ const createFakeHandlers = (calls: string[]): OperationHandlers => ({
     calls.push(`check_session:${token}`);
     return fakeEnvelope("check_session");
   },
+  "check_session_workflow": (token, workflowData) => {
+    calls.push(`check_session_workflow:${token}:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("check_session_workflow");
+  },
   "list_workspaces": (token) => {
     calls.push(`list_workspaces:${token}`);
     return fakeEnvelope("list_workspaces");
+  },
+  "load_workspaces": (token, workflowData) => {
+    calls.push(`load_workspaces:${token}:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("load_workspaces");
+  },
+  "load_source_catalog": (token, workflowData) => {
+    calls.push(`load_source_catalog:${token}:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("load_source_catalog");
+  },
+  "resolve_source_selection": (workflowData) => {
+    calls.push(`resolve_source_selection:${JSON.stringify(workflowData)}`);
+    return fakeEnvelope("resolve_source_selection");
   },
   "list_projects": (token, workspaceID) => {
     calls.push(`list_projects:${token}:${workspaceID}`);
@@ -178,7 +194,10 @@ describe("native XYOps event plugin boundary", () => {
 
   test.each([
     "check_session",
+    "check_session_workflow",
     "list_workspaces",
+    "load_workspaces",
+    "load_source_catalog",
     "list_projects",
     "list_versions",
     "list_folders",
@@ -189,6 +208,29 @@ describe("native XYOps event plugin boundary", () => {
     const result = await dispatchOperation(jobFor(operation), "test-token", createFakeHandlers(calls));
     expect(result.ok).toBe(true);
     expect(calls[0]).toContain(`${operation}:test-token`);
+  });
+
+  test("initializes workflowData from validated workflow input", async () => {
+    const workflowData = {
+      schemaVersion: 1,
+      stage: "CONFIGURED",
+      config: {},
+      catalog: {},
+      selection: {},
+    } as const;
+    const result = await dispatchOperation(
+      {
+        ...jobFor("initialize_migration_workflow"),
+        input: { data: workflowData },
+      },
+      "test-token",
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      operation: "initialize_migration_workflow",
+      result: workflowData,
+    });
   });
 
   test("validates string operation parameters through the schema adapter", async () => {
@@ -291,6 +333,16 @@ describe("native XYOps event plugin boundary", () => {
   test("maps Voiceflow success and failure envelopes to protocol responses", () => {
     const successResponse = mapVoiceflowEnvelope(success("check_session", "operation-1", { active: true }));
     expect(successResponse).toMatchObject({ xy: 1, complete: true, code: 0, data: { voiceflow: { ok: true } } });
+    const workspaceResponse = mapVoiceflowEnvelope(success("load_workspaces", "operation-workspaces", {
+      schemaVersion: 1,
+      stage: "WORKSPACES_LOADED",
+      config: {},
+      catalog: { workspaces: [{ id: "workspace-1", label: "Workspace 1" }] },
+      selection: {},
+    }));
+    expect(workspaceResponse).toMatchObject({
+      workflowData: { stage: "WORKSPACES_LOADED", catalog: { workspaces: [{ id: "workspace-1" }] } },
+    });
 
     const failureResponse = mapVoiceflowEnvelope(failure("check_session", "operation-2", new OperationFault("AUTHENTICATION_FAILED")));
     expect(failureResponse).toMatchObject({ xy: 1, complete: true, code: "AUTHENTICATION_FAILED", description: `[pluginVersion=${PLUGIN_VERSION}] Authentication failed. (code=AUTHENTICATION_FAILED)` });

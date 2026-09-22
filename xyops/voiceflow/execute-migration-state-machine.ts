@@ -52,71 +52,132 @@ export type MigrationWorkflowContext = Readonly<{
   readonly terminalSuccess?: MigrationWorkflowSuccess;
 }>;
 
-export type MigrationWorkflowState = WorkflowIdentity & {
-  readonly context: MigrationWorkflowContext;
-  readonly stage: MigrationStage | TerminalMigrationStage;
-  readonly code?: string;
-  readonly retryable?: boolean;
+type EventFromMap<Map extends Record<string, object>> = {
+  [Kind in keyof Map]: { readonly kind: Kind } & Map[Kind];
+}[keyof Map];
+
+export type MigrationWorkflowEventMap = {
+  start: Record<never, never>;
+  "authentication-succeeded": { readonly auth: AuthContext };
+  "export-succeeded": { readonly artifact: ExportArtifact };
+  "plan-succeeded": {
+    readonly planID: string;
+    readonly plan: MigrationPlan;
+  };
+  "plan-mismatch": Record<never, never>;
+  "archive-not-needed": Record<never, never>;
+  "archive-required": { readonly archive: ArchiveCandidate };
+  "archive-renamed": { readonly archive: ArchiveCandidate };
+  "archive-durability-confirmed": Record<never, never>;
+  "archive-durability-unknown": { readonly failure: MigrationWorkflowFailure };
+  "import-succeeded": { readonly imported: ImportedReceipt };
+  "import-failed": { readonly failure: MigrationWorkflowFailure };
+  "import-unknown": { readonly failure: MigrationWorkflowFailure };
+  "secret-input-resolved": Record<never, never>;
+  "secret-resolution-empty": Record<never, never>;
+  "secret-resolution-completed": { readonly secrets: readonly SecretEntry[] };
+  "secret-completed": { readonly remaining: number };
+  "secret-failed": { readonly failure: MigrationWorkflowFailure };
+  "secret-unknown": { readonly failure: MigrationWorkflowFailure };
+  "dependency-failure": { readonly failure: MigrationWorkflowFailure };
+  timeout: Record<never, never>;
+  cancellation: Record<never, never>;
+  "late-event": Record<never, never>;
+};
+export type MigrationWorkflowEvent = EventFromMap<MigrationWorkflowEventMap>;
+
+export type MigrationWorkflowEffectMap = {
+  authenticate: Record<never, never>;
+  export: Record<never, never>;
+  plan: Record<never, never>;
+  "load-archive-candidates": Record<never, never>;
+  rename: Record<never, never>;
+  "confirm-archive-durability": Record<never, never>;
+  import: Record<never, never>;
+  "resolve-secrets": { readonly phase: "input" | "resolution" };
+  "create-next-secret": Record<never, never>;
+  "abort-active-operation": Record<never, never>;
+  "settle-success": Record<never, never>;
+  "settle-failure": Record<never, never>;
+};
+export type MigrationWorkflowEffect = EventFromMap<MigrationWorkflowEffectMap>;
+
+type ContextWith<Required extends object> = MigrationWorkflowContext & Required;
+type MigrationStageContext = {
+  AUTHENTICATION: MigrationWorkflowContext;
+  EXPORT: ContextWith<{ readonly auth: AuthContext }>;
+  PLANNING: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+  }>;
+  ARCHIVE_PREFLIGHT: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+    readonly plan: MigrationPlan;
+  }>;
+  ARCHIVE: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+    readonly plan: MigrationPlan;
+    readonly archive: ArchiveCandidate;
+  }>;
+  IMPORT: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+    readonly plan: MigrationPlan;
+  }>;
+  SECRET_INPUT: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+    readonly plan: MigrationPlan;
+    readonly imported: ImportedReceipt;
+  }>;
+  SECRET_RESOLUTION: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+    readonly plan: MigrationPlan;
+    readonly imported: ImportedReceipt;
+  }>;
+  SECRET_CREATION: ContextWith<{
+    readonly auth: AuthContext;
+    readonly artifact: ExportArtifact;
+    readonly plan: MigrationPlan;
+    readonly imported: ImportedReceipt;
+    readonly secrets: readonly SecretEntry[];
+  }>;
+};
+type MigrationWorkflowStateFor<Stage extends MigrationStage> =
+  WorkflowIdentity & {
+    readonly stage: Stage;
+    readonly context: MigrationStageContext[Stage];
+    readonly code?: string;
+    readonly retryable?: boolean;
+    readonly diagnostic?: string;
+  };
+type CompletedMigrationState = WorkflowIdentity & {
+  readonly stage: "COMPLETED";
+  readonly context: ContextWith<{
+    readonly terminalSuccess: MigrationWorkflowSuccess;
+  }>;
+  readonly code: string;
+  readonly retryable: boolean;
   readonly diagnostic?: string;
 };
-
-export type ArchivePreflightEvent =
-  | { readonly kind: "archive-not-needed" }
-  | { readonly kind: "archive-required"; readonly archive: ArchiveCandidate };
-
-export type SecretResolutionEvent =
-  | { readonly kind: "secret-resolution-empty" }
+type FailedMigrationState = WorkflowIdentity & {
+  readonly stage: Exclude<TerminalMigrationStage, "COMPLETED">;
+  readonly context: MigrationWorkflowContext & {
+    readonly terminalFailure: MigrationWorkflowFailure;
+  };
+  readonly code: string;
+  readonly retryable: boolean;
+  readonly diagnostic?: string;
+};
+export type MigrationWorkflowState =
   | {
-      readonly kind: "secret-resolution-completed";
-      readonly secrets: readonly SecretEntry[];
-    };
-
-export type MigrationWorkflowEvent =
-  | { readonly kind: "start" }
-  | { readonly kind: "authentication-succeeded"; readonly auth: AuthContext }
-  | { readonly kind: "export-succeeded"; readonly artifact: ExportArtifact }
-  | {
-      readonly kind: "plan-succeeded";
-      readonly planID: string;
-      readonly plan: MigrationPlan;
-    }
-  | { readonly kind: "plan-mismatch" }
-  | ArchivePreflightEvent
-  | { readonly kind: "archive-renamed"; readonly archive: ArchiveCandidate }
-  | { readonly kind: "archive-durability-confirmed" }
-  | {
-      readonly kind: "archive-durability-unknown";
-      readonly failure: MigrationWorkflowFailure;
-    }
-  | { readonly kind: "import-succeeded"; readonly imported: ImportedReceipt }
-  | { readonly kind: "import-failed"; readonly failure: MigrationWorkflowFailure }
-  | { readonly kind: "import-unknown"; readonly failure: MigrationWorkflowFailure }
-  | { readonly kind: "secret-input-resolved" }
-  | SecretResolutionEvent
-  | { readonly kind: "secret-completed"; readonly remaining: number }
-  | { readonly kind: "secret-failed"; readonly failure: MigrationWorkflowFailure }
-  | { readonly kind: "secret-unknown"; readonly failure: MigrationWorkflowFailure }
-  | { readonly kind: "dependency-failure"; readonly failure: MigrationWorkflowFailure }
-  | { readonly kind: "timeout" }
-  | { readonly kind: "cancellation" }
-  | { readonly kind: "late-event" };
-
-export type MigrationWorkflowEffect =
-  | { readonly kind: "authenticate" }
-  | { readonly kind: "export" }
-  | { readonly kind: "plan" }
-  | { readonly kind: "load-archive-candidates" }
-  | { readonly kind: "rename" }
-  | { readonly kind: "confirm-archive-durability" }
-  | { readonly kind: "import" }
-  | {
-      readonly kind: "resolve-secrets";
-      readonly phase: "input" | "resolution";
-    }
-  | { readonly kind: "create-next-secret" }
-  | { readonly kind: "abort-active-operation" }
-  | { readonly kind: "settle-success" }
-  | { readonly kind: "settle-failure" };
+      [Stage in MigrationStage]: MigrationWorkflowStateFor<Stage>;
+    }[MigrationStage]
+  | CompletedMigrationState
+  | FailedMigrationState;
 export type MigrationWorkflowTransition = Readonly<{
   readonly state: MigrationWorkflowState;
   readonly accepted: boolean;
@@ -132,16 +193,30 @@ export const createMigrationWorkflow: CreateMigrationWorkflow = (
   context = {},
 ) => ({ ...identity, context, stage: "AUTHENTICATION" });
 
-const transition = (
+const transition = <Stage extends MigrationStage>(
   state: MigrationWorkflowState,
-  stage: MigrationStage,
-  context: MigrationWorkflowContext,
+  stage: Stage,
+  context: MigrationStageContext[Stage],
   effects: readonly MigrationWorkflowEffect[],
-): MigrationWorkflowTransition => ({
-  state: { ...state, stage, context },
-  accepted: true,
-  effects,
-});
+): MigrationWorkflowTransition => {
+  const nextState: MigrationWorkflowStateFor<Stage> = {
+    operationID: state.operationID,
+    planID: state.planID,
+    selection: state.selection,
+    stage,
+    context,
+    code: state.code,
+    retryable: state.retryable,
+    diagnostic: state.diagnostic,
+  };
+  // The mapped state union is correlated by `Stage`; TypeScript cannot retain
+  // that correlation when indexing the map through a generic parameter.
+  return {
+    state: nextState as MigrationWorkflowState,
+    accepted: true,
+    effects,
+  };
+};
 const exportStatus = (state: MigrationWorkflowState): number =>
   state.context.artifact?.status ?? 0;
 const exportBytes = (state: MigrationWorkflowState): number =>
@@ -153,7 +228,9 @@ const importBytes = (state: MigrationWorkflowState): number =>
 
 const successfulTerminalContext = (
   state: MigrationWorkflowState,
-): MigrationWorkflowContext => ({
+): MigrationWorkflowContext & {
+  readonly terminalSuccess: MigrationWorkflowSuccess;
+} => ({
   ...state.context,
   terminalSuccess: {
     planID: state.planID,
@@ -169,7 +246,9 @@ const failedTerminalContext = (
   code: string,
   retryable: boolean,
   diagnostic?: string,
-): MigrationWorkflowContext => ({
+): MigrationWorkflowContext & {
+  readonly terminalFailure: MigrationWorkflowFailure;
+} => ({
   ...state.context,
   terminalFailure: {
     code,
@@ -179,17 +258,6 @@ const failedTerminalContext = (
   },
 });
 
-const terminalContext = (
-  state: MigrationWorkflowState,
-  stage: TerminalMigrationStage,
-  code: string,
-  retryable: boolean,
-  diagnostic?: string,
-): MigrationWorkflowContext =>
-  stage === "COMPLETED"
-    ? successfulTerminalContext(state)
-    : failedTerminalContext(state, code, retryable, diagnostic);
-
 const terminal = (
   state: MigrationWorkflowState,
   stage: TerminalMigrationStage,
@@ -197,18 +265,32 @@ const terminal = (
   retryable: boolean,
   diagnostic?: string,
   effects: readonly MigrationWorkflowEffect[] = [{ kind: "settle-failure" }],
-): MigrationWorkflowTransition => ({
-  state: {
-    ...state,
+): MigrationWorkflowTransition => {
+  if (stage === "COMPLETED") {
+    const completedState: CompletedMigrationState = {
+      operationID: state.operationID,
+      planID: state.planID,
+      selection: state.selection,
+      stage: "COMPLETED",
+      code,
+      retryable,
+      diagnostic,
+      context: successfulTerminalContext(state),
+    };
+    return { state: completedState, accepted: true, effects };
+  }
+  const failedState: FailedMigrationState = {
+    operationID: state.operationID,
+    planID: state.planID,
+    selection: state.selection,
     stage,
     code,
     retryable,
     diagnostic,
-    context: terminalContext(state, stage, code, retryable, diagnostic),
-  },
-  accepted: true,
-  effects,
-});
+    context: failedTerminalContext(state, code, retryable, diagnostic),
+  };
+  return { state: failedState, accepted: true, effects };
+};
 const ignored = (
   state: MigrationWorkflowState,
 ): MigrationWorkflowTransition => ({ state, accepted: false, effects: [] });
@@ -287,7 +369,7 @@ const failure = (
     "FAILED",
     code,
     code !== "AUTHENTICATION_FAILED" && event.kind !== "import-failed",
-    `stage=${state.stage} ${event.kind === "timeout" ? "dependency-failure" : event.failure.diagnostic ?? "dependency-failure"}`,
+    `stage=${state.stage} ${event.kind === "timeout" ? "dependency-failure" : (event.failure.diagnostic ?? "dependency-failure")}`,
   );
 };
 
