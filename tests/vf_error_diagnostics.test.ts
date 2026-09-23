@@ -6,7 +6,7 @@ import { createVoiceflowEnvelopeSchema } from "../xyops/cli/schemas/voiceflow-en
 import { createPluginDiagnostic } from "../xyops/plugin/diagnostics";
 import { mapVoiceflowEnvelope } from "../xyops/plugin/wire_protocol";
 import { requireEnvelopeResult } from "../xyops/cli/validation";
-import { CliError, cliErrorOutput, fail } from "../xyops/cli/diagnostics";
+import { CliError, cliErrorOutput, fail, formatCliError } from "../xyops/cli/diagnostics";
 import { appendDiagnosticCause, createDiagnostic } from "../xyops/diagnostics/create";
 
 describe("Voiceflow unexpected error diagnostics", () => {
@@ -115,6 +115,23 @@ describe("Voiceflow unexpected error diagnostics", () => {
     expect(JSON.stringify(output)).not.toContain("do-not-show");
     expect(source.causes).toHaveLength(1);
     expect(withCliCause.causes[1].context.password).toBe("[REDACTED]");
+  });
+
+  test("formats nested execution causes instead of generic job failures", () => {
+    const output = formatCliError(
+      fail("job", {
+        nextAction: "The execution workflow failed.",
+        diagnostic: createDiagnostic(
+          { code: "PLAN_MISMATCH", retryable: false },
+          "core",
+          "execution-already-completed",
+        ),
+      }),
+    );
+
+    expect(output).toBe(
+      "Migration failed: PLAN_MISMATCH. The execution workflow failed.",
+    );
   });
 
   test("keeps confirmed rejection distinct from unknown outcome", () => {

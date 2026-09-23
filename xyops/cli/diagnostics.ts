@@ -113,3 +113,14 @@ export const cliErrorOutput: CliErrorOutput = (error) => {
       : { diagnostic: safeNestedDiagnostic }),
   };
 };
+
+type FormatCliError = (error: unknown) => string;
+export const formatCliError: FormatCliError = (error) => {
+  const output = cliErrorOutput(error);
+  const nested = output.diagnostic;
+  const code =
+    isSafeContext(nested) && typeof nested.code === "string"
+      ? nested.code
+      : output.code;
+  return `Migration failed: ${code}. ${String(output.nextAction)}`;
+};

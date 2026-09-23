@@ -6,10 +6,12 @@ import {
   readXYOpsConfig,
 } from "../config";
 import { createXYOpsClient } from "../client";
+import { completeJob } from "../client/polling";
 import { CheckSessionResultSchema } from "../schemas/session";
+import { ExecuteResultSchema } from "../schemas/migration-results";
 import { createVoiceflowEnvelopeSchema } from "../schemas/voiceflow-envelope";
 import { requireEnvelopeResult } from "../validation";
-import { asCliError, cliErrorOutput, fail } from "../diagnostics";
+import { asCliError, fail, formatCliError } from "../diagnostics";
 import {
   eventParametersFor,
   initialMigrationState,
@@ -129,8 +131,13 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
       ),
     );
     const executionJob = execution.job;
-    if (executionJob.code !== undefined && executionJob.code !== 0 && executionJob.code !== "0")
+    if (executionJob.code !== undefined && executionJob.code !== 0 && executionJob.code !== "0") {
+      completeJob(
+        executionJob,
+        createVoiceflowEnvelopeSchema(ExecuteResultSchema),
+      );
       throw fail("job", { nextAction: "The execution workflow failed." });
+    }
     console.log("Migration completed successfully.");
     return;
   }
@@ -228,10 +235,7 @@ export const run: Run = async () => {
 type HandleFailure = (error: unknown) => void;
 const handleFailure: HandleFailure = (error) => {
   process.exitCode = 1;
-  const diagnostic = cliErrorOutput(asCliError(error));
-  console.error(
-    `Migration failed: ${String(diagnostic.code)}. ${String(diagnostic.nextAction)}`,
-  );
+  console.error(formatCliError(asCliError(error)));
 };
 
 if (import.meta.main) {
