@@ -72,9 +72,13 @@ const readStructuredDiagnostic = (
 ): Diagnostic | undefined => {
   const data = XYOpsRecordSchema.safeParse(job.data);
   if (!data.success) return undefined;
-  const error = XYOpsRecordSchema.safeParse(data.data.error);
+  const voiceflow = XYOpsRecordSchema.safeParse(data.data.voiceflow);
+  const error = XYOpsRecordSchema.safeParse(
+    voiceflow.success ? voiceflow.data.error : data.data.error,
+  );
   const candidate =
-    data.data.diagnostic ?? (error.success ? error.data.diagnostic : undefined);
+    data.data.diagnostic ??
+    (error.success ? error.data.diagnostic : undefined);
   return parseDiagnostic(candidate);
 };
 

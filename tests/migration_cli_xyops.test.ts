@@ -582,6 +582,54 @@ test("uses an explicit ID reference in the XYOps request body", async () => {
     ).resolves.toEqual(envelope);
   });
 
+  test("surfaces nested workflow diagnostics from failed execution jobs", async () => {
+    const client = createXYOpsClient(config, {
+      fetcher: async () => new Response(JSON.stringify({
+        code: 0,
+        job: {
+          id: "job-execution-failure",
+          code: "warning",
+          completed: true,
+          data: {
+            voiceflow: {
+              ok: false,
+              operation: "execute_migration_workflow",
+              operationID: "operation-plan-mismatch",
+              error: {
+                code: "PLAN_MISMATCH",
+                message: "The migration plan does not match the requested operation.",
+                retryable: false,
+                diagnostic: {
+                  code: "PLAN_MISMATCH",
+                  domain: "core",
+                  stage: "operation",
+                  retryable: false,
+                  nextAction: "Re-run planning and confirm the plan ID",
+                  context: {},
+                  causes: [],
+                },
+              },
+            },
+          },
+        },
+      }), { status: 200 }),
+    });
+
+    await expect(
+      client.readEvent(
+        "event-projects",
+        { operation: "list_projects" },
+        createVoiceflowEnvelopeSchema(CatalogOptionResultSchema),
+      ),
+    ).rejects.toMatchObject({
+      diagnostic: {
+        code: "job",
+        nextAction: "Re-run planning and confirm the plan ID",
+        diagnostic: { code: "PLAN_MISMATCH" },
+      },
+    });
+  });
+
   test("reports a plain-text wait job failure before parsing its output", async () => {
     const failureDescription = "The Voiceflow plugin could not complete the request.";
     const client = createXYOpsClient(config, {
