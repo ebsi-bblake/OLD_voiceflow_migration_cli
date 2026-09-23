@@ -35,6 +35,7 @@ import { progress } from "../progress";
 import { VoiceflowOperation } from "../../voiceflow/types";
 import { MigrationWorkflowDataSchema } from "../../migration-workflow-data";
 import { toWorkflowInput } from "./workflow-input";
+import type { WorkflowMigrationPlan } from "../types";
 import { runExecutionWorkflow } from "./execution-workflow";
 
 type PrintHelp = () => void;
@@ -88,6 +89,10 @@ const readWorkflowDataCandidate: ReadWorkflowDataCandidate = (job) => {
   return workflowData;
 };
 
+type FormatMigrationSuccess = (plan: WorkflowMigrationPlan) => string;
+const formatMigrationSuccess: FormatMigrationSuccess = (plan) =>
+  `Migration completed successfully: ${plan.labels.sourceProject} / ${plan.labels.sourceVersion} was imported into ${plan.labels.destinationWorkspace} / ${plan.labels.destinationFolder} (schema ${plan.selection.targetSchemaVersion}).`;
+
 type PerformWorkflowMigration = (context: MigrationContext) => Promise<void>;
 // eslint-disable-next-line complexity
 const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig, reader }) => {
@@ -138,7 +143,7 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
       );
       throw fail("job", { nextAction: "The execution workflow failed." });
     }
-    console.log("Migration completed successfully.");
+    console.log(formatMigrationSuccess(planned.plan));
     return;
   }
   console.log("Migration planning completed.");
@@ -197,7 +202,7 @@ const performMigration: PerformMigration = async (context) => {
       secretFileContents,
     ),
   );
-  console.log("Migration completed successfully.");
+  console.log(formatMigrationSuccess(plan));
 };
 
 type Run = () => Promise<void>;
