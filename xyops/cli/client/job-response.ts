@@ -67,20 +67,26 @@ const findResponseJob = (response: XYOpsResponse): XYOpsJob | undefined => {
   return parsed.success ? parsed.data.job : readJobContainer(response.data);
 };
 
+const readNestedStructuredDiagnostic = (
+  value: unknown,
+  depth = 0,
+): Diagnostic | undefined => {
+  if (depth > 4) return undefined;
+  const record = XYOpsRecordSchema.safeParse(value);
+  if (!record.success) return undefined;
+  const direct = parseDiagnostic(record.data.diagnostic);
+  if (direct !== undefined) return direct;
+  const error = XYOpsRecordSchema.safeParse(record.data.error);
+  const nested = parseDiagnostic(error.success ? error.data.diagnostic : undefined);
+  if (nested !== undefined) return nested;
+  return ["voiceflow", "data", "job", "result"]
+    .map((key) => readNestedStructuredDiagnostic(record.data[key], depth + 1))
+    .find((diagnostic): diagnostic is Diagnostic => diagnostic !== undefined);
+};
+
 const readStructuredDiagnostic = (
   job: XYOpsJobResult,
-): Diagnostic | undefined => {
-  const data = XYOpsRecordSchema.safeParse(job.data);
-  if (!data.success) return undefined;
-  const voiceflow = XYOpsRecordSchema.safeParse(data.data.voiceflow);
-  const error = XYOpsRecordSchema.safeParse(
-    voiceflow.success ? voiceflow.data.error : data.data.error,
-  );
-  const candidate =
-    data.data.diagnostic ??
-    (error.success ? error.data.diagnostic : undefined);
-  return parseDiagnostic(candidate);
-};
+): Diagnostic | undefined => readNestedStructuredDiagnostic(job.data);
 
 const sensitiveField = VoiceflowRegex.xyopsSensitiveField;
 
