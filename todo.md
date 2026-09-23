@@ -1792,7 +1792,8 @@ Revert each cleanup commit independently; retain the stable workflow migration.
 - [x] Simulate lost responses and concurrent starts through unknown-outcome, reconnect, and concurrent-claim tests.
 - [x] Verify bucket records contain no secrets; bucket `bmuc1r0bokku4tz9` currently contains one record with only `planId`, `status`, and `timestamp`.
 - [x] Verify SSE/polling reconnects observe the same job; focused CLI/streaming/runtime suites cover same-job polling fallback and no redispatch.
-- [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; it is initialized empty.
+- [x] Created the dedicated XYOps bucket `bmuc1r0bokku4tz9` titled `Voiceflow Execution Ledger`; active safety records remain there.
+- [x] Created resolved-record archive bucket `bmuea5dvi7m8l2aq`; archived completed plan `056d80d8ee969bdeba0cd17c` and removed it from the active ledger.
 - [x] Confirm no duplicate Voiceflow mutations: duplicate execution was blocked by the ledger, and the reconciled rerun completed exactly one new import.
 - [x] Record rollback and manual-reconciliation procedures in `docs/workflow-migration-rollback.md`.
 

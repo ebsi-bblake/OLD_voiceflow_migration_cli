@@ -4,8 +4,9 @@
 
 - Planning workflow: `emubj74188ymokoo`
 - Execution workflow: `emuboe9h3jre7p5p`
-- Execution workflow must remain disabled until production-like mutation validation is approved.
-- Execution ledger bucket: `bmuc1r0bokku4tz9`
+- Execution workflow `emuboe9h3jre7p5p` is enabled by explicit operator request after production-like validation.
+- Active execution ledger bucket: `bmuc1r0bokku4tz9`
+- Resolved-record archive bucket: `bmuea5dvi7m8l2aq`
 - Execution workflow limit: one active job, no queue, no retries.
 
 ## Rollback
@@ -19,7 +20,7 @@
 ## Ledger interpretation
 
 - `in-flight`: the original execution may still be running. Do not launch another execution.
-- `completed`: the plan has already completed. Do not relaunch it.
+- `completed`: the plan has already completed. Archive the resolved record before intentionally rerunning the migration.
 - `failed`: a confirmed terminal failure may be claimed again after review.
 - `unknown`: mutation outcome is unresolved. Do not relaunch it.
 
@@ -39,6 +40,7 @@ The ledger stores only `planId`, `status`, and `timestamp`. Workflow/job identit
 4. Never infer a non-start only because a launch response was lost or no job is immediately visible.
 5. Never clear `in-flight` or `unknown` to force a retry.
 6. After reconciliation, verify the ledger record and preserve the original XYOps evidence.
+7. For a resolved completed plan, copy its minimal record to archive bucket `bmuea5dvi7m8l2aq`, then remove it from active bucket `bmuc1r0bokku4tz9` before an intentional rerun.
 
 ## Verification requirements before enablement
 
