@@ -1,5 +1,5 @@
 {
-  "source_path": "empyrean-sandbox/boaz/boazmasteroftheuniversepoc",
-  "destination_path": "empyrean-ci/Boaz new hero folder",
+  "source_path": "empyrean-ci/Boaz new hero folder/boazmasteroftheuniversepoc",
+  "destination_path": "empyrean-ci/Boaz not again",
   "secrets": "//df2v-fs-01.ebsi.corp/shared/Test/secrets-ci.config.json"
 }

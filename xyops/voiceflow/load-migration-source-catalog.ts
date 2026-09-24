@@ -35,7 +35,7 @@ const readConfiguredData = (value: unknown) => {
   return parsed.data;
 };
 
-const resolveWorkspace = (
+export const resolveWorkspace = (
   config: { source_workspace?: string; source_path?: string },
   workspaces: readonly { id: string; label: string }[],
 ): string => {
@@ -54,6 +54,7 @@ const resolveWorkspace = (
       {
         stage: "source-resolution",
         context: {
+          configuredSelection: config,
           configuredWorkspace: normalizeName(value),
           candidateCount: workspaces.length,
           candidateLabels: workspaces.map((workspace) => workspace.label).slice(0, 20),

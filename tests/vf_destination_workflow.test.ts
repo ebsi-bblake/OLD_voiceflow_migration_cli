@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { main as planMigration } from "../xyops/voiceflow/plan-migration-workflow";
 import { main as resolveDestination } from "../xyops/voiceflow/resolve-migration-destination";
+import { resolveWorkspace as resolveDestinationWorkspace } from "../xyops/voiceflow/load-migration-destination-catalog";
 
 const workflowData = {
   schemaVersion: 1,
@@ -31,6 +32,56 @@ const workflowData = {
     destinationWorkspaceID: "destination-workspace",
   },
 };
+
+test("reports unknown destination workspaces with candidate labels", () => {
+  let error: unknown;
+  try {
+    resolveDestinationWorkspace(
+      { destination_path: "Missing/Folder" },
+      [{ id: "workspace-1", label: "Workspace One" }, { id: "workspace-2", label: "Workspace Two" }],
+    );
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toMatchObject({
+    diagnostic: "destination-workspace-resolution-mismatch",
+    details: {
+      context: {
+        configuredSelection: { destination_path: "Missing/Folder" },
+        candidateLabels: ["Workspace One", "Workspace Two"],
+      },
+    },
+  });
+});
+
+test("preserves ambiguous destination folder candidates", async () => {
+  const result = await resolveDestination({
+    ...workflowData,
+    config: { destination_path: "Destination Workspace/New Folder" },
+    catalog: {
+      ...workflowData.catalog,
+      destinationFolders: [
+        { id: "1", label: "New Folder", workspaceID: "destination-workspace" },
+        { id: "2", label: "new folder", workspaceID: "destination-workspace" },
+      ],
+    },
+  });
+
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      code: "CONFIGURATION",
+      diagnostic: {
+        stage: "destination-resolution",
+        context: {
+          configuredSelection: { destination_path: "Destination Workspace/New Folder" },
+          configuredFolder: "new folder",
+          candidateLabels: ["new folder", "New Folder"],
+        },
+      },
+    },
+  });
+});
 
 test("plans a missing destination folder as an explicit creation action", async () => {
   const resolved = await resolveDestination(workflowData);

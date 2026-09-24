@@ -18,7 +18,7 @@ const readWorkflowData = (value: unknown): unknown => {
 const normalize = (value: string): string => value.normalize("NFC").trim().toLowerCase();
 const configuredWorkspace = (config: { destination_workspace?: string; destination_path?: string }): string | undefined =>
   config.destination_workspace ?? config.destination_path?.split("/")[0]?.trim();
-const resolveWorkspace = (config: { destination_workspace?: string; destination_path?: string }, workspaces: readonly { id: string; label: string }[]): string => {
+export const resolveWorkspace = (config: { destination_workspace?: string; destination_path?: string }, workspaces: readonly { id: string; label: string }[]): string => {
   const value = configuredWorkspace(config);
   if (value === undefined || value === "") throw new OperationFault("CONFIGURATION");
   const exact = workspaces.find((workspace) => workspace.id === value);
@@ -32,6 +32,7 @@ const resolveWorkspace = (config: { destination_workspace?: string; destination_
       {
         stage: "destination-resolution",
         context: {
+          configuredSelection: config,
           configuredWorkspace: normalize(value),
           candidateCount: workspaces.length,
           candidateLabels: workspaces.map((workspace) => workspace.label).slice(0, 20),

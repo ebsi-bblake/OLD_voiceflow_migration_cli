@@ -84,7 +84,7 @@ const readNestedStructuredDiagnostic = (
     .find((diagnostic): diagnostic is Diagnostic => diagnostic !== undefined);
 };
 
-const readStructuredDiagnostic = (
+export const readStructuredDiagnostic = (
   job: XYOpsJobResult,
 ): Diagnostic | undefined => readNestedStructuredDiagnostic(job.data);
 

@@ -19,16 +19,27 @@ const normalizeProjectLabel = (value: string): string =>
   normalize(value.replace(/\s+\([^()]+\)$/u, ""));
 const readConfiguredProject = (config: { source_project?: string; source_path?: string }): string | undefined =>
   config.source_project ?? config.source_path?.split("/").slice(1).join("/");
-const resolveOption = (value: string | undefined, options: readonly { value: string; label: string }[]): string => {
-  if (value === undefined || value.trim() === "") throw new OperationFault("CONFIGURATION");
-  const exact = options.find((option) => option.value === value);
-  if (exact !== undefined) return exact.value;
-  const matches = options.filter((option) => normalize(option.label) === normalize(value));
-  if (matches.length !== 1) throw new OperationFault("CONFIGURATION");
-  return matches[0].value;
-};
-const resolveProjectOption = (value: string | undefined, options: readonly { value: string; label: string }[]): string => {
-  if (value === undefined || value.trim() === "") throw new OperationFault("CONFIGURATION");
+const sourceResolutionContext = (
+  config: { source_workspace?: string; source_project?: string; source_path?: string; source_version?: string },
+  configuredField: string,
+  configuredValue: string | undefined,
+  options: readonly { value: string; label: string }[],
+) => ({
+  configuredSelection: config,
+  [configuredField]: configuredValue === undefined ? undefined : normalize(configuredValue),
+  candidateCount: options.length,
+  candidateLabels: options.map((option) => option.label).slice(0, 20),
+});
+const resolveProjectOption = (
+  config: { source_workspace?: string; source_project?: string; source_path?: string; source_version?: string },
+  value: string | undefined,
+  options: readonly { value: string; label: string }[],
+): string => {
+  if (value === undefined || value.trim() === "")
+    throw new OperationFault("CONFIGURATION", false, "source-project-resolution-mismatch", {
+      stage: "source-resolution",
+      context: sourceResolutionContext(config, "configuredProject", value, options),
+    });
   const exact = options.find((option) => option.value === value);
   if (exact !== undefined) return exact.value;
   const normalizedValue = normalize(value);
@@ -40,19 +51,30 @@ const resolveProjectOption = (value: string | undefined, options: readonly { val
     "source-project-resolution-mismatch",
     {
       stage: "source-resolution",
-      context: {
-        configuredProject: normalizedValue,
-        candidateCount: options.length,
-        candidateLabels: options.map((option) => option.label).slice(0, 20),
-      },
+      context: sourceResolutionContext(config, "configuredProject", value, options),
     },
   );
 };
-const readConfiguredVersion = (config: { source_version?: string }, options: readonly { value: string; label: string }[]): string => {
-  if (config.source_version !== undefined) return resolveOption(config.source_version, options);
+const readConfiguredVersion = (
+  config: { source_workspace?: string; source_project?: string; source_path?: string; source_version?: string },
+  options: readonly { value: string; label: string }[],
+): string => {
+  if (config.source_version !== undefined) {
+    const exact = options.find((option) => option.value === config.source_version);
+    const matches = options.filter((option) => normalize(option.label) === normalize(config.source_version ?? ""));
+    if (exact !== undefined) return exact.value;
+    if (matches.length === 1) return matches[0].value;
+    throw new OperationFault("CONFIGURATION", false, "source-version-resolution-mismatch", {
+      stage: "source-resolution",
+      context: sourceResolutionContext(config, "configuredVersion", config.source_version, options),
+    });
+  }
   const development = options.find((option) => option.label.includes("[Draft]") && option.label.includes("— Development"));
   if (development !== undefined) return development.value;
-  throw new OperationFault("CONFIGURATION");
+  throw new OperationFault("CONFIGURATION", false, "source-version-resolution-mismatch", {
+    stage: "source-resolution",
+    context: sourceResolutionContext(config, "configuredVersion", undefined, options),
+  });
 };
 
 export const main: Main = async (input) => {
@@ -62,7 +84,7 @@ export const main: Main = async (input) => {
     if (!parsed.success || parsed.data.stage !== "SOURCE_CATALOG_LOADED") throw new OperationFault("INVALID_ARGUMENT");
     const { config, catalog, selection } = parsed.data;
     const projects = projectOptions(selection.sourceWorkspaceID, catalog.sourceFolders)(catalog.sourceProjects);
-    const sourceProjectID = resolveProjectOption(readConfiguredProject(config), projects);
+    const sourceProjectID = resolveProjectOption(config, readConfiguredProject(config), projects);
     const versions = versionOptions(selection.sourceWorkspaceID, sourceProjectID)(catalog.sourceProjects);
     const sourceVersionID = readConfiguredVersion(config, versions);
     return success("resolve_source_selection", id, {

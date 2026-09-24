@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { createXYOpsClient } from "../xyops/cli/client";
+import { readStructuredDiagnostic } from "../xyops/cli/client/job-response";
 import { DEFAULT_XYOPS_BASE_URL, readXYOpsConfig } from "../xyops/cli/config";
 import {
   isEventParameterEntry,
@@ -582,7 +583,38 @@ test("uses an explicit ID reference in the XYOps request body", async () => {
     ).resolves.toEqual(envelope);
   });
 
-  test("surfaces nested workflow diagnostics from failed execution jobs", async () => {
+  test("preserves nested workflow diagnostics from terminal workflow data", () => {
+    const diagnostic = {
+      code: "CONFIGURATION",
+      domain: "core",
+      stage: "source-resolution",
+      retryable: false,
+      nextAction: "Check configuration and migration inputs",
+      context: {
+        configuredSelection: { source_path: "Workspace/Missing" },
+        candidateLabels: ["Workspace One"],
+      },
+      causes: [],
+    } as const;
+
+    expect(readStructuredDiagnostic({
+      code: "warning",
+      data: {
+        data: {
+          voiceflow: { error: { diagnostic } },
+        },
+      },
+    })).toMatchObject({
+      code: "CONFIGURATION",
+      stage: "source-resolution",
+      context: {
+        configuredSelection: { source_path: "Workspace/Missing" },
+        candidateLabels: ["Workspace One"],
+      },
+    });
+  });
+
+test("surfaces nested workflow diagnostics from failed execution jobs", async () => {
     const client = createXYOpsClient(config, {
       fetcher: async () => new Response(JSON.stringify({
         code: 0,

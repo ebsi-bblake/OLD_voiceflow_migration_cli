@@ -38,7 +38,16 @@ const resolveFolder: ResolveFolder = (config, workspaceID, options) => {
   const exact = options.find((option) => option.value === value);
   if (exact !== undefined) return { destinationFolderID: exact.value };
   const matches = options.filter((option) => normalizeFolderLabel(option.label) === normalize(value));
-  if (matches.length > 1) throw new OperationFault("CONFIGURATION");
+  if (matches.length > 1)
+    throw new OperationFault("CONFIGURATION", false, "destination-folder-resolution-mismatch", {
+      stage: "destination-resolution",
+      context: {
+        configuredSelection: config,
+        configuredFolder: normalize(value),
+        candidateCount: options.length,
+        candidateLabels: options.map((option) => option.label).slice(0, 20),
+      },
+    });
   if (matches.length === 1) return { destinationFolderID: matches[0].value };
   return {
     destinationFolderCreation: {

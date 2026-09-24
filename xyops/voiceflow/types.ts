@@ -42,7 +42,6 @@ export const ErrorCode = {
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 export const WarningCode = {
-  NotIdempotent: "NOT_IDEMPOTENT",
   ApiKeyRetrievalFailed: "API_KEY_RETRIEVAL_FAILED",
 } as const;
 export type WarningCode = (typeof WarningCode)[keyof typeof WarningCode];

@@ -18,7 +18,7 @@ describe("Voiceflow unexpected error diagnostics", () => {
       "execute_migration_workflow", "create_folder_workflow",
     ]);
     expect(Object.values(ErrorCode)).toContain("INTERNAL_ERROR");
-    expect(Object.values(WarningCode)).toEqual(["NOT_IDEMPOTENT", "API_KEY_RETRIEVAL_FAILED"]);
+    expect(Object.values(WarningCode)).toEqual(["API_KEY_RETRIEVAL_FAILED"]);
     expect(Object.values(ErrorCode).map((code) => toOperationError(new OperationFault(code)).code)).toEqual(
       Object.values(ErrorCode),
     );
@@ -32,7 +32,7 @@ describe("Voiceflow unexpected error diagnostics", () => {
       operation: "check_session",
       operationID: "operation-1",
       result: {},
-      warnings: [{ code: "NOT_IDEMPOTENT", message: "warning" }],
+      warnings: [{ code: "API_KEY_RETRIEVAL_FAILED", message: "warning" }],
     };
     expect(guard.safeParse(valid).success).toBe(true);
     expect(guard.safeParse({ ...valid, warnings: [{ code: "UNKNOWN", message: "warning" }] }).success).toBe(false);

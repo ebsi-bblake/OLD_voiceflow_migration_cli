@@ -7,6 +7,7 @@ import {
 } from "../config";
 import { createXYOpsClient } from "../client";
 import { completeJob } from "../client/polling";
+import { readStructuredDiagnostic } from "../client/job-response";
 import { CheckSessionResultSchema } from "../schemas/session";
 import { ExecuteResultSchema } from "../schemas/migration-results";
 import { createVoiceflowEnvelopeSchema } from "../schemas/voiceflow-envelope";
@@ -102,9 +103,11 @@ const performWorkflowMigration: PerformWorkflowMigration = async ({ client, conf
   const workflowJob = await progress.run("observe_migration_workflow", () =>
     client.observeWorkflow(workflowJobID),
   );
+  const workflowDiagnostic = readStructuredDiagnostic(workflowJob);
   if (workflowJob.code !== undefined && workflowJob.code !== 0 && workflowJob.code !== "0")
     throw fail("job", {
-      nextAction: "The migration workflow failed.",
+      nextAction: workflowDiagnostic?.nextAction ?? "The migration workflow failed.",
+      ...(workflowDiagnostic === undefined ? {} : { diagnostic: workflowDiagnostic }),
     });
   const workflowData = readWorkflowDataCandidate(workflowJob);
   const parsedWorkflowData =
