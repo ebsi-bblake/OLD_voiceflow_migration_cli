@@ -232,7 +232,7 @@ export const run: Run = async () => {
   });
   try {
     const context = { reader, client, config, migrationConfig };
-    if (config.migrationMode === "workflow")
+    if (config.migrationMode === "workflow" && migrationConfig !== undefined)
       await performWorkflowMigration(context);
     else await performMigration(context);
   } finally {
