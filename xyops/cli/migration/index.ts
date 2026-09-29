@@ -98,7 +98,7 @@ type PerformWorkflowMigration = (context: MigrationContext) => Promise<void>;
 // eslint-disable-next-line complexity
 const performWorkflowMigration: PerformWorkflowMigration = async ({ client, config, migrationConfig, reader }) => {
   const workflowJobID = await progress.run("start_migration_workflow", () =>
-    client.startWorkflow(config.migrationWorkflow ?? { title: "Voiceflow Migration Workflow" }, toWorkflowInput(migrationConfig)),
+    client.startWorkflow(config.migrationWorkflow ?? { title: "Plan Voiceflow Migration Workflow" }, toWorkflowInput(migrationConfig)),
   );
   const workflowJob = await progress.run("observe_migration_workflow", () =>
     client.observeWorkflow(workflowJobID),

@@ -333,7 +333,7 @@ describe("XYOps CLI adapter", () => {
 
     expect(config.baseURL).toBe(DEFAULT_XYOPS_BASE_URL);
     expect(config.migrationMode).toBe("workflow");
-    expect(config.migrationWorkflow).toEqual({ title: "Voiceflow Migration Workflow" });
+    expect(config.migrationWorkflow).toEqual({ title: "Plan Voiceflow Migration Workflow" });
     expect(config.executionWorkflow).toEqual({ title: "Voiceflow Migration Execution Workflow" });
     expect(config.events).toEqual({
       checkSession: { title: "voiceflow_check_session" },

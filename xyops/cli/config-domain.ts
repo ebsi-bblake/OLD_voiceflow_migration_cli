@@ -36,7 +36,7 @@ export const DEFAULT_STREAM_MAX_FRAME_BYTES = 256_000;
 export const DEFAULT_XYOPS_BASE_URL = "http://localhost:5522";
 
 const DEFAULT_EVENT_TITLES = {
-  migrationWorkflow: "Voiceflow Migration Workflow",
+  migrationWorkflow: "Plan Voiceflow Migration Workflow",
   executionWorkflow: "Voiceflow Migration Execution Workflow",
   checkSession: "voiceflow_check_session",
   listWorkspaces: "voiceflow_list_workspaces",
