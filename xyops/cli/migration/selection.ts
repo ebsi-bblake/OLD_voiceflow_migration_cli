@@ -221,7 +221,11 @@ const selectConfiguredOrCatalog: SelectConfiguredOrCatalog = async (
     parameters,
     field,
   );
-  return resolveConfiguredOption(configuredValue, options, field);
+  try {
+    return resolveConfiguredOption(configuredValue, options, field);
+  } catch {
+    return selectCatalog(reader, client, eventReference, parameters, title);
+  }
 };
 
 type SelectCatalog = (
@@ -567,15 +571,10 @@ export const selectDestinationSelection: SelectDestinationSelection = async (
           const options = readOptions(response, "destination_folder");
           const resolved = resolveFolderInput(configuredFolder, options);
           if (resolved !== undefined) return resolved;
-          const created = await createDestinationFolder(
+          return selectInteractiveDestinationFolder(
             context,
             destinationWorkspaceID,
-            configuredFolder,
           );
-          if (created !== undefined) return created;
-          throw fail("configuration", {
-            nextAction: "Destination folder creation was declined.",
-          });
         })();
   return {
     destinationWorkspaceID,

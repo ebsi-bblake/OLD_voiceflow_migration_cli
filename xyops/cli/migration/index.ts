@@ -208,6 +208,16 @@ const performMigration: PerformMigration = async (context) => {
   console.log(formatMigrationSuccess(plan));
 };
 
+type SupportsConfiguredWorkflow = (
+  migrationConfig: Awaited<ReturnType<typeof readMigrationFileConfig>>,
+) => boolean;
+const supportsConfiguredWorkflow: SupportsConfiguredWorkflow = (migrationConfig) =>
+  migrationConfig?.sourceWorkspaceID !== undefined &&
+  migrationConfig.sourceProjectID !== undefined &&
+  migrationConfig.sourceVersionID !== undefined &&
+  migrationConfig.destinationWorkspaceID !== undefined &&
+  migrationConfig.destinationFolderID !== undefined;
+
 type Run = () => Promise<void>;
 export const run: Run = async () => {
   if (helpRequested()) {
@@ -232,8 +242,10 @@ export const run: Run = async () => {
   });
   try {
     const context = { reader, client, config, migrationConfig };
-    if (config.migrationMode === "workflow" && migrationConfig !== undefined)
-      await performWorkflowMigration(context);
+    if (
+      config.migrationMode === "workflow" &&
+      supportsConfiguredWorkflow(migrationConfig)
+    ) await performWorkflowMigration(context);
     else await performMigration(context);
   } finally {
     reader.close();
